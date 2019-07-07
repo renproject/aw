@@ -5,11 +5,22 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"net"
 )
 
-type MessageSender chan<- Message
+type MessageSender chan<- MessageSend
 
-type MessageReceiver <-chan Message
+type MessageSend struct {
+	To      net.Addr
+	Message Message
+}
+
+type MessageReceiver <-chan MessageReceive
+
+type MessageReceive struct {
+	From    net.Addr
+	Message Message
+}
 
 type MessageLength uint32
 
