@@ -21,6 +21,7 @@ type PeerAddress interface {
 	Equal(PeerAddress) bool
 	PeerID() PeerID
 	NetworkAddress() net.Addr
+	IsNewer(PeerAddress) bool
 }
 
 type PeerAddressCodec interface {
