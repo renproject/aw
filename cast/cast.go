@@ -11,7 +11,7 @@ import (
 
 type Caster interface {
 	Cast(ctx context.Context, to protocol.PeerID, body protocol.MessageBody) error
-	AcceptCast(ctx context.Context, to protocol.PeerID, body protocol.MessageBody) error
+	AcceptCast(ctx context.Context, to protocol.PeerID, message protocol.Message) error
 }
 
 type caster struct {
@@ -52,11 +52,11 @@ func (caster *caster) Cast(ctx context.Context, to protocol.PeerID, body protoco
 	}
 }
 
-func (caster *caster) AcceptCast(ctx context.Context, to protocol.PeerID, body protocol.MessageBody) error {
+func (caster *caster) AcceptCast(ctx context.Context, to protocol.PeerID, message protocol.Message) error {
 	if to.Equal(caster.me) {
 		event := protocol.EventMessageReceived{
 			Time:    time.Now(),
-			Message: body,
+			Message: message.Body,
 		}
 		select {
 		case <-ctx.Done():
