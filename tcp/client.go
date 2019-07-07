@@ -77,6 +77,14 @@ func (clientConns *ClientConns) Dial(ctx context.Context, addr net.Addr) (net.Co
 }
 
 func (clientConns *ClientConns) Close(addr net.Addr) error {
+	defer func() {
+		// Recovery is needed because concurrent closing a net.Conn while
+		// writing to it might cause a panic.
+		if r := recover(); r != nil {
+			clientConns.options.Logger.Errorf("recover while closing tcp connection to %v: %v", addr.String(), r)
+		}
+	}()
+
 	clientConns.connsMu.Lock()
 	defer clientConns.connsMu.Unlock()
 
@@ -86,21 +94,21 @@ func (clientConns *ClientConns) Close(addr net.Addr) error {
 	}
 	delete(clientConns.conns, addr.String())
 
-	// FIXME: Double check that closing a connection concurrently with
-	// reads/writes will not cause a panic, or undefined behaviour. If it does,
-	// then we will need to abstract over a net.Conn to include a write lock.
+	// FIXME: Double check that closing a connection concurrently with another
+	// write that it will not panic the goroutine (or cause undefined
+	// behaviour). If it does panic (or cause undefined behaviour), then we will
+	// either need to abstract over a net.Conn to include a write lock, or
+	// recover during closure and writing.
 	return conn.Close()
 }
 
 type Client struct {
-	options  ClientOptions
 	conns    ClientConns
 	messages protocol.MessageReceiver
 }
 
-func NewClient(options ClientOptions, conns ClientConns, messages protocol.MessageReceiver) *Client {
+func NewClient(conns ClientConns, messages protocol.MessageReceiver) *Client {
 	return &Client{
-		options:  options,
 		conns:    conns,
 		messages: messages,
 	}
@@ -120,6 +128,14 @@ func (client *Client) Run(ctx context.Context) {
 func (client *Client) sendMessageOnTheWire(ctx context.Context, messageWire protocol.MessageOnTheWire) {
 	// FIXME: Handle errors without panicking.
 
+	defer func() {
+		// Recovery is needed because concurrent closing a net.Conn while
+		// writing to it might cause a panic.
+		if r := recover(); r != nil {
+			client.conns.options.Logger.Errorf("recover while writing to tcp connection to %v: %v", messageWire.To.String(), r)
+		}
+	}()
+
 	conn, err := client.conns.Dial(ctx, messageWire.To)
 	if err != nil {
 		panic("unimplemented")
@@ -132,6 +148,15 @@ func (client *Client) sendMessageOnTheWire(ctx context.Context, messageWire prot
 
 	n, err := conn.Write(messageData)
 	if n != len(messageData) || err != nil {
-		panic("unimplemented")
+		if n != len(messageData) {
+			client.conns.options.Logger.Errorf("error writing to tcp connection to %v: expected n=%v, got n=%v", messageWire.To.String(), len(messageData), n)
+		}
+		if err != nil {
+			client.conns.options.Logger.Errorf("error writing to tcp connection to %v: %v", messageWire.To.String(), err)
+		}
+
+		if err := client.conns.Close(messageWire.To); err != nil {
+			client.conns.options.Logger.Errorf("error closing tcp connection to %v: %v", messageWire.To.String(), err)
+		}
 	}
 }
