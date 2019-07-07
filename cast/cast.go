@@ -39,33 +39,35 @@ func (caster *caster) Cast(ctx context.Context, to protocol.PeerID, body protoco
 		return newErrCastingMessage(to, fmt.Errorf("nil peer address"))
 	}
 
-	send := protocol.MessageSend{
+	messageWire := protocol.MessageOnTheWire{
 		To:      peerAddr.NetworkAddress(),
 		Message: protocol.NewMessage(protocol.V1, protocol.Cast, body),
 	}
-
 	select {
 	case <-ctx.Done():
 		return newErrCastingMessage(to, ctx.Err())
-	case caster.messages <- send:
+	case caster.messages <- messageWire:
 		return nil
 	}
 }
 
 func (caster *caster) AcceptCast(ctx context.Context, to protocol.PeerID, message protocol.Message) error {
-	if to.Equal(caster.me) {
-		event := protocol.EventMessageReceived{
-			Time:    time.Now(),
-			Message: message.Body,
-		}
-		select {
-		case <-ctx.Done():
-			return newErrCastingMessage(to, ctx.Err())
-		case caster.events <- event:
-			return nil
-		}
+	// TODO: Check for compatible message version.
+
+	if !to.Equal(caster.me) {
+		return newErrCastingMessage(to, fmt.Errorf("no peer available for forwarding"))
 	}
-	return newErrCastingMessage(to, fmt.Errorf("no peer available for forwarding"))
+
+	event := protocol.EventMessageReceived{
+		Time:    time.Now(),
+		Message: message.Body,
+	}
+	select {
+	case <-ctx.Done():
+		return newErrCastingMessage(to, ctx.Err())
+	case caster.events <- event:
+		return nil
+	}
 }
 
 type ErrCastingMessage struct {
