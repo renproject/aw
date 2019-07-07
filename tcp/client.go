@@ -155,6 +155,9 @@ func (client *Client) sendMessageOnTheWire(ctx context.Context, messageWire prot
 			client.conns.options.Logger.Errorf("error writing to tcp connection to %v: %v", messageWire.To.String(), err)
 		}
 
+		// TODO: Do not close the connection immediately. Wait for multiple
+		// errors to happen in a row.
+
 		if err := client.conns.Close(messageWire.To); err != nil {
 			client.conns.options.Logger.Errorf("error closing tcp connection to %v: %v", messageWire.To.String(), err)
 		}
