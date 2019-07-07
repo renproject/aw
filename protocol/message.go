@@ -8,17 +8,17 @@ import (
 	"net"
 )
 
-type MessageSender chan<- MessageSend
+type MessageSender chan<- MessageOnTheWire
 
-type MessageSend struct {
+type MessageReceiver <-chan MessageOnTheWire
+
+type MessageOnTheWire struct {
+	From    net.Addr
 	To      net.Addr
 	Message Message
 }
 
-type MessageReceiver <-chan MessageReceive
-
 type MessageReceive struct {
-	From    net.Addr
 	Message Message
 }
 
@@ -42,13 +42,19 @@ func (version MessageVersion) String() string {
 type MessageVariant uint16
 
 const (
-	Cast      = MessageVariant(1)
-	Multicast = MessageVariant(2)
-	Broadcast = MessageVariant(3)
+	Ping      = MessageVariant(1)
+	Pong      = MessageVariant(2)
+	Cast      = MessageVariant(3)
+	Multicast = MessageVariant(4)
+	Broadcast = MessageVariant(5)
 )
 
 func (variant MessageVariant) String() string {
 	switch variant {
+	case Ping:
+		return "ping"
+	case Pong:
+		return "pong"
 	case Cast:
 		return "cast"
 	case Multicast:
@@ -58,6 +64,12 @@ func (variant MessageVariant) String() string {
 	default:
 		panic(newErrMessageVariantIsNotSupported(variant))
 	}
+}
+
+type MessageHash []byte
+
+func (hash MessageHash) String() string {
+	return base64.StdEncoding.EncodeToString(hash)
 }
 
 type MessageBody []byte
@@ -80,7 +92,7 @@ func NewMessage(version MessageVersion, variant MessageVariant, body MessageBody
 		panic(newErrMessageVersionIsNotSupported(version))
 	}
 	switch variant {
-	case Cast, Multicast, Broadcast:
+	case Ping, Pong, Cast, Multicast, Broadcast:
 	default:
 		panic(newErrMessageVariantIsNotSupported(variant))
 	}
@@ -96,6 +108,11 @@ func NewMessage(version MessageVersion, variant MessageVariant, body MessageBody
 	}
 }
 
+func (message Message) Hash() MessageHash {
+	// FIXME: Return SHA3 hash.
+	return nil
+}
+
 func (message Message) MarshalBinary() ([]byte, error) {
 	if message.Length < 32 {
 		return nil, newErrMessageLengthIsTooLow(message.Length)
@@ -106,7 +123,7 @@ func (message Message) MarshalBinary() ([]byte, error) {
 		return nil, newErrMessageVersionIsNotSupported(message.Version)
 	}
 	switch message.Variant {
-	case Cast, Multicast, Broadcast:
+	case Ping, Pong, Cast, Multicast, Broadcast:
 	default:
 		return nil, newErrMessageVariantIsNotSupported(message.Variant)
 	}
@@ -150,7 +167,7 @@ func (message *Message) UnmarshalBinary(data []byte) error {
 		return fmt.Errorf("error unmarshaling message variant: %v", err)
 	}
 	switch message.Variant {
-	case Cast, Multicast, Broadcast:
+	case Ping, Pong, Cast, Multicast, Broadcast:
 	default:
 		return newErrMessageVariantIsNotSupported(message.Variant)
 	}
