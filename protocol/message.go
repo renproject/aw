@@ -186,7 +186,7 @@ type ErrMessageLengthIsTooLow struct {
 
 func newErrMessageLengthIsTooLow(length MessageLength) error {
 	return ErrMessageLengthIsTooLow{
-		error:  fmt.Errorf("message length=%v is too low", length),
+		error:  fmt.Errorf("message length=%d is too low", length),
 		Length: length,
 	}
 }
@@ -198,7 +198,7 @@ type ErrMessageVersionIsNotSupported struct {
 
 func newErrMessageVersionIsNotSupported(version MessageVersion) error {
 	return ErrMessageVersionIsNotSupported{
-		error:   fmt.Errorf("message version=%v is not supported", version),
+		error:   fmt.Errorf("message version=%d is not supported", version),
 		Version: version,
 	}
 }
@@ -210,7 +210,7 @@ type ErrMessageVariantIsNotSupported struct {
 
 func newErrMessageVariantIsNotSupported(variant MessageVariant) error {
 	return ErrMessageVariantIsNotSupported{
-		error:   fmt.Errorf("message variant=%v is not supported", variant),
+		error:   fmt.Errorf("message variant=%d is not supported", variant),
 		Variant: variant,
 	}
 }
