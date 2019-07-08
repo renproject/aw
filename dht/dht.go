@@ -10,6 +10,7 @@ import (
 type DHT interface {
 	Me() protocol.PeerAddress
 	AddPeerAddress(protocol.PeerAddress) error
+	AddPeerAddresses(peerAddrs protocol.PeerAddresses) error
 	RemovePeerAddress(protocol.PeerID) error
 	PeerAddress(protocol.PeerID) (protocol.PeerAddress, error)
 	PeerAddresses() (protocol.PeerAddresses, error)
@@ -66,6 +67,15 @@ func (dht *dht) AddPeerAddress(peerAddr protocol.PeerAddress) error {
 		return fmt.Errorf("failed to stringify the given multi address: %v", err)
 	}
 	return dht.store.Insert(peerAddr.PeerID().String(), data)
+}
+
+func (dht *dht) AddPeerAddresses(peerAddrs protocol.PeerAddresses) error {
+	for _, addr := range peerAddrs {
+		if err := dht.AddPeerAddress(addr); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (dht *dht) PeerAddress(id protocol.PeerID) (protocol.PeerAddress, error) {
