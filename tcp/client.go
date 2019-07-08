@@ -103,11 +103,11 @@ func (clientConns *ClientConns) Close(addr net.Addr) error {
 }
 
 type Client struct {
-	conns    ClientConns
+	conns    *ClientConns
 	messages protocol.MessageReceiver
 }
 
-func NewClient(conns ClientConns, messages protocol.MessageReceiver) *Client {
+func NewClient(conns *ClientConns, messages protocol.MessageReceiver) *Client {
 	return &Client{
 		conns:    conns,
 		messages: messages,
@@ -141,25 +141,7 @@ func (client *Client) sendMessageOnTheWire(ctx context.Context, messageWire prot
 		panic("unimplemented")
 	}
 
-	messageData, err := messageWire.Message.MarshalBinary()
-	if err != nil {
+	if err := messageWire.Message.Write(conn); err != nil {
 		panic("unimplemented")
-	}
-
-	n, err := conn.Write(messageData)
-	if n != len(messageData) || err != nil {
-		if n != len(messageData) {
-			client.conns.options.Logger.Errorf("error writing to tcp connection to %v: expected n=%v, got n=%v", messageWire.To.String(), len(messageData), n)
-		}
-		if err != nil {
-			client.conns.options.Logger.Errorf("error writing to tcp connection to %v: %v", messageWire.To.String(), err)
-		}
-
-		// TODO: Do not close the connection immediately. Wait for multiple
-		// errors to happen in a row.
-
-		if err := client.conns.Close(messageWire.To); err != nil {
-			client.conns.options.Logger.Errorf("error closing tcp connection to %v: %v", messageWire.To.String(), err)
-		}
 	}
 }

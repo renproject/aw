@@ -61,8 +61,11 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		conn.SetReadDeadline(time.Now().Add(server.options.Timeout))
 
 		message := protocol.Message{}
-		// FIXME: Read 32-bit message length. Read 16-bit version. Read 16-bit
-		// variant. Read length-32 bytes to fill the message body.
+
+		if err := message.Read(conn); err != nil {
+			// FIXME: handle error
+			panic("unimplemented")
+		}
 
 		// TODO: Support different versions of messages when there are new
 		// versions available.
