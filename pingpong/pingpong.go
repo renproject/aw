@@ -20,16 +20,14 @@ type pingPonger struct {
 	messages protocol.MessageSender
 	events   protocol.EventSender
 	codec    protocol.PeerAddressCodec
-	me       protocol.PeerAddress
 }
 
-func NewPingPonger(dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender, codec protocol.PeerAddressCodec, me protocol.PeerAddress) PingPonger {
+func NewPingPonger(dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender, codec protocol.PeerAddressCodec) PingPonger {
 	return &pingPonger{
 		dht:      dht,
 		messages: messages,
 		events:   events,
 		codec:    codec,
-		me:       me,
 	}
 }
 
@@ -44,7 +42,7 @@ func (pp *pingPonger) Ping(ctx context.Context, to protocol.PeerID) error {
 		return fmt.Errorf("nil peer address")
 	}
 
-	me, err := pp.codec.Encode(pp.me)
+	me, err := pp.codec.Encode(pp.dht.Me())
 	if err != nil {
 		return err
 	}
@@ -106,7 +104,7 @@ func (pp *pingPonger) AcceptPong(ctx context.Context, message protocol.Message) 
 func (pp *pingPonger) pong(ctx context.Context, to protocol.PeerAddress) error {
 	// TODO: Wrap errors in custom error types.
 
-	me, err := pp.codec.Encode(pp.me)
+	me, err := pp.codec.Encode(pp.dht.Me())
 	if err != nil {
 		return err
 	}
