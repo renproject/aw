@@ -1,10 +1,10 @@
 package protocol
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 )
 
@@ -113,48 +113,45 @@ func (message Message) Hash() MessageHash {
 	return nil
 }
 
-func (message Message) MarshalBinary() ([]byte, error) {
+func (message Message) Write(writer io.Writer) error {
 	if message.Length < 32 {
-		return nil, newErrMessageLengthIsTooLow(message.Length)
+		return newErrMessageLengthIsTooLow(message.Length)
 	}
 	switch message.Version {
 	case V1:
 	default:
-		return nil, newErrMessageVersionIsNotSupported(message.Version)
+		return newErrMessageVersionIsNotSupported(message.Version)
 	}
 	switch message.Variant {
 	case Ping, Pong, Cast, Multicast, Broadcast:
 	default:
-		return nil, newErrMessageVariantIsNotSupported(message.Variant)
+		return newErrMessageVariantIsNotSupported(message.Variant)
 	}
 
-	buf := new(bytes.Buffer)
-	if err := binary.Write(buf, binary.LittleEndian, message.Length); err != nil {
-		return nil, fmt.Errorf("error marshaling message length=%v: %v", message.Length, err)
+	if err := binary.Write(writer, binary.LittleEndian, message.Length); err != nil {
+		return fmt.Errorf("error marshaling message length=%v: %v", message.Length, err)
 	}
-	if err := binary.Write(buf, binary.LittleEndian, message.Version); err != nil {
-		return nil, fmt.Errorf("error marshaling message version=%v: %v", message.Version, err)
+	if err := binary.Write(writer, binary.LittleEndian, message.Version); err != nil {
+		return fmt.Errorf("error marshaling message version=%v: %v", message.Version, err)
 	}
-	if err := binary.Write(buf, binary.LittleEndian, message.Variant); err != nil {
-		return nil, fmt.Errorf("error marshaling message variant=%v: %v", message.Variant, err)
+	if err := binary.Write(writer, binary.LittleEndian, message.Variant); err != nil {
+		return fmt.Errorf("error marshaling message variant=%v: %v", message.Variant, err)
 	}
-	if err := binary.Write(buf, binary.LittleEndian, message.Body); err != nil {
-		return nil, fmt.Errorf("error marshaling message body: %v", err)
+	if err := binary.Write(writer, binary.LittleEndian, message.Body); err != nil {
+		return fmt.Errorf("error marshaling message body: %v", err)
 	}
-	return buf.Bytes(), nil
+	return nil
 }
 
-func (message *Message) UnmarshalBinary(data []byte) error {
-	buf := bytes.NewBuffer(data)
-
-	if err := binary.Read(buf, binary.LittleEndian, &message.Length); err != nil {
+func (message *Message) Read(reader io.Reader) error {
+	if err := binary.Read(reader, binary.LittleEndian, &message.Length); err != nil {
 		return fmt.Errorf("error unmarshaling message length: %v", err)
 	}
 	if message.Length < 32 {
 		return newErrMessageLengthIsTooLow(message.Length)
 	}
 
-	if err := binary.Read(buf, binary.LittleEndian, &message.Version); err != nil {
+	if err := binary.Read(reader, binary.LittleEndian, &message.Version); err != nil {
 		return fmt.Errorf("error unmarshaling message version: %v", err)
 	}
 	switch message.Version {
@@ -163,7 +160,7 @@ func (message *Message) UnmarshalBinary(data []byte) error {
 		return newErrMessageVersionIsNotSupported(message.Version)
 	}
 
-	if err := binary.Read(buf, binary.LittleEndian, &message.Variant); err != nil {
+	if err := binary.Read(reader, binary.LittleEndian, &message.Variant); err != nil {
 		return fmt.Errorf("error unmarshaling message variant: %v", err)
 	}
 	switch message.Variant {
@@ -173,7 +170,7 @@ func (message *Message) UnmarshalBinary(data []byte) error {
 	}
 
 	message.Body = make(MessageBody, message.Length-32)
-	if err := binary.Read(buf, binary.LittleEndian, message.Body); err != nil {
+	if err := binary.Read(reader, binary.LittleEndian, message.Body); err != nil {
 		return fmt.Errorf("error unmarshaling message body: %v", err)
 	}
 	return nil
