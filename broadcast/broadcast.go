@@ -9,11 +9,6 @@ import (
 	"github.com/renproject/aw/protocol"
 )
 
-type Storage interface {
-	InsertMessageHash(protocol.MessageHash) error
-	MessageHash(protocol.MessageHash) (bool, error)
-}
-
 type Broadcaster interface {
 	Broadcast(ctx context.Context, body protocol.MessageBody) error
 	AcceptBroadcast(ctx context.Context, message protocol.Message) error
