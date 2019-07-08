@@ -18,15 +18,13 @@ type caster struct {
 	dht      dht.DHT
 	messages protocol.MessageSender
 	events   protocol.EventSender
-	me       protocol.PeerID
 }
 
-func NewCaster(dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender, me protocol.PeerID) Caster {
+func NewCaster(dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender) Caster {
 	return &caster{
 		dht:      dht,
 		messages: messages,
 		events:   events,
-		me:       me,
 	}
 }
 
@@ -54,7 +52,7 @@ func (caster *caster) Cast(ctx context.Context, to protocol.PeerID, body protoco
 func (caster *caster) AcceptCast(ctx context.Context, to protocol.PeerID, message protocol.Message) error {
 	// TODO: Check for compatible message version.
 
-	if !to.Equal(caster.me) {
+	if !to.Equal(caster.dht.Me().PeerID()) {
 		return newErrCastingMessage(to, fmt.Errorf("no peer available for forwarding"))
 	}
 
