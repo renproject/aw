@@ -13,8 +13,9 @@ type (
 	EventSender   = protocol.EventSender
 	EventReceiver = protocol.EventReceiver
 
-	PeerID        = protocol.PeerID
-	PeerIDs       = protocol.PeerIDs
-	PeerAddress   = protocol.PeerAddress
-	PeerAddresses = protocol.PeerAddresses
+	PeerID           = protocol.PeerID
+	PeerIDs          = protocol.PeerIDs
+	PeerAddress      = protocol.PeerAddress
+	PeerAddresses    = protocol.PeerAddresses
+	PeerAddressCodec = protocol.PeerAddressCodec
 )
