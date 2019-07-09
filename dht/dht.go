@@ -44,16 +44,16 @@ func New(me protocol.PeerAddress, codec protocol.PeerAddressCodec, store kv.Iter
 		inMemCache:   map[string]protocol.PeerAddress{},
 	}
 
+	if err := dht.fillInMemCache(); err != nil {
+		return nil, err
+	}
+
 	if count, err := dht.NumPeers(); count == 0 || err != nil {
 		for _, addr := range bootstrapAddrs {
 			if err := dht.addPeerAddressWithoutLock(addr); err != nil {
 				return nil, fmt.Errorf("failed to store bootstrap addresses: %v", err)
 			}
 		}
-	}
-
-	if err := dht.fillInMemCache(); err != nil {
-		return nil, err
 	}
 	return dht, nil
 }
