@@ -19,7 +19,7 @@ import (
 )
 
 var _ = Describe("Tcp", func() {
-	startServer := func(ctx context.Context, bind string, sender protocol.MessageSender) {
+	initServer := func(ctx context.Context, bind string, sender protocol.MessageSender) {
 		logger := logrus.StandardLogger()
 		err := NewServer(ServerOptions{
 			Logger:  logger,
@@ -30,7 +30,7 @@ var _ = Describe("Tcp", func() {
 		}
 	}
 
-	startClient := func(ctx context.Context, receiver protocol.MessageReceiver) {
+	initClient := func(ctx context.Context, receiver protocol.MessageReceiver) {
 		logger := logrus.StandardLogger()
 		NewClient(
 			NewClientConns(ClientOptions{
@@ -45,16 +45,17 @@ var _ = Describe("Tcp", func() {
 	Context("when sending a valid message", func() {
 		It("should successfully send and receive", func() {
 			ctx, cancel := context.WithCancel(context.Background())
+			defer time.Sleep(100 * time.Millisecond)
 			defer cancel()
 
 			fromServer := make(chan protocol.MessageOnTheWire, 10)
 			toClient := make(chan protocol.MessageOnTheWire, 10)
 
 			// start TCP server and client
-			go startServer(ctx, fmt.Sprintf("127.0.0.1:47326"), fromServer)
-			go startClient(ctx, toClient)
+			go initServer(ctx, fmt.Sprintf("127.0.0.1:47326"), fromServer)
+			go initClient(ctx, toClient)
 
-			addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("127.0.0.1:47326"))
+			addrOfServer, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("127.0.0.1:47326"))
 			Expect(err).Should(BeNil())
 
 			iteration := func(v int, numBytes int) bool {
@@ -74,7 +75,7 @@ var _ = Describe("Tcp", func() {
 				// Send a message to the server using the client and read from
 				// message received by the server
 				toClient <- protocol.MessageOnTheWire{
-					To:      addr,
+					To:      addrOfServer,
 					Message: protocol.NewMessage(protocol.V1, variant, body),
 				}
 				messageWire := <-fromServer
@@ -87,7 +88,7 @@ var _ = Describe("Tcp", func() {
 			}
 
 			Expect(quick.Check(iteration, &quick.Config{
-				MaxCount: 10,
+				MaxCount: 1000,
 			})).Should(BeNil())
 		})
 	})
