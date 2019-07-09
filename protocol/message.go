@@ -1,11 +1,14 @@
 package protocol
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
+
+	"golang.org/x/crypto/sha3"
 )
 
 type MessageSender chan<- MessageOnTheWire
@@ -66,10 +69,10 @@ func (variant MessageVariant) String() string {
 	}
 }
 
-type MessageHash []byte
+type MessageHash [32]byte
 
 func (hash MessageHash) String() string {
-	return base64.StdEncoding.EncodeToString(hash)
+	return base64.StdEncoding.EncodeToString(hash[:])
 }
 
 type MessageBody []byte
@@ -109,8 +112,11 @@ func NewMessage(version MessageVersion, variant MessageVariant, body MessageBody
 }
 
 func (message Message) Hash() MessageHash {
-	// FIXME: Return SHA3 hash.
-	return nil
+	buf := new(bytes.Buffer)
+	if err := message.Write(buf); err != nil {
+		panic(fmt.Errorf("invariant violation: sha3 hash of bad message: %v", err))
+	}
+	return MessageHash(sha3.Sum256(buf.Bytes()))
 }
 
 func (message Message) Write(writer io.Writer) error {
