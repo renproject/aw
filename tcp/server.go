@@ -41,11 +41,21 @@ func (server *Server) Listen(ctx context.Context, bind string) error {
 	}()
 
 	for {
+		// Check whether or not the context is done
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
 		conn, err := listener.Accept()
 		if err != nil {
 			server.options.Logger.Errorf("error accepting tcp connection: %v", err)
 			continue
 		}
+
+		// Spawn background goroutine to handle this connection so that it does
+		// not block other connections
 		go server.handle(ctx, conn)
 	}
 }
@@ -57,30 +67,30 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 	// setting the write deadline to zero
 	conn.SetWriteDeadline(time.Time{})
 
+	// We do not know when the client will send us messages, so we prevent rea timeouts by setting the read deadline to zero
+	conn.SetReadDeadline(time.Time{})
+
 	for {
-		conn.SetReadDeadline(time.Now().Add(server.options.Timeout))
-
-		message := protocol.Message{}
-
-		if err := message.Read(conn); err != nil {
-			server.options.Logger.Error(newErrFailedToReadIncommingMessage(err))
+		messageOtw := protocol.MessageOnTheWire{
+			From: conn.RemoteAddr(),
 		}
-		// TODO: Support different versions of messages when there are new
-		// versions available.
 
-		messageWire := protocol.MessageOnTheWire{
-			From:    conn.RemoteAddr(),
-			Message: message,
+		if err := messageOtw.Message.Read(conn); err != nil {
+			server.options.Logger.Error(newErrReadingIncomingMessage(err))
 		}
 
 		select {
 		case <-ctx.Done():
 			return
-		case server.messages <- messageWire:
+		case server.messages <- messageOtw:
 		}
 	}
 }
 
-func newErrFailedToReadIncommingMessage(err error) error {
-	return fmt.Errorf("failed to read incomming message: %v", err)
+type ErrReadingIncomingMessage struct {
+	error
+}
+
+func newErrReadingIncomingMessage(err error) error {
+	return ErrReadingIncomingMessage{fmt.Errorf("error reading incoming message: %v", err)}
 }

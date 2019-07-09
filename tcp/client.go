@@ -172,23 +172,23 @@ func (client *Client) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case messageWire := <-client.messages:
-			client.sendMessageOnTheWire(ctx, messageWire)
+		case messageOtw := <-client.messages:
+			client.sendMessageOnTheWire(ctx, messageOtw)
 		}
 	}
 }
 
-func (client *Client) sendMessageOnTheWire(ctx context.Context, messageWire protocol.MessageOnTheWire) {
-	conn, err := client.conns.Dial(ctx, messageWire.To)
+func (client *Client) sendMessageOnTheWire(ctx context.Context, messageOtw protocol.MessageOnTheWire) {
+	conn, err := client.conns.Dial(ctx, messageOtw.To)
 	if err != nil {
-		client.conns.options.Logger.Errorf("error dialing tcp connection to %v: %v", messageWire.To.String(), err)
+		client.conns.options.Logger.Errorf("error dialing tcp connection to %v: %v", messageOtw.To.String(), err)
 		return
 	}
 
 	conn.SetWriteDeadline(time.Now().Add(client.conns.options.Timeout))
 
-	if err := messageWire.Message.Write(conn); err != nil {
-		client.conns.options.Logger.Errorf("error writing to tcp connection to %v: %v", messageWire.To.String(), err)
+	if err := messageOtw.Message.Write(conn); err != nil {
+		client.conns.options.Logger.Errorf("error writing to tcp connection to %v: %v", messageOtw.To.String(), err)
 		return
 	}
 }
