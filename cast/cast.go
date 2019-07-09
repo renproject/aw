@@ -11,7 +11,7 @@ import (
 
 type Caster interface {
 	Cast(ctx context.Context, to protocol.PeerID, body protocol.MessageBody) error
-	AcceptCast(ctx context.Context, to protocol.PeerID, message protocol.Message) error
+	AcceptCast(ctx context.Context, message protocol.Message) error
 }
 
 type caster struct {
@@ -49,12 +49,9 @@ func (caster *caster) Cast(ctx context.Context, to protocol.PeerID, body protoco
 	}
 }
 
-func (caster *caster) AcceptCast(ctx context.Context, to protocol.PeerID, message protocol.Message) error {
+func (caster *caster) AcceptCast(ctx context.Context, message protocol.Message) error {
 	// TODO: Check for compatible message version.
-
-	if !to.Equal(caster.dht.Me().PeerID()) {
-		return newErrCastingMessage(to, fmt.Errorf("no peer available for forwarding"))
-	}
+	// TODO: Update to allow message forwarding.
 
 	event := protocol.EventMessageReceived{
 		Time:    time.Now(),
@@ -62,7 +59,7 @@ func (caster *caster) AcceptCast(ctx context.Context, to protocol.PeerID, messag
 	}
 	select {
 	case <-ctx.Done():
-		return newErrCastingMessage(to, ctx.Err())
+		return newErrCastingMessage(caster.dht.Me().PeerID(), ctx.Err())
 	case caster.events <- event:
 		return nil
 	}
