@@ -2,6 +2,7 @@ package tcp
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"time"
 
@@ -47,7 +48,6 @@ func (server *Server) Listen(ctx context.Context, bind string) error {
 		}
 		go server.handle(ctx, conn)
 	}
-	return nil
 }
 
 func (server *Server) handle(ctx context.Context, conn net.Conn) {
@@ -63,10 +63,8 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		message := protocol.Message{}
 
 		if err := message.Read(conn); err != nil {
-			// FIXME: handle error
-			panic("unimplemented")
+			server.options.Logger.Error(newErrFailedToReadIncommingMessage(err))
 		}
-
 		// TODO: Support different versions of messages when there are new
 		// versions available.
 
@@ -81,4 +79,8 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		case server.messages <- messageWire:
 		}
 	}
+}
+
+func newErrFailedToReadIncommingMessage(err error) error {
+	return fmt.Errorf("failed to read incomming message: %v", err)
 }
