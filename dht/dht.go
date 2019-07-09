@@ -34,7 +34,7 @@ type dht struct {
 // New DHT that stores peer addresses in the given store. It will cache all peer
 // addresses in memory for fast access. It is safe for concurrent use,
 // regardless of the underlying store.
-func New(me protocol.PeerAddress, codec protocol.PeerAddressCodec, store kv.Iterable) (DHT, error) {
+func New(me protocol.PeerAddress, codec protocol.PeerAddressCodec, store kv.Iterable, bootstrapAddrs ...protocol.PeerAddress) (DHT, error) {
 	dht := &dht{
 		me:    me,
 		codec: codec,
@@ -43,6 +43,15 @@ func New(me protocol.PeerAddress, codec protocol.PeerAddressCodec, store kv.Iter
 		inMemCacheMu: new(sync.RWMutex),
 		inMemCache:   map[string]protocol.PeerAddress{},
 	}
+
+	if count, err := dht.NumPeers(); count == 0 || err != nil {
+		for _, addr := range bootstrapAddrs {
+			if err := dht.addPeerAddressWithoutLock(addr); err != nil {
+				return nil, fmt.Errorf("failed to store bootstrap addresses: %v", err)
+			}
+		}
+	}
+
 	if err := dht.fillInMemCache(); err != nil {
 		return nil, err
 	}
