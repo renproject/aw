@@ -11,6 +11,7 @@ import (
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/multicast"
 	"github.com/renproject/aw/pingpong"
+	"github.com/renproject/aw/protocol"
 	"github.com/renproject/kv"
 	"github.com/sirupsen/logrus"
 )
@@ -28,7 +29,7 @@ type PeerOptions struct {
 }
 
 type Peer interface {
-	Bootstrap(context.Context) error
+	Run(context.Context) error
 	Peer(context.Context, PeerID) (PeerAddress, error)
 	Peers(context.Context) (PeerAddresses, error)
 	NumPeers(context.Context) (int, error)
@@ -75,7 +76,7 @@ func New(options PeerOptions, sender MessageSender, receiver MessageReceiver) (P
 		panic(newErrInvalidPeerOptions(err))
 	}
 
-	dht, err := dht.New(options.Me, options.Codec, options.DHTStore)
+	dht, err := dht.New(options.Me, options.Codec, options.DHTStore, options.BootstrapAddresses...)
 	if err != nil {
 		// FIXME: handle the error without panicing
 		panic(fmt.Errorf("failed to initialize DHT: %v", err))
@@ -97,24 +98,26 @@ func New(options PeerOptions, sender MessageSender, receiver MessageReceiver) (P
 	}, events
 }
 
-func (peer *peer) Bootstrap(ctx context.Context) error {
+func (peer *peer) Run(ctx context.Context) error {
+	ticker := time.NewTicker(peer.bootstrapDelay)
 	for {
 		select {
 		case <-ctx.Done():
 			return newErrStoppingBootstrap(ctx.Err())
-		default:
+		case msg := <-peer.receiver:
+			return peer.handleIncommingMessage(ctx, msg)
+		case <-ticker.C:
 			peerAddrs, err := peer.dht.PeerAddresses()
 			if err != nil {
 				return err
 			}
 			for _, peerAddr := range peerAddrs {
-				fmt.Printf("pinging %v\n", peerAddr.PeerID())
 				if err := peer.pingPonger.Ping(ctx, peerAddr.PeerID()); err != nil {
 					return err
 				}
 			}
+
 		}
-		time.Sleep(peer.bootstrapDelay)
 	}
 }
 
@@ -127,7 +130,30 @@ func (peer *peer) Peers(context.Context) (PeerAddresses, error) {
 }
 
 func (peer *peer) NumPeers(context.Context) (int, error) {
-	return peer.dht.PeerCount()
+	return peer.dht.NumPeers()
+}
+
+func (peer *peer) handleIncommingMessage(ctx context.Context, msg protocol.MessageOnTheWire) error {
+	peer.eventSender <- protocol.EventMessageReceived{
+		Time:    time.Now(),
+		Message: msg.Message.Body,
+	}
+
+	fmt.Println("new incomming message")
+	switch msg.Message.Variant {
+	case protocol.Ping:
+		return peer.pingPonger.AcceptPing(ctx, msg.Message)
+	case protocol.Pong:
+		return peer.pingPonger.AcceptPong(ctx, msg.Message)
+	case protocol.Broadcast:
+		return peer.broadcaster.AcceptBroadcast(ctx, msg.Message)
+	case protocol.Multicast:
+		return peer.multicaster.AcceptMulticast(ctx, msg.Message)
+	case protocol.Cast:
+		return peer.caster.AcceptCast(ctx, msg.Message)
+	default:
+		return fmt.Errorf("unknown variant: %d", msg.Message.Variant)
+	}
 }
 
 func validateOptions(options PeerOptions) error {
