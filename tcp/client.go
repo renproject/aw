@@ -23,11 +23,14 @@ type ClientOptions struct {
 	MaxConnections int
 }
 
+// ClientConn is a network connection associated with a mutex. This allows for
+// concurrent safe dialing of the network connection.
 type ClientConn struct {
 	mu   *sync.Mutex
 	conn net.Conn
 }
 
+// NewClientConn returns an un-dialed connection.
 func NewClientConn() *ClientConn {
 	return &ClientConn{
 		mu:   new(sync.Mutex),
@@ -118,6 +121,7 @@ func (clientConns *ClientConns) Dial(ctx context.Context, addr net.Addr) (net.Co
 	return conn.conn, err
 }
 
+// Close the connection to a remote server.
 func (clientConns *ClientConns) Close(addr net.Addr) error {
 	// Protect the cache from concurrent writes and delete the connection
 	// associated with this address
