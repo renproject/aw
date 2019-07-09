@@ -9,8 +9,19 @@ import (
 	"github.com/renproject/aw/protocol"
 )
 
+// A Broadcaster is used to send messages to all peers in the network. This is
+// done using a decentralised gossip algorithm to ensure that a small number of
+// malicioius peers cannot stop the message from saturating non-malicious peers.
+//
+// In V1, when a Broadcaster accepts a message it will hash it and check to see
+// if it has seen this hash before. If the hash has been seen, nothing happens.
+// If the hash has not been seen, the Broadcaster emits and event and propagates
+// the message to all known peers.
 type Broadcaster interface {
+	// Broadcast a message to all peers in the network.
 	Broadcast(ctx context.Context, body protocol.MessageBody) error
+
+	// AcceptBroadcast message from another peer in the network.
 	AcceptBroadcast(ctx context.Context, message protocol.Message) error
 }
 
@@ -21,6 +32,9 @@ type broadcaster struct {
 	events   protocol.EventSender
 }
 
+// NewBroadcaster returns a Broadcaster that will use the given Storage
+// interface and DHT interface for storing messages and peer addresses
+// respectively.
 func NewBroadcaster(storage Storage, dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender) Broadcaster {
 	return &broadcaster{
 		storage:  storage,
@@ -30,16 +44,18 @@ func NewBroadcaster(storage Storage, dht dht.DHT, messages protocol.MessageSende
 	}
 }
 
+// Broadcast a message to multiple remote servers in an attempt to saturate the
+// network.
 func (broadcaster *broadcaster) Broadcast(ctx context.Context, body protocol.MessageBody) error {
 	peerAddrs, err := broadcaster.dht.PeerAddresses()
 	if err != nil {
-		return newErrBroadcastingMessage(err)
+		return newErrBroadcastInternal(err)
 	}
 	if peerAddrs == nil {
-		return newErrBroadcastingMessage(fmt.Errorf("nil peer addresses"))
+		return newErrBroadcastInternal(fmt.Errorf("nil peer addresses"))
 	}
 	if len(peerAddrs) <= 0 {
-		return newErrBroadcastingMessage(fmt.Errorf("empty peer addresses"))
+		return newErrBroadcastInternal(fmt.Errorf("empty peer addresses"))
 	}
 
 	// Using the messaging sending channel protects the multicaster from
@@ -51,7 +67,7 @@ func (broadcaster *broadcaster) Broadcast(ctx context.Context, body protocol.Mes
 		}
 		select {
 		case <-ctx.Done():
-			err = newErrBroadcastingMessage(ctx.Err())
+			err = newErrBroadcastCanceled(ctx.Err())
 		case broadcaster.messages <- messageWire:
 		}
 	}
@@ -60,20 +76,28 @@ func (broadcaster *broadcaster) Broadcast(ctx context.Context, body protocol.Mes
 	return err
 }
 
+// AcceptBroadcast from a remote client and propagate it to all peers in the
+// network.
 func (broadcaster *broadcaster) AcceptBroadcast(ctx context.Context, message protocol.Message) error {
-	// TODO: Check for compatible message version.
+	// Pre-condition checks
+	if message.Version != protocol.V1 {
+		return newErrBroadcastVersionNotSupported(message.Version)
+	}
+	if message.Variant != protocol.Broadcast {
+		return newErrBroadcastVariantNotSupported(message.Variant)
+	}
 
 	messageHash := message.Hash()
 	ok, err := broadcaster.storage.MessageHash(messageHash)
 	if err != nil {
-		return newErrBroadcastingMessage(fmt.Errorf("message hash=%v not found: %v", messageHash, err))
+		return newErrBroadcastInternal(fmt.Errorf("error loading message hash=%v: %v", messageHash, err))
 	}
 	if ok {
 		// Ignore messages that have already been seen
 		return nil
 	}
 	if err := broadcaster.storage.InsertMessageHash(messageHash); err != nil {
-		return newErrBroadcastingMessage(fmt.Errorf("error inserting message hash=%v: %v", messageHash, err))
+		return newErrBroadcastInternal(fmt.Errorf("error inserting message hash=%v: %v", messageHash, err))
 	}
 
 	// Emit an event for this newly seen message
@@ -83,7 +107,7 @@ func (broadcaster *broadcaster) AcceptBroadcast(ctx context.Context, message pro
 	}
 	select {
 	case <-ctx.Done():
-		return newErrBroadcastingMessage(ctx.Err())
+		return newErrBroadcastCanceled(ctx.Err())
 	case broadcaster.events <- event:
 	}
 
@@ -92,12 +116,51 @@ func (broadcaster *broadcaster) AcceptBroadcast(ctx context.Context, message pro
 	return broadcaster.Broadcast(ctx, message.Body)
 }
 
-type ErrBroadcastingMessage struct {
+// ErrBroadcastInternal is returned when there is an internal broadcasting
+// error. For example, when an error is returned by the underlying storage
+// implementation.
+type ErrBroadcastInternal struct {
 	error
 }
 
-func newErrBroadcastingMessage(err error) error {
-	return ErrBroadcastingMessage{
-		error: fmt.Errorf("error broadcasting: %v", err),
+func newErrBroadcastInternal(err error) error {
+	return ErrBroadcastInternal{
+		error: fmt.Errorf("internal broadcast error: %v", err),
+	}
+}
+
+// ErrBroadcastVersionNotSupported is returned when a broadcast message has an
+// unsupported version.
+type ErrBroadcastVersionNotSupported struct {
+	error
+}
+
+func newErrBroadcastVersionNotSupported(version protocol.MessageVersion) error {
+	return ErrBroadcastVersionNotSupported{
+		error: fmt.Errorf("broadcast version=%v not supported", version),
+	}
+}
+
+// ErrBroadcastVariantNotSupported is returned when a broadcast message has an
+// unsupported variant.
+type ErrBroadcastVariantNotSupported struct {
+	error
+}
+
+func newErrBroadcastVariantNotSupported(variant protocol.MessageVariant) error {
+	return ErrBroadcastVariantNotSupported{
+		error: fmt.Errorf("broadcast variant=%v not supported", variant),
+	}
+}
+
+// ErrBroadcastCanceled is returned when a broadcast is canceled. This is
+// usually caused by a context being done.
+type ErrBroadcastCanceled struct {
+	error
+}
+
+func newErrBroadcastCanceled(err error) error {
+	return ErrBroadcastCanceled{
+		error: fmt.Errorf("broadcast canceled: %v", err),
 	}
 }
