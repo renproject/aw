@@ -1,8 +1,6 @@
 package broadcast
 
 import (
-	"encoding/base64"
-
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/kv"
 )
@@ -21,12 +19,12 @@ func NewStorage(store kv.Store) Storage {
 }
 
 func (storage *storage) InsertMessageHash(hash protocol.MessageHash) error {
-	return storage.store.Insert(base64.StdEncoding.EncodeToString(hash), true)
+	return storage.store.Insert(hash.String(), true)
 }
 
 func (storage *storage) MessageHash(hash protocol.MessageHash) (bool, error) {
 	var exists bool
-	if err := storage.store.Get(base64.StdEncoding.EncodeToString(hash), &exists); err != nil && err != kv.ErrNotFound {
+	if err := storage.store.Get(hash.String(), &exists); err != nil && err != kv.ErrNotFound {
 		return false, err
 	}
 	return exists, nil
