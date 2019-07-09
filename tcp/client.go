@@ -185,6 +185,8 @@ func (client *Client) sendMessageOnTheWire(ctx context.Context, messageWire prot
 		return
 	}
 
+	conn.SetWriteDeadline(time.Now().Add(client.conns.options.Timeout))
+
 	if err := messageWire.Message.Write(conn); err != nil {
 		client.conns.options.Logger.Errorf("error writing to tcp connection to %v: %v", messageWire.To.String(), err)
 		return
