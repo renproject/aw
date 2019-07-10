@@ -61,20 +61,24 @@ func (pp *pingPonger) Ping(ctx context.Context, to protocol.PeerID) error {
 
 func (pp *pingPonger) AcceptPing(ctx context.Context, message protocol.Message) error {
 	// TODO: Wrap errors in custom error types.
-
 	// TODO: Check for compatible message version.
 
 	peerAddr, err := pp.codec.Decode(message.Body)
 	if err != nil {
 		return err
 	}
-	didUpdate, err := pp.updatePeerAddress(ctx, peerAddr)
-	if err != nil {
-		return err
-	}
-	if !didUpdate {
+
+	// if the peer address contains this peer's address do not add it to the DHT,
+	// and stop propogating the message to other nodes.
+	if peerAddr.PeerID().Equal(pp.dht.Me().PeerID()) {
 		return nil
 	}
+
+	didUpdate, err := pp.updatePeerAddress(ctx, peerAddr)
+	if err != nil || !didUpdate {
+		return err
+	}
+
 	if err := pp.pong(ctx, peerAddr); err != nil {
 		return err
 	}
@@ -154,19 +158,9 @@ func (pp *pingPonger) propagatePing(ctx context.Context, body protocol.MessageBo
 
 func (pp *pingPonger) updatePeerAddress(ctx context.Context, peerAddr protocol.PeerAddress) (bool, error) {
 	// TODO: Wrap errors in custom error types.
-
-	prevPeerAddr, err := pp.dht.PeerAddress(peerAddr.PeerID())
-	if err != nil {
-		// FIXME: Double check that the DHT returns nil when an address cannot
-		// be found.
-
-		return false, err
-	}
-	if !peerAddr.IsNewer(prevPeerAddr) {
-		return false, nil
-	}
-	if err := pp.dht.AddPeerAddress(peerAddr); err != nil {
-		return false, err
+	updated, err := pp.dht.UpdatePeerAddress(peerAddr)
+	if err != nil || !updated {
+		return updated, err
 	}
 
 	event := protocol.EventPeerChanged{
