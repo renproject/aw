@@ -22,10 +22,11 @@ type PeerOptions struct {
 	Codec              PeerAddressCodec
 
 	// Optional
-	DHTStore       kv.Iterable   // Defaults to use in memory store
-	BroadcastStore kv.Store      // Defaults to use in memory store
-	BootstrapDelay time.Duration // Defaults to 1 Minute
-	Logger         logrus.FieldLogger
+	EventsCap      int                // Defaults to unbuffered
+	BootstrapDelay time.Duration      // Defaults to 1 Minute
+	DHTStore       kv.Iterable        // Defaults to use in memory store
+	BroadcastStore kv.Store           // Defaults to use in memory store
+	Logger         logrus.FieldLogger // Defaults to discard logger
 }
 
 type Peer interface {
@@ -51,7 +52,7 @@ type peer struct {
 }
 
 func New(options PeerOptions, sender MessageSender, receiver MessageReceiver) (Peer, EventReceiver) {
-	events := make(chan Event)
+	events := make(chan Event, options.EventsCap)
 	if options.Logger == nil {
 		logger := logrus.New()
 		logger.SetOutput(ioutil.Discard)
@@ -135,9 +136,9 @@ func (peer *peer) NumPeers(context.Context) (int, error) {
 
 func (peer *peer) handleIncommingMessage(ctx context.Context, msg protocol.MessageOnTheWire) error {
 	peer.eventSender <- protocol.EventMessageReceived{
-		Time:    time.Now(),
-		Message: msg.Message.Body,
-	}
+			Time:    time.Now(),
+			Message: msg.Message.Body,
+		}
 
 	fmt.Println("new incomming message")
 	switch msg.Message.Variant {
