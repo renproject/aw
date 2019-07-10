@@ -31,6 +31,7 @@ type PeerOptions struct {
 
 type Peer interface {
 	Run(context.Context) error
+
 	Peer(context.Context, PeerID) (PeerAddress, error)
 	Peers(context.Context) (PeerAddresses, error)
 	NumPeers(context.Context) (int, error)
@@ -137,7 +138,7 @@ func (peer *peer) handleIncommingMessage(ctx context.Context, msg protocol.Messa
 	go func(ctx context.Context) {
 		select {
 		case <-ctx.Done():
-			peer.logger.Errorf("failed to write to the evennts channel: %v", ctx.Err())
+			peer.logger.Errorf("failed to write to the events channel: %v", ctx.Err())
 			return
 		case peer.eventSender <- protocol.EventMessageReceived{
 			Time:    time.Now(),
