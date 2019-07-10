@@ -106,7 +106,7 @@ func (peer *peer) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return newErrStoppingBootstrap(ctx.Err())
 		case msg := <-peer.receiver:
-			return peer.handleIncommingMessage(ctx, msg)
+			go peer.handleIncommingMessage(ctx, msg)
 		case <-ticker.C:
 			peerAddrs, err := peer.dht.PeerAddresses()
 			if err != nil {
@@ -117,7 +117,6 @@ func (peer *peer) Run(ctx context.Context) error {
 					return err
 				}
 			}
-
 		}
 	}
 }
@@ -135,12 +134,18 @@ func (peer *peer) NumPeers(context.Context) (int, error) {
 }
 
 func (peer *peer) handleIncommingMessage(ctx context.Context, msg protocol.MessageOnTheWire) error {
-	peer.eventSender <- protocol.EventMessageReceived{
+	go func(ctx context.Context) {
+		select {
+		case <-ctx.Done():
+			peer.logger.Errorf("failed to write to the evennts channel: %v", ctx.Err())
+			return
+		case peer.eventSender <- protocol.EventMessageReceived{
 			Time:    time.Now(),
 			Message: msg.Message.Body,
+		}:
 		}
+	}(ctx)
 
-	fmt.Println("new incomming message")
 	switch msg.Message.Variant {
 	case protocol.Ping:
 		return peer.pingPonger.AcceptPing(ctx, msg.Message)
