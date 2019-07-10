@@ -24,9 +24,9 @@ type PeerOptions struct {
 	Codec              PeerAddressCodec
 
 	// Optional
-	EventBuffer       int           // Defaults to unbuffered
+	EventBuffer       int           // Defaults to 0
 	BootstrapWorkers  int           // Defaults to 2x the number of CPUs
-	BootstrapDuration time.Duration // Defaults to 1 Minute
+	BootstrapDuration time.Duration // Defaults to 1 hour
 }
 
 type Peer interface {
