@@ -16,9 +16,9 @@ type DHT interface {
 	NumPeers() (int, error)
 	PeerAddress(protocol.PeerID) (protocol.PeerAddress, error)
 	PeerAddresses() (protocol.PeerAddresses, error)
-
 	AddPeerAddress(protocol.PeerAddress) error
 	AddPeerAddresses(protocol.PeerAddresses) error
+	UpdatePeerAddress(peerAddr protocol.PeerAddress) (bool, error)
 	RemovePeerAddress(protocol.PeerID) error
 }
 
@@ -106,9 +106,25 @@ func (dht *dht) PeerAddress(id protocol.PeerID) (protocol.PeerAddress, error) {
 
 	peerAddr, ok := dht.inMemCache[id.String()]
 	if !ok {
-		return nil, fmt.Errorf("peer=%v not found", id)
+		return nil, NewErrPeerNotFound(id)
 	}
 	return peerAddr, nil
+}
+
+func (dht *dht) UpdatePeerAddress(peerAddr protocol.PeerAddress) (bool, error) {
+	dht.inMemCacheMu.Lock()
+	defer dht.inMemCacheMu.Unlock()
+
+	prevPeerAddr, ok := dht.inMemCache[peerAddr.PeerID().String()]
+	if ok && !peerAddr.IsNewer(prevPeerAddr) {
+		return false, nil
+	}
+
+	if err := dht.addPeerAddressWithoutLock(peerAddr); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 func (dht *dht) RemovePeerAddress(id protocol.PeerID) error {
@@ -148,4 +164,16 @@ func (dht *dht) fillInMemCache() error {
 		dht.inMemCache[peerAddr.PeerID().String()] = peerAddr
 	}
 	return nil
+}
+
+type ErrPeerNotFound struct {
+	error
+	protocol.PeerID
+}
+
+func NewErrPeerNotFound(peerID protocol.PeerID) error {
+	return ErrPeerNotFound{
+		error:  fmt.Errorf("peer=%v not found", peerID),
+		PeerID: peerID,
+	}
 }
