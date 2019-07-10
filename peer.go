@@ -3,7 +3,7 @@ package aw
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"runtime"
 	"time"
 
 	"github.com/renproject/aw/broadcast"
@@ -12,175 +12,203 @@ import (
 	"github.com/renproject/aw/multicast"
 	"github.com/renproject/aw/pingpong"
 	"github.com/renproject/aw/protocol"
-	"github.com/renproject/kv"
+	"github.com/renproject/phi"
 	"github.com/sirupsen/logrus"
 )
 
 type PeerOptions struct {
+	Logger logrus.FieldLogger
+
 	Me                 PeerAddress
 	BootstrapAddresses PeerAddresses
 	Codec              PeerAddressCodec
 
 	// Optional
-	EventsCap      int                // Defaults to unbuffered
-	BootstrapDelay time.Duration      // Defaults to 1 Minute
-	DHTStore       kv.Iterable        // Defaults to use in memory store
-	BroadcastStore kv.Store           // Defaults to use in memory store
-	Logger         logrus.FieldLogger // Defaults to discard logger
+	EventBuffer       int           // Defaults to unbuffered
+	BootstrapWorkers  int           // Defaults to 2x the number of CPUs
+	BootstrapDuration time.Duration // Defaults to 1 Minute
 }
 
 type Peer interface {
-	Run(context.Context) error
+	Run(context.Context)
 	Peer(context.Context, PeerID) (PeerAddress, error)
 	Peers(context.Context) (PeerAddresses, error)
 	NumPeers(context.Context) (int, error)
+	Cast(context.Context, PeerID, []byte) error
+	Multicast(context.Context, []byte) error
+	Broadcast(context.Context, []byte) error
 }
 
 type peer struct {
-	bootstrapDelay time.Duration
-	logger         logrus.FieldLogger
+	options PeerOptions
 
-	broadcaster broadcast.Broadcaster
+	dht         dht.DHT
+	pingPonger  pingpong.PingPonger
 	caster      cast.Caster
 	multicaster multicast.Multicaster
-	pingPonger  pingpong.PingPonger
-	dht         dht.DHT
+	broadcaster broadcast.Broadcaster
 
-	sender      MessageSender
-	receiver    MessageReceiver
-	eventSender EventSender
+	receiver MessageReceiver
 }
 
-func New(options PeerOptions, sender MessageSender, receiver MessageReceiver) (Peer, EventReceiver) {
-	events := make(chan Event, options.EventsCap)
-	if options.Logger == nil {
-		logger := logrus.New()
-		logger.SetOutput(ioutil.Discard)
-		options.Logger = logger
-	}
-
-	if options.BootstrapDelay == 0 {
-		options.BootstrapDelay = time.Minute
-	}
-
-	if options.BroadcastStore == nil {
-		options.BroadcastStore = kv.NewGob(kv.NewMemDB())
-	}
-
-	if options.DHTStore == nil {
-		options.DHTStore = kv.NewGob(kv.NewMemDB())
-	}
-
-	// pre-condition check
+func New(options PeerOptions, receiver MessageReceiver, dht dht.DHT, pingponger pingpong.PingPonger, caster cast.Caster, multicaster multicast.Multicaster, broadcaster broadcast.Broadcaster) Peer {
+	// Pre-condition check
 	if err := validateOptions(options); err != nil {
-		// FIXME: handle the error without panicing
-		panic(newErrInvalidPeerOptions(err))
+		panic(fmt.Errorf("pre-condition violation: %v", newErrInvalidPeerOptions(err)))
 	}
 
-	dht, err := dht.New(options.Me, options.Codec, options.DHTStore, options.BootstrapAddresses...)
-	if err != nil {
-		// FIXME: handle the error without panicing
-		panic(fmt.Errorf("failed to initialize DHT: %v", err))
+	// Set default values
+	if options.BootstrapDuration <= 0 {
+		options.BootstrapDuration = time.Hour
+	}
+	if options.BootstrapWorkers <= 0 {
+		options.BootstrapWorkers = 2 * runtime.NumCPU()
 	}
 
 	return &peer{
-		bootstrapDelay: options.BootstrapDelay,
-		logger:         options.Logger,
+		options: options,
 
-		broadcaster: broadcast.NewBroadcaster(broadcast.NewStorage(options.BroadcastStore), dht, sender, events),
-		multicaster: multicast.NewMulticaster(dht, sender, events),
-		caster:      cast.NewCaster(dht, sender, events),
-		pingPonger:  pingpong.NewPingPonger(dht, sender, events, options.Codec),
 		dht:         dht,
+		pingPonger:  pingponger,
+		caster:      caster,
+		multicaster: multicaster,
+		broadcaster: broadcaster,
 
-		sender:      sender,
-		receiver:    receiver,
-		eventSender: events,
-	}, events
+		receiver: receiver,
+	}
 }
 
-func (peer *peer) Run(ctx context.Context) error {
-	ticker := time.NewTicker(peer.bootstrapDelay)
+func (peer *peer) Run(ctx context.Context) {
+	ticker := time.NewTicker(peer.options.BootstrapDuration)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
-			return newErrStoppingBootstrap(ctx.Err())
-		case msg := <-peer.receiver:
-			go peer.handleIncommingMessage(ctx, msg)
+			peer.options.Logger.Errorf("%v", newErrBootstrapCanceled(ctx.Err()))
+			return
+
 		case <-ticker.C:
-			peerAddrs, err := peer.dht.PeerAddresses()
-			if err != nil {
-				return err
-			}
-			for _, peerAddr := range peerAddrs {
-				if err := peer.pingPonger.Ping(ctx, peerAddr.PeerID()); err != nil {
-					return err
-				}
-			}
+			peer.bootstrap(ctx)
+
+		case m := <-peer.receiver:
+			peer.receiveMessageOnTheWire(ctx, m)
 		}
 	}
 }
 
-func (peer *peer) Peer(ctx context.Context, peerID PeerID) (PeerAddress, error) {
+func (peer *peer) Peer(_ context.Context, peerID PeerID) (PeerAddress, error) {
 	return peer.dht.PeerAddress(peerID)
 }
 
-func (peer *peer) Peers(context.Context) (PeerAddresses, error) {
+func (peer *peer) Peers(_ context.Context) (PeerAddresses, error) {
 	return peer.dht.PeerAddresses()
 }
 
-func (peer *peer) NumPeers(context.Context) (int, error) {
+func (peer *peer) NumPeers(_ context.Context) (int, error) {
 	return peer.dht.NumPeers()
 }
 
-func (peer *peer) handleIncommingMessage(ctx context.Context, msg protocol.MessageOnTheWire) error {
-	go func(ctx context.Context) {
-		select {
-		case <-ctx.Done():
-			peer.logger.Errorf("failed to write to the evennts channel: %v", ctx.Err())
-			return
-		case peer.eventSender <- protocol.EventMessageReceived{
-			Time:    time.Now(),
-			Message: msg.Message.Body,
-		}:
-		}
-	}(ctx)
+func (peer *peer) Cast(ctx context.Context, to PeerID, data []byte) error {
+	return peer.caster.Cast(ctx, to, protocol.MessageBody(data))
+}
 
-	switch msg.Message.Variant {
+func (peer *peer) Multicast(ctx context.Context, data []byte) error {
+	return peer.multicaster.Multicast(ctx, protocol.MessageBody(data))
+}
+
+func (peer *peer) Broadcast(ctx context.Context, data []byte) error {
+	return peer.broadcaster.Broadcast(ctx, protocol.MessageBody(data))
+}
+
+func (peer *peer) bootstrap(ctx context.Context) {
+	// Load all peer addresses into a fully buffered queue so that
+	// workers can process them most efficiently
+	peerAddrs, err := peer.dht.PeerAddresses()
+	if err != nil {
+		peer.options.Logger.Errorf("error bootstrapping: error loading peer addresses: %v", err)
+		return
+	}
+	peerAddrsQ := make(chan PeerAddress, len(peerAddrs))
+	for _, peerAddr := range peerAddrs {
+		peerAddrsQ <- peerAddr
+	}
+	close(peerAddrsQ)
+
+	// Spawn multiple goroutine workers to process the peer addresses in the
+	// queue one-by-one
+	phi.ForAll(peer.options.BootstrapWorkers, func(_ int) {
+		peerAddr, ok := <-peerAddrsQ
+		if !ok {
+			return
+		}
+
+		// Timeout is computed to ensure that we are ready for the next
+		// bootstrap tick even if every single ping takes the maximum amount of
+		// time (with a minimum timeout of 1 second)
+		pingTimeout := time.Duration(int64(peer.options.BootstrapWorkers) * int64(peer.options.BootstrapDuration) / int64(len(peerAddrs)))
+		if pingTimeout > peer.options.BootstrapDuration {
+			pingTimeout = peer.options.BootstrapDuration
+		}
+		if pingTimeout > 30*time.Second {
+			pingTimeout = 30 * time.Second
+		}
+		if pingTimeout < time.Second {
+			pingTimeout = time.Second
+		}
+
+		pingCtx, pingCancel := context.WithTimeout(ctx, pingTimeout)
+		defer pingCancel()
+
+		if err := peer.pingPonger.Ping(pingCtx, peerAddr.PeerID()); err != nil {
+			peer.options.Logger.Errorf("error bootstrapping: error ping/ponging peer address=%v: %v", peerAddr, err)
+			return
+		}
+	})
+}
+
+func (peer *peer) receiveMessageOnTheWire(ctx context.Context, messageOtw protocol.MessageOnTheWire) error {
+	switch messageOtw.Message.Variant {
 	case protocol.Ping:
-		return peer.pingPonger.AcceptPing(ctx, msg.Message)
+		return peer.pingPonger.AcceptPing(ctx, messageOtw.Message)
 	case protocol.Pong:
-		return peer.pingPonger.AcceptPong(ctx, msg.Message)
+		return peer.pingPonger.AcceptPong(ctx, messageOtw.Message)
 	case protocol.Broadcast:
-		return peer.broadcaster.AcceptBroadcast(ctx, msg.Message)
+		return peer.broadcaster.AcceptBroadcast(ctx, messageOtw.Message)
 	case protocol.Multicast:
-		return peer.multicaster.AcceptMulticast(ctx, msg.Message)
+		return peer.multicaster.AcceptMulticast(ctx, messageOtw.Message)
 	case protocol.Cast:
-		return peer.caster.AcceptCast(ctx, msg.Message)
+		return peer.caster.AcceptCast(ctx, messageOtw.Message)
 	default:
-		return fmt.Errorf("unknown variant: %d", msg.Message.Variant)
+		return fmt.Errorf("unexpected message variant=%v", messageOtw.Message.Variant)
 	}
 }
 
 func validateOptions(options PeerOptions) error {
+	if options.Logger == nil {
+		return fmt.Errorf("nil logger")
+	}
 	if options.Me == nil {
 		return fmt.Errorf("nil me address")
 	}
 	if options.BootstrapAddresses == nil {
-		return fmt.Errorf("no bootstrap addresses provided")
+		return fmt.Errorf("nil bootstrap addresses")
+	}
+	if len(options.BootstrapAddresses) == 0 {
+		return fmt.Errorf("empty bootstrap addresses")
 	}
 	if options.Codec == nil {
-		return fmt.Errorf("no peer address codec provided")
+		return fmt.Errorf("nil peer address codec")
 	}
 	return nil
 }
 
-func newErrPeerNotFound(err error) error {
-	return fmt.Errorf("peer not found: %v", err)
+func newErrBootstrapCanceled(err error) error {
+	return fmt.Errorf("bootstrap canceled: %v", err)
 }
 
-func newErrStoppingBootstrap(err error) error {
-	return fmt.Errorf("stopping bootstrap: %v", err)
+func newErrPeerNotFound(err error) error {
+	return fmt.Errorf("peer not found: %v", err)
 }
 
 func newErrInvalidPeerOptions(err error) error {
