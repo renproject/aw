@@ -3,6 +3,7 @@ package aw_test
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -56,14 +57,29 @@ var _ = Describe("airwaves peer", func() {
 			go startServer(ctx, peerAddresses[i].NetworkAddress().String(), receiver)
 			go startClient(ctx, sender)
 
-			peer, _ := New(PeerOptions{
+			logger := logrus.StandardLogger()
+			if i != 0 {
+				logger.SetOutput(ioutil.Discard)
+			}
+			peer, events := New(PeerOptions{
 				Me:                 peerAddresses[i],
 				BootstrapAddresses: bootstrapAddrs,
 				Codec:              codec,
 
-				Logger:         logrus.StandardLogger(),
-				BootstrapDelay: time.Second,
+				Logger:         logger,
+				BootstrapDelay: time.Minute,
 			}, sender, receiver)
+
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-events:
+					}
+				}
+			}()
+
 			peer.Run(ctx)
 		})
 		return peerAddresses, nil
@@ -76,20 +92,20 @@ var _ = Describe("airwaves peer", func() {
 		// When all the nodes are known
 		{4, 4},
 		{10, 10},
-		// {20, 20},
-		// {40, 40},
+		{20, 20},
+		{40, 40},
 
-		// // When half of nodes are known
-		// {4, 2},
-		// {10, 5},
-		// {20, 10},
-		// {40, 20},
+		// When half of nodes are known
+		{4, 2},
+		{10, 5},
+		{20, 10},
+		{40, 20},
 
-		// // When one node is known
-		// {4, 1},
-		// {10, 1},
-		// {20, 1},
-		// {40, 1},
+		// When one node is known
+		{4, 1},
+		{10, 1},
+		{20, 1},
+		{40, 1},
 	}
 
 	Context("when bootstrapping", func() {
@@ -107,7 +123,7 @@ var _ = Describe("airwaves peer", func() {
 				go startServer(ctx, me.NetworkAddress().String(), receiver)
 				go startClient(ctx, sender)
 
-				peer, _ := New(PeerOptions{
+				peer, events := New(PeerOptions{
 					Me:                 me,
 					BootstrapAddresses: bootstrapAddrs[:nodeCount.Known],
 					Codec:              codec,
@@ -117,6 +133,15 @@ var _ = Describe("airwaves peer", func() {
 				}, sender, receiver)
 
 				go peer.Run(ctx)
+				go func() {
+					for {
+						select {
+						case <-ctx.Done():
+							return
+						case <-events:
+						}
+					}
+				}()
 
 				// wait for the node to bootstrap
 				time.Sleep(5 * time.Second)
