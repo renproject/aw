@@ -69,7 +69,7 @@ func NewClientConns(options ClientOptions) *ClientConns {
 // Dial a remote server. If a connection to the remote server already exists,
 // then that connection is immediately returned. If a connection to the remote
 // server does not exist, then one is established.
-func (clientConns *ClientConns) Dial(ctx context.Context, addr net.Addr) (net.Conn, error) {
+func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messageOtw protocol.MessageOnTheWire) (net.Conn, error) {
 	// Pre-condition checks
 	if addr == nil {
 		panic("pre-condition violation: nil net.Addr")
@@ -127,7 +127,17 @@ func (clientConns *ClientConns) Dial(ctx context.Context, addr net.Addr) (net.Co
 		return conn.conn, nil
 	}
 
+	// Dial
 	conn.conn, err = net.DialTimeout("tcp", addr.String(), clientConns.options.Timeout)
+	if err != nil {
+		return nil, err
+	}
+	// Write
+	conn.conn.SetWriteDeadline(time.Now().Add(clientConns.options.Timeout))
+	if err := messageOtw.Message.Write(conn.conn); err != nil {
+		return nil, err
+	}
+
 	return conn.conn, err
 }
 
@@ -189,33 +199,18 @@ func (client *Client) Run(ctx context.Context) {
 }
 
 func (client *Client) sendMessageOnTheWire(ctx context.Context, messageOtw protocol.MessageOnTheWire) {
-	conn, err := client.conns.Dial(ctx, messageOtw.To)
+	_, err := client.conns.Write(ctx, messageOtw.To, messageOtw)
 	if err == nil {
-		conn.SetWriteDeadline(time.Now().Add(client.conns.options.Timeout))
-		err = messageOtw.Message.Write(conn)
-		if err == nil {
-			return
-		}
-		client.conns.options.Logger.Errorf("error writing to tcp connection to %v: %v", messageOtw.To.String(), err)
-	} else {
-		client.conns.options.Logger.Errorf("error dialing tcp connection to %v: %v", messageOtw.To.String(), err)
+		return
 	}
+	client.conns.options.Logger.Errorf("error writing to tcp connection to %v: %v", messageOtw.To.String(), err)
 
 	go func() {
 		for i := 0; i < 30; i++ {
 			// Dial
-			client.conns.options.Logger.Warnf("retrying tcp send to %v", messageOtw.To.String())
-			conn, err := client.conns.Dial(ctx, messageOtw.To)
+			client.conns.options.Logger.Infof("retrying write to tcp connection to %v", messageOtw.To.String())
+			_, err := client.conns.Write(ctx, messageOtw.To, messageOtw)
 			if err != nil {
-				client.conns.options.Logger.Errorf("error retrying tcp dial to %v: %v", messageOtw.To.String(), err)
-				time.Sleep(time.Second)
-				continue
-			}
-
-			// Write
-			conn.SetWriteDeadline(time.Now().Add(client.conns.options.Timeout))
-			if err := messageOtw.Message.Write(conn); err != nil {
-				client.conns.options.Logger.Errorf("error retrying tcp write to %v: %v", messageOtw.To.String(), err)
 				time.Sleep(time.Second)
 				continue
 			}
