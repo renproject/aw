@@ -69,7 +69,7 @@ func NewClientConns(options ClientOptions) *ClientConns {
 // Dial a remote server. If a connection to the remote server already exists,
 // then that connection is immediately returned. If a connection to the remote
 // server does not exist, then one is established.
-func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messageOtw protocol.MessageOnTheWire) (net.Conn, error) {
+func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messageOtw protocol.MessageOnTheWire) error {
 	// Pre-condition checks
 	if addr == nil {
 		panic("pre-condition violation: nil net.Addr")
@@ -83,7 +83,16 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 	conn := clientConns.conns[addr.String()]
 	clientConns.connsMu.RUnlock()
 	if conn != nil && conn.conn != nil {
-		return conn.conn, nil
+		// Mutex on the conn
+		conn.mu.Lock()
+		defer conn.mu.Unlock()
+
+		// Write
+		conn.conn.SetWriteDeadline(time.Now().Add(clientConns.options.Timeout))
+		if err := messageOtw.Message.Write(conn.conn); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	// Protect the cache from concurrent writes and establish a connection that
@@ -110,10 +119,19 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 		return clientConns.conns[addr.String()], nil
 	}()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if conn.conn != nil {
-		return conn.conn, nil
+		// Mutex on the conn
+		conn.mu.Lock()
+		defer conn.mu.Unlock()
+
+		// Write
+		conn.conn.SetWriteDeadline(time.Now().Add(clientConns.options.Timeout))
+		if err := messageOtw.Message.Write(conn.conn); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	// A new connection needs to be dialed, so we lock the connection to prevent
@@ -124,21 +142,30 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 	// Double-check the connection, because while waiting to acquire the write lock
 	// another goroutine may have already dialed the remote server
 	if conn.conn != nil {
-		return conn.conn, nil
+		// Mutex on the conn
+		conn.mu.Lock()
+		defer conn.mu.Unlock()
+
+		// Write
+		conn.conn.SetWriteDeadline(time.Now().Add(clientConns.options.Timeout))
+		if err := messageOtw.Message.Write(conn.conn); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	// Dial
 	conn.conn, err = net.DialTimeout("tcp", addr.String(), clientConns.options.Timeout)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	// Write
 	conn.conn.SetWriteDeadline(time.Now().Add(clientConns.options.Timeout))
 	if err := messageOtw.Message.Write(conn.conn); err != nil {
-		return nil, err
+		return err
 	}
 
-	return conn.conn, err
+	return nil
 }
 
 // Close the connection to a remote server.
@@ -199,7 +226,7 @@ func (client *Client) Run(ctx context.Context) {
 }
 
 func (client *Client) sendMessageOnTheWire(ctx context.Context, messageOtw protocol.MessageOnTheWire) {
-	_, err := client.conns.Write(ctx, messageOtw.To, messageOtw)
+	err := client.conns.Write(ctx, messageOtw.To, messageOtw)
 	if err == nil {
 		return
 	}
@@ -209,7 +236,7 @@ func (client *Client) sendMessageOnTheWire(ctx context.Context, messageOtw proto
 		for i := 0; i < 30; i++ {
 			// Dial
 			client.conns.options.Logger.Warnf("retrying write to tcp connection to %v", messageOtw.To.String())
-			_, err := client.conns.Write(ctx, messageOtw.To, messageOtw)
+			err := client.conns.Write(ctx, messageOtw.To, messageOtw)
 			if err != nil {
 				time.Sleep(time.Second)
 				continue
