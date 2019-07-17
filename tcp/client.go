@@ -49,6 +49,16 @@ type ClientConns struct {
 // NewClientConns returns an empty ClientConns that will use ClientOptions to
 // control how to dials remote servers.
 func NewClientConns(options ClientOptions) *ClientConns {
+	if options.Logger == nil {
+		panic("pre-condition violation: logger is nil")
+	}
+	if options.Timeout == 0 {
+		options.Timeout = 10 * time.Second
+	}
+	if options.MaxConnections == 256 {
+		options.MaxConnections = 256
+	}
+
 	return &ClientConns{
 		options: options,
 		connsMu: new(sync.RWMutex),
@@ -180,15 +190,37 @@ func (client *Client) Run(ctx context.Context) {
 
 func (client *Client) sendMessageOnTheWire(ctx context.Context, messageOtw protocol.MessageOnTheWire) {
 	conn, err := client.conns.Dial(ctx, messageOtw.To)
-	if err != nil {
-		client.conns.options.Logger.Errorf("error dialing tcp connection to %v: %v", messageOtw.To.String(), err)
-		return
-	}
-
-	conn.SetWriteDeadline(time.Now().Add(client.conns.options.Timeout))
-
-	if err := messageOtw.Message.Write(conn); err != nil {
+	if err == nil {
+		conn.SetWriteDeadline(time.Now().Add(client.conns.options.Timeout))
+		err = messageOtw.Message.Write(conn)
+		if err == nil {
+			return
+		}
 		client.conns.options.Logger.Errorf("error writing to tcp connection to %v: %v", messageOtw.To.String(), err)
-		return
+	} else {
+		client.conns.options.Logger.Errorf("error dialing tcp connection to %v: %v", messageOtw.To.String(), err)
 	}
+
+	go func() {
+		for i := 0; i < 30; i++ {
+			// Dial
+			client.conns.options.Logger.Warnf("retrying tcp send to %v", messageOtw.To.String())
+			conn, err := client.conns.Dial(ctx, messageOtw.To)
+			if err != nil {
+				client.conns.options.Logger.Errorf("error retrying tcp dial to %v: %v", messageOtw.To.String(), err)
+				time.Sleep(time.Second)
+				continue
+			}
+
+			// Write
+			conn.SetWriteDeadline(time.Now().Add(client.conns.options.Timeout))
+			if err := messageOtw.Message.Write(conn); err != nil {
+				client.conns.options.Logger.Errorf("error retrying tcp write to %v: %v", messageOtw.To.String(), err)
+				time.Sleep(time.Second)
+				continue
+			}
+
+			return
+		}
+	}()
 }

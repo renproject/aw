@@ -9,5 +9,5 @@ import (
 
 func TestTcp(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Tcp Suite")
+	RunSpecs(t, "TCP Suite")
 }
