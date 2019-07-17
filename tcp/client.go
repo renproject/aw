@@ -233,15 +233,21 @@ func (client *Client) sendMessageOnTheWire(ctx context.Context, messageOtw proto
 	client.conns.options.Logger.Errorf("error writing to tcp connection to %v: %v", messageOtw.To.String(), err)
 
 	go func() {
-		for i := 0; i < 30; i++ {
+		begin := time.Now()
+		delay := time.Duration(1000)
+		for i := 0; i < 60; i++ {
 			// Dial
-			client.conns.options.Logger.Warnf("retrying write to tcp connection to %v", messageOtw.To.String())
+			client.conns.options.Logger.Warnf("retrying write to tcp connection to %v with delay of %.4f second(s)", messageOtw.To.String(), time.Now().Sub(begin).Seconds)
 			err := client.conns.Write(ctx, messageOtw.To, messageOtw)
 			if err != nil {
-				time.Sleep(time.Second)
+				time.Sleep(delay * time.Millisecond)
+				delay = time.Duration(float64(delay) * 1.6)
+				if delay > time.Duration(30000) {
+					delay = time.Duration(30000)
+				}
 				continue
 			}
-			client.conns.options.Logger.Infof("write to tcp connection to %v: success", messageOtw.To.String())
+			client.conns.options.Logger.Infof("write to tcp connection to %v success after delay of %.4f second(s)", messageOtw.To.String(), time.Now().Sub(begin).Seconds)
 			return
 		}
 	}()
