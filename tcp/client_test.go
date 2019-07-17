@@ -5,6 +5,7 @@ import (
 
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/aw/tcp"
+	"github.com/sirupsen/logrus"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -21,6 +22,7 @@ var _ = Describe("Client", func() {
 
 			toClient := make(chan protocol.MessageOnTheWire)
 			_ = tcp.NewClient(tcp.NewClientConns(tcp.ClientOptions{
+				Logger:  logrus.StandardLogger(),
 				Timeout: time.Second,
 			}), toClient)
 
