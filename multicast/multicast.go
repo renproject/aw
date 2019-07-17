@@ -45,7 +45,7 @@ func (multicaster *multicaster) Multicast(ctx context.Context, body protocol.Mes
 	for i := range peerAddrs {
 		messageWire := protocol.MessageOnTheWire{
 			To:      peerAddrs[i].NetworkAddress(),
-			Message: protocol.NewMessage(protocol.V1, protocol.Broadcast, body),
+			Message: protocol.NewMessage(protocol.V1, protocol.Multicast, body),
 		}
 		select {
 		case <-ctx.Done():
