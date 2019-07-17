@@ -208,13 +208,13 @@ func (client *Client) sendMessageOnTheWire(ctx context.Context, messageOtw proto
 	go func() {
 		for i := 0; i < 30; i++ {
 			// Dial
-			client.conns.options.Logger.Infof("retrying write to tcp connection to %v", messageOtw.To.String())
+			client.conns.options.Logger.Warnf("retrying write to tcp connection to %v", messageOtw.To.String())
 			_, err := client.conns.Write(ctx, messageOtw.To, messageOtw)
 			if err != nil {
 				time.Sleep(time.Second)
 				continue
 			}
-
+			client.conns.options.Logger.Infof("write to tcp connection to %v: success", messageOtw.To.String())
 			return
 		}
 	}()
