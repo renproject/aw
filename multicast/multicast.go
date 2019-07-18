@@ -7,6 +7,7 @@ import (
 
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/protocol"
+	"github.com/sirupsen/logrus"
 )
 
 type Multicaster interface {
@@ -16,15 +17,17 @@ type Multicaster interface {
 
 type multicaster struct {
 	dht      dht.DHT
+	logger   logrus.FieldLogger
 	messages protocol.MessageSender
 	events   protocol.EventSender
 }
 
-func NewMulticaster(dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender) Multicaster {
+func NewMulticaster(dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender, logger logrus.FieldLogger) Multicaster {
 	return &multicaster{
 		dht:      dht,
 		messages: messages,
 		events:   events,
+		logger:   logger,
 	}
 }
 
