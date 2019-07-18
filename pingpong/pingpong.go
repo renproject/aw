@@ -7,6 +7,7 @@ import (
 
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/protocol"
+	"github.com/sirupsen/logrus"
 )
 
 type PingPonger interface {
@@ -20,14 +21,16 @@ type pingPonger struct {
 	messages protocol.MessageSender
 	events   protocol.EventSender
 	codec    protocol.PeerAddressCodec
+	logger   logrus.FieldLogger
 }
 
-func NewPingPonger(dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender, codec protocol.PeerAddressCodec) PingPonger {
+func NewPingPonger(dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender, codec protocol.PeerAddressCodec, logger logrus.FieldLogger) PingPonger {
 	return &pingPonger{
 		dht:      dht,
 		messages: messages,
 		events:   events,
 		codec:    codec,
+		logger:   logger,
 	}
 }
 
