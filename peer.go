@@ -12,6 +12,8 @@ import (
 	"github.com/renproject/aw/multicast"
 	"github.com/renproject/aw/pingpong"
 	"github.com/renproject/aw/protocol"
+	"github.com/renproject/kv"
+	"github.com/renproject/kv/db"
 	"github.com/renproject/phi"
 	"github.com/sirupsen/logrus"
 )
@@ -27,6 +29,8 @@ type PeerOptions struct {
 	EventBuffer       int           // Defaults to 0
 	BootstrapWorkers  int           // Defaults to 2x the number of CPUs
 	BootstrapDuration time.Duration // Defaults to 1 hour
+	DHTStore          db.Iterable   // Defaults to using in memory store
+	BroadcasterStore  db.Iterable   // Defaults to using in memory store
 }
 
 type Peer interface {
@@ -49,6 +53,36 @@ type peer struct {
 	broadcaster broadcast.Broadcaster
 
 	receiver MessageReceiver
+}
+
+func Default(options PeerOptions, receiver MessageReceiver, sender MessageSender, events EventSender) Peer {
+	// Pre-condition check
+	if err := validateOptions(options); err != nil {
+		panic(fmt.Errorf("pre-condition violation: %v", newErrInvalidPeerOptions(err)))
+	}
+
+	if options.DHTStore == nil {
+		options.DHTStore = kv.NewMemDB()
+	}
+
+	if options.BroadcasterStore == nil {
+		options.BroadcasterStore = kv.NewMemDB()
+	}
+
+	dht, err := dht.New(options.Me, options.Codec, kv.NewGob(options.DHTStore), options.BootstrapAddresses...)
+	if err != nil {
+		panic(fmt.Errorf("failed to initialize DHT: %v", err))
+	}
+
+	return New(
+		options,
+		receiver,
+		dht,
+		pingpong.NewPingPonger(dht, sender, events, options.Codec, options.Logger),
+		cast.NewCaster(dht, sender, events, options.Logger),
+		multicast.NewMulticaster(dht, sender, events, options.Logger),
+		broadcast.NewBroadcaster(broadcast.NewStorage(kv.NewGob(options.BroadcasterStore)), dht, sender, events, options.Logger),
+	)
 }
 
 func New(options PeerOptions, receiver MessageReceiver, dht dht.DHT, pingponger pingpong.PingPonger, caster cast.Caster, multicaster multicast.Multicaster, broadcaster broadcast.Broadcaster) Peer {

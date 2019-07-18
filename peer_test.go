@@ -50,25 +50,25 @@ var _ = Describe("airwaves peer", func() {
 		}
 
 		go co.ParForAll(peerAddresses, func(i int) {
-			sender := make(chan protocol.MessageOnTheWire, 10)
-			receiver := make(chan protocol.MessageOnTheWire, 10)
+			serverMessages := make(chan protocol.MessageOnTheWire, 10)
+			clientMessages := make(chan protocol.MessageOnTheWire, 10)
+			events := make(chan protocol.Event, 10)
 			bootstrapAddrs := utils.Remove(peerAddresses, i)
 
-			go startServer(ctx, peerAddresses[i].NetworkAddress().String(), receiver)
-			go startClient(ctx, sender)
+			go startServer(ctx, peerAddresses[i].NetworkAddress().String(), serverMessages)
+			go startClient(ctx, clientMessages)
 
 			logger := logrus.StandardLogger()
 			if i != 0 {
 				logger.SetOutput(ioutil.Discard)
 			}
-			peer, events := New(PeerOptions{
+			peer := Default(PeerOptions{
 				Me:                 peerAddresses[i],
 				BootstrapAddresses: bootstrapAddrs,
 				Codec:              codec,
 
-				Logger:         logger,
-				BootstrapDelay: time.Minute,
-			}, sender, receiver)
+				Logger: logger,
+			}, serverMessages, clientMessages, events)
 
 			go func() {
 				for {
@@ -86,70 +86,93 @@ var _ = Describe("airwaves peer", func() {
 	}
 
 	tableNodeCount := []struct {
-		Total int
-		Known int
+		TotalBootstrap int
+		KnownBootstrap int
+
+		NewNodes int
 	}{
 		// When all the nodes are known
-		{4, 4},
-		{10, 10},
-		{20, 20},
-		{40, 40},
+		{4, 4, 4},
+		// {10, 10, 10},
+		// {20, 20, 10},
+		// {40, 40, 40},
 
-		// When half of nodes are known
-		{4, 2},
-		{10, 5},
-		{20, 10},
-		{40, 20},
+		// // When half of nodes are known
+		// {4, 2, 4},
+		// {10, 5, 10},
+		// {20, 10, 20},
+		// {40, 20, 40},
 
-		// When one node is known
-		{4, 1},
-		{10, 1},
-		{20, 1},
-		{40, 1},
+		// // When one node is known
+		// {4, 1, 4},
+		// {10, 1, 10},
+		// {20, 1, 20},
+		// {40, 1, 40},
 	}
 
 	Context("when bootstrapping", func() {
 		for _, nodeCount := range tableNodeCount {
-			It(fmt.Sprintf("should connect to %d nodes when %d nodes are known", nodeCount.Total, nodeCount.Known), func() {
+			nodeCount := nodeCount
+			It(fmt.Sprintf(
+				"should connect to %d nodes when %d nodes are known, when new nodes join sequentially",
+				nodeCount.TotalBootstrap+nodeCount.NewNodes, nodeCount.KnownBootstrap), func() {
+
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
-				bootstrapAddrs, err := startNodes(ctx, nodeCount.Total)
+				bootstrapAddrs, err := startNodes(ctx, nodeCount.TotalBootstrap)
 				Expect(err).Should(BeNil())
-				sender := make(chan protocol.MessageOnTheWire, 10)
-				receiver := make(chan protocol.MessageOnTheWire, 10)
-				me := utils.NewSimpleTCPPeerAddress("test_node", "127.0.0.1", fmt.Sprintf("%d", 5000))
+
+				peerAddresses := make([]PeerAddress, nodeCount.NewNodes)
+				for i := range peerAddresses {
+					peerAddresses[i] = utils.NewSimpleTCPPeerAddress(fmt.Sprintf("test_node_%d", i), "127.0.0.1", fmt.Sprintf("%d", 5000+i))
+				}
 				codec := utils.NewSimpleTCPPeerAddressCodec()
 
-				go startServer(ctx, me.NetworkAddress().String(), receiver)
-				go startClient(ctx, sender)
+				peers := make([]Peer, nodeCount.NewNodes)
+				for i, peerAddr := range peerAddresses {
+					serverMessages := make(chan protocol.MessageOnTheWire, 10)
+					clientMessages := make(chan protocol.MessageOnTheWire, 10)
+					events := make(chan protocol.Event, 10)
 
-				peer, events := New(PeerOptions{
-					Me:                 me,
-					BootstrapAddresses: bootstrapAddrs[:nodeCount.Known],
-					Codec:              codec,
+					me := peerAddr
 
-					BootstrapDelay: time.Second,
-					Logger:         logrus.StandardLogger(),
-				}, sender, receiver)
+					go startServer(ctx, me.NetworkAddress().String(), serverMessages)
+					go startClient(ctx, clientMessages)
 
-				go peer.Run(ctx)
-				go func() {
-					for {
-						select {
-						case <-ctx.Done():
-							return
-						case <-events:
+					peer := Default(PeerOptions{
+						Me:                 me,
+						BootstrapAddresses: bootstrapAddrs[:nodeCount.KnownBootstrap],
+						Codec:              codec,
+
+						Logger: logrus.StandardLogger(),
+					}, serverMessages, clientMessages, events)
+
+					go peer.Run(ctx)
+					go func() {
+						for {
+							select {
+							case <-ctx.Done():
+								return
+							case <-events:
+							}
 						}
-					}
-				}()
+					}()
+					peers[i] = peer
+				}
 
-				// wait for the node to bootstrap
+				// wait for the nodes to bootstrap
 				time.Sleep(5 * time.Second)
 
-				val, err := peer.NumPeers(ctx)
-				Expect(err).Should(BeNil())
-				Expect(val).Should(Equal(nodeCount.Total))
+				for _, peer := range peers {
+					val, err := peer.NumPeers(ctx)
+					Expect(err).Should(BeNil())
+					Expect(val).Should(Equal(nodeCount.TotalBootstrap + nodeCount.NewNodes))
+				}
 			})
 		}
+	})
+
+	Context("when casting", func() {
+
 	})
 })
