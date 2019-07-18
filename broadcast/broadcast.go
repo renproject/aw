@@ -7,6 +7,7 @@ import (
 
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/protocol"
+	"github.com/sirupsen/logrus"
 )
 
 // A Broadcaster is used to send messages to all peers in the network. This is
@@ -30,17 +31,19 @@ type broadcaster struct {
 	dht      dht.DHT
 	messages protocol.MessageSender
 	events   protocol.EventSender
+	logger   logrus.FieldLogger
 }
 
 // NewBroadcaster returns a Broadcaster that will use the given Storage
 // interface and DHT interface for storing messages and peer addresses
 // respectively.
-func NewBroadcaster(storage Storage, dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender) Broadcaster {
+func NewBroadcaster(storage Storage, dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender, logger logrus.FieldLogger) Broadcaster {
 	return &broadcaster{
 		storage:  storage,
 		dht:      dht,
 		messages: messages,
 		events:   events,
+		logger:   logger,
 	}
 }
 
