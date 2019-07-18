@@ -7,6 +7,7 @@ import (
 
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/protocol"
+	"github.com/sirupsen/logrus"
 )
 
 type Caster interface {
@@ -18,13 +19,15 @@ type caster struct {
 	dht      dht.DHT
 	messages protocol.MessageSender
 	events   protocol.EventSender
+	logger   logrus.FieldLogger
 }
 
-func NewCaster(dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender) Caster {
+func NewCaster(dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender, logger logrus.FieldLogger) Caster {
 	return &caster{
 		dht:      dht,
 		messages: messages,
 		events:   events,
+		logger:   logger,
 	}
 }
 
