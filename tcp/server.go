@@ -77,7 +77,7 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 
 		if err := messageOtw.Message.Read(conn); err != nil {
 			server.options.Logger.Error(newErrReadingIncomingMessage(err))
-			continue
+			return
 		}
 
 		select {

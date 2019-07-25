@@ -90,6 +90,8 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 		// Write
 		conn.conn.SetWriteDeadline(time.Now().Add(clientConns.options.Timeout))
 		if err := messageOtw.Message.Write(conn.conn); err != nil {
+			conn.conn.Close()
+			delete(clientConns.conns, addr.String())
 			return err
 		}
 		return nil
@@ -129,6 +131,8 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 		// Write
 		conn.conn.SetWriteDeadline(time.Now().Add(clientConns.options.Timeout))
 		if err := messageOtw.Message.Write(conn.conn); err != nil {
+			conn.conn.Close()
+			delete(clientConns.conns, addr.String())
 			return err
 		}
 		return nil
@@ -149,6 +153,8 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 		// Write
 		conn.conn.SetWriteDeadline(time.Now().Add(clientConns.options.Timeout))
 		if err := messageOtw.Message.Write(conn.conn); err != nil {
+			conn.conn.Close()
+			delete(clientConns.conns, addr.String())
 			return err
 		}
 		return nil
