@@ -6,6 +6,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/protocol"
 	"github.com/sirupsen/logrus"
 )
@@ -16,8 +17,9 @@ type ServerOptions struct {
 }
 
 type Server struct {
-	options  ServerOptions
-	messages protocol.MessageSender
+	options        ServerOptions
+	signerVerifier protocol.SignerVerifier
+	messages       protocol.MessageSender
 }
 
 func NewServer(options ServerOptions, messages protocol.MessageSender) *Server {
@@ -63,6 +65,13 @@ func (server *Server) Listen(ctx context.Context, bind string) error {
 func (server *Server) handle(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
+	handshakeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := server.handshake(handshakeCtx, conn); err != nil {
+		server.options.Logger.Error("failed to perform handshake with %s: %v", conn.RemoteAddr().String(), err)
+		return
+	}
+
 	// Accepted connections are not written to, so we prevent write timeouts by
 	// setting the write deadline to zero
 	conn.SetWriteDeadline(time.Time{})
@@ -86,6 +95,17 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		case server.messages <- messageOtw:
 		}
 	}
+}
+
+func (server *Server) handshake(ctx context.Context, conn net.Conn) error {
+	handshaker := handshake.NewHandShaker(server.signerVerifier)
+	if err := handshaker.OnReceive(ctx, conn); err != nil {
+		return err
+	}
+	if err := handshaker.OnChallengeResponse(ctx, conn); err != nil {
+		return err
+	}
+	return nil
 }
 
 type ErrReadingIncomingMessage struct {

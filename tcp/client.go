@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/protocol"
 	"github.com/sirupsen/logrus"
 )
@@ -21,6 +22,8 @@ type ClientOptions struct {
 	Timeout time.Duration
 	// MaxConnections to remote servers that the Client will maintain.
 	MaxConnections int
+	// SignerVerifier is used during the handshaking process
+	SignerVerifier protocol.SignerVerifier
 }
 
 // ClientConn is a network connection associated with a mutex. This allows for
@@ -165,6 +168,17 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 	if err != nil {
 		return err
 	}
+
+	hsCTX, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	// Handshake
+	if err := clientConns.handshake(hsCTX, conn.conn); err != nil {
+		conn.conn.Close()
+		delete(clientConns.conns, addr.String())
+		return err
+	}
+
 	// Write
 	conn.conn.SetWriteDeadline(time.Now().Add(clientConns.options.Timeout))
 	if err := messageOtw.Message.Write(conn.conn); err != nil {
@@ -257,4 +271,15 @@ func (client *Client) sendMessageOnTheWire(ctx context.Context, messageOtw proto
 			return
 		}
 	}()
+}
+
+func (clientConns *ClientConns) handshake(ctx context.Context, conn net.Conn) error {
+	handshaker := handshake.NewHandShaker(clientConns.options.SignerVerifier)
+	if err := handshaker.OnConnect(ctx, conn); err != nil {
+		return err
+	}
+	if err := handshaker.OnChallengeAccept(ctx, conn); err != nil {
+		return err
+	}
+	return nil
 }
