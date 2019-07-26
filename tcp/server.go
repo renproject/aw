@@ -12,20 +12,22 @@ import (
 )
 
 type ServerOptions struct {
-	Logger  logrus.FieldLogger
-	Timeout time.Duration
+	Logger       logrus.FieldLogger
+	Timeout      time.Duration
+	SignVerifier protocol.SignVerifier
 }
 
 type Server struct {
-	options        ServerOptions
-	signerVerifier protocol.SignerVerifier
-	messages       protocol.MessageSender
+	options    ServerOptions
+	messages   protocol.MessageSender
+	handShaker handshake.HandShaker
 }
 
 func NewServer(options ServerOptions, messages protocol.MessageSender) *Server {
 	return &Server{
-		options:  options,
-		messages: messages,
+		options:    options,
+		handShaker: handshake.NewHandShaker(options.SignVerifier),
+		messages:   messages,
 	}
 }
 
@@ -98,11 +100,10 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 }
 
 func (server *Server) handshake(ctx context.Context, conn net.Conn) error {
-	handshaker := handshake.NewHandShaker(server.signerVerifier)
-	if err := handshaker.OnReceive(ctx, conn); err != nil {
+	if err := server.handShaker.ValidateHandShakeMessage(ctx, conn, []byte(conn.RemoteAddr().String())); err != nil {
 		return err
 	}
-	if err := handshaker.OnChallengeResponse(ctx, conn); err != nil {
+	if err := server.handShaker.SendHandShakeMessage(ctx, conn, []byte(conn.LocalAddr().String())); err != nil {
 		return err
 	}
 	return nil

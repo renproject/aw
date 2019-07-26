@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/renproject/aw/handshake"
+
 	"github.com/renproject/aw/protocol"
 	"github.com/sirupsen/logrus"
 )
@@ -22,8 +23,8 @@ type ClientOptions struct {
 	Timeout time.Duration
 	// MaxConnections to remote servers that the Client will maintain.
 	MaxConnections int
-	// SignerVerifier is used during the handshaking process
-	SignerVerifier protocol.SignerVerifier
+	// SignVerifier is used during the handshaking process
+	SignVerifier protocol.SignVerifier
 }
 
 // ClientConn is a network connection associated with a mutex. This allows for
@@ -44,9 +45,10 @@ func NewClientConn() *ClientConn {
 // ClientConns is an in memory cache of connections to remote servers that is
 // safe for concurrent use.
 type ClientConns struct {
-	options ClientOptions
-	connsMu *sync.RWMutex
-	conns   map[string]*ClientConn
+	options    ClientOptions
+	connsMu    *sync.RWMutex
+	conns      map[string]*ClientConn
+	handShaker handshake.HandShaker
 }
 
 // NewClientConns returns an empty ClientConns that will use ClientOptions to
@@ -63,9 +65,10 @@ func NewClientConns(options ClientOptions) *ClientConns {
 	}
 
 	return &ClientConns{
-		options: options,
-		connsMu: new(sync.RWMutex),
-		conns:   map[string]*ClientConn{},
+		options:    options,
+		connsMu:    new(sync.RWMutex),
+		conns:      map[string]*ClientConn{},
+		handShaker: handshake.NewHandShaker(options.SignVerifier),
 	}
 }
 
@@ -274,11 +277,10 @@ func (client *Client) sendMessageOnTheWire(ctx context.Context, messageOtw proto
 }
 
 func (clientConns *ClientConns) handshake(ctx context.Context, conn net.Conn) error {
-	handshaker := handshake.NewHandShaker(clientConns.options.SignerVerifier)
-	if err := handshaker.OnConnect(ctx, conn); err != nil {
+	if err := clientConns.handShaker.SendHandShakeMessage(ctx, conn, []byte(conn.LocalAddr().String())); err != nil {
 		return err
 	}
-	if err := handshaker.OnChallengeAccept(ctx, conn); err != nil {
+	if err := clientConns.handShaker.ValidateHandShakeMessage(ctx, conn, []byte(conn.RemoteAddr().String())); err != nil {
 		return err
 	}
 	return nil
