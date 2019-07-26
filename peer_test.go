@@ -12,28 +12,28 @@ import (
 
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/aw/tcp"
-	"github.com/renproject/aw/utils"
+	"github.com/renproject/aw/testutil"
 	"github.com/renproject/phi/co"
 	"github.com/sirupsen/logrus"
 )
 
 var _ = Describe("airwaves peer", func() {
-	startServer := func(ctx context.Context, bind string, sender protocol.MessageSender) {
-		logger := logrus.StandardLogger()
+	initServer := func(ctx context.Context, bind string, sender protocol.MessageSender, sv protocol.SignVerifier) {
 		err := tcp.NewServer(tcp.ServerOptions{
-			Logger:  logger,
-			Timeout: time.Minute,
+			SignVerifier: sv,
+			Logger:       logrus.StandardLogger(),
+			Timeout:      time.Minute,
 		}, sender).Listen(ctx, bind)
 		if err != nil {
 			panic(err)
 		}
 	}
 
-	startClient := func(ctx context.Context, receiver protocol.MessageReceiver) {
-		logger := logrus.StandardLogger()
+	initClient := func(ctx context.Context, receiver protocol.MessageReceiver, sv protocol.SignVerifier) {
 		tcp.NewClient(
 			tcp.NewClientConns(tcp.ClientOptions{
-				Logger:         logger,
+				SignVerifier:   sv,
+				Logger:         logrus.StandardLogger(),
 				Timeout:        time.Minute,
 				MaxConnections: 10,
 			}),
@@ -41,22 +41,40 @@ var _ = Describe("airwaves peer", func() {
 		).Run(ctx)
 	}
 
-	startNodes := func(ctx context.Context, nodeCount int) (PeerAddresses, error) {
-		codec := utils.NewSimpleTCPPeerAddressCodec()
+	initSignVerifiers := func(nodeCount int) []testutil.MockSignVerifier {
+		signVerifiers := make([]testutil.MockSignVerifier, nodeCount)
+		for i := range signVerifiers {
+			signVerifiers[i] = testutil.NewMockSignVerifier()
+		}
+		for i := range signVerifiers {
+			for j := range signVerifiers {
+				signVerifiers[i].Whitelist(signVerifiers[j].ID())
+			}
+		}
+		return signVerifiers
+	}
+
+	startNodes := func(ctx context.Context, signVerifiers []testutil.MockSignVerifier, nodeCount int) (PeerAddresses, error) {
+		codec := testutil.NewSimpleTCPPeerAddressCodec()
 		peerAddresses := make([]PeerAddress, nodeCount)
 
 		for i := range peerAddresses {
-			peerAddresses[i] = utils.NewSimpleTCPPeerAddress(fmt.Sprintf("bootstrap_%d", i), "127.0.0.1", fmt.Sprintf("%d", 46532+i))
+			peerAddresses[i] = testutil.NewSimpleTCPPeerAddress(fmt.Sprintf("bootstrap_%d", i), "127.0.0.1", fmt.Sprintf("%d", 46532+i))
+			signVerifiers[i] = testutil.NewMockSignVerifier()
 		}
 
 		go co.ParForAll(peerAddresses, func(i int) {
 			serverMessages := make(chan protocol.MessageOnTheWire, 10)
 			clientMessages := make(chan protocol.MessageOnTheWire, 10)
 			events := make(chan protocol.Event, 10)
-			bootstrapAddrs := utils.Remove(peerAddresses, i)
+			bootstrapAddrs := testutil.Remove(peerAddresses, i)
 
-			go startServer(ctx, peerAddresses[i].NetworkAddress().String(), serverMessages)
-			go startClient(ctx, clientMessages)
+			for j := range peerAddresses {
+				signVerifiers[i].Whitelist(signVerifiers[j].ID())
+			}
+
+			go initServer(ctx, peerAddresses[i].NetworkAddress().String(), serverMessages, signVerifiers[i])
+			go initClient(ctx, clientMessages, signVerifiers[i])
 
 			logger := logrus.StandardLogger()
 			if i != 0 {
@@ -117,16 +135,22 @@ var _ = Describe("airwaves peer", func() {
 				"should connect to %d nodes when %d nodes are known, when new nodes join sequentially",
 				nodeCount.TotalBootstrap+nodeCount.NewNodes, nodeCount.KnownBootstrap), func() {
 
+				signVerifiers := initSignVerifiers(nodeCount.TotalBootstrap + nodeCount.NewNodes)
+				bootstrapSignVerifiers := make([]testutil.MockSignVerifier, nodeCount.TotalBootstrap)
+				nodeSignVerifiers := make([]testutil.MockSignVerifier, nodeCount.NewNodes)
+				copy(bootstrapSignVerifiers, signVerifiers[:nodeCount.TotalBootstrap])
+				copy(nodeSignVerifiers, signVerifiers[nodeCount.TotalBootstrap:])
+
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
-				bootstrapAddrs, err := startNodes(ctx, nodeCount.TotalBootstrap)
+				bootstrapAddrs, err := startNodes(ctx, bootstrapSignVerifiers, nodeCount.TotalBootstrap)
 				Expect(err).Should(BeNil())
 
 				peerAddresses := make([]PeerAddress, nodeCount.NewNodes)
 				for i := range peerAddresses {
-					peerAddresses[i] = utils.NewSimpleTCPPeerAddress(fmt.Sprintf("test_node_%d", i), "127.0.0.1", fmt.Sprintf("%d", 5000+i))
+					peerAddresses[i] = testutil.NewSimpleTCPPeerAddress(fmt.Sprintf("test_node_%d", i), "127.0.0.1", fmt.Sprintf("%d", 5000+i))
 				}
-				codec := utils.NewSimpleTCPPeerAddressCodec()
+				codec := testutil.NewSimpleTCPPeerAddressCodec()
 
 				peers := make([]Peer, nodeCount.NewNodes)
 				for i, peerAddr := range peerAddresses {
@@ -136,8 +160,8 @@ var _ = Describe("airwaves peer", func() {
 
 					me := peerAddr
 
-					go startServer(ctx, me.NetworkAddress().String(), serverMessages)
-					go startClient(ctx, clientMessages)
+					go initServer(ctx, me.NetworkAddress().String(), serverMessages, nodeSignVerifiers[i])
+					go initClient(ctx, clientMessages, nodeSignVerifiers[i])
 
 					peer := Default(PeerOptions{
 						Me:                 me,
@@ -161,7 +185,7 @@ var _ = Describe("airwaves peer", func() {
 				}
 
 				// wait for the nodes to bootstrap
-				time.Sleep(5 * time.Second)
+				time.Sleep(30 * time.Second)
 
 				for _, peer := range peers {
 					val, err := peer.NumPeers(ctx)
