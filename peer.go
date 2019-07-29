@@ -121,7 +121,6 @@ func (peer *peer) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			peer.options.Logger.Errorf("%v", newErrBootstrapCanceled(ctx.Err()))
 			return
 
 		case <-ticker.C:
