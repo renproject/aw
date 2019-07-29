@@ -10,10 +10,10 @@ A flexible P2P networking library for upgradable distributed systems. The core m
 
 ### Handshake
 
-Airwave uses a 2 way async handshake method to authorize peers in the network. The process is as follows:
+Airwave uses a 3 way sync handshake method to authorize peers in the network. The process is as follows:
 
-![](arch/handshake.png)
+![](arch/handshake.svg)
 
-The peers validate whether the timestamp is within the last minute, the address they are communicating is the address in the message and if the signature is valid.
+The initiator sends a signed rsa public key on connect. The responder validates the signature, generates a random challenge, and sends signned random challenge encrypted with the initiators public key and the responder's public key. The initator validates the signature decrypts the challenge encrypts it with the responder's publickey, signs it and sends it back.
 
 Built with ❤ by Ren. 
