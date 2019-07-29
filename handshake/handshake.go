@@ -16,20 +16,27 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-type HandShaker interface {
-	Initiate(ctx context.Context, rw io.ReadWriter) error
-	Respond(ctx context.Context, rw io.ReadWriter) error
+type Handshaker interface {
+	// Handshake with a remote server by initiating, and then interactively
+	// completing, a handshake protocol. The remote server is accessed by
+	// reading/writing to the `io.ReaderWriter`.
+	Handshake(ctx context.Context, rw io.ReadWriter) error
+
+	// AcceptHandshake from a remote client by waiting for the initiation of,
+	// and then interactively completing, a handshake protocol. The remote
+	// client is accessed by reading/writing to the `io.ReaderWriter`.
+	AcceptHandshake(ctx context.Context, rw io.ReadWriter) error
 }
 
-type handShaker struct {
-	signVerifier protocol.SignVerifier
+type handshaker struct {
+	signerVerifier protocol.SignerVerifier
 }
 
-func NewHandShaker(signVerifier protocol.SignVerifier) HandShaker {
-	return &handShaker{signVerifier: signVerifier}
+func New(signerVerifier protocol.SignerVerifier) Handshaker {
+	return &handshaker{signerVerifier: signerVerifier}
 }
 
-func (hs *handShaker) Initiate(ctx context.Context, rw io.ReadWriter) error {
+func (hs *handshaker) Handshake(ctx context.Context, rw io.ReadWriter) error {
 	buf := new(bytes.Buffer)
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -68,7 +75,7 @@ func (hs *handShaker) Initiate(ctx context.Context, rw io.ReadWriter) error {
 	return nil
 }
 
-func (hs *handShaker) Respond(ctx context.Context, rw io.ReadWriter) error {
+func (hs *handshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) error {
 	buf := new(bytes.Buffer)
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -176,7 +183,7 @@ func readChallenge(r io.Reader, privKey *rsa.PrivateKey) ([32]byte, error) {
 	return challenge, nil
 }
 
-func (hs *handShaker) sign(r io.Reader, w io.Writer) error {
+func (hs *handshaker) sign(r io.Reader, w io.Writer) error {
 	data, err := ioutil.ReadAll(r)
 	if err != nil {
 		return err
@@ -184,7 +191,7 @@ func (hs *handShaker) sign(r io.Reader, w io.Writer) error {
 	n := len(data)
 
 	hash := sha3.Sum256(data)
-	sig, err := hs.signVerifier.Sign(hash[:])
+	sig, err := hs.signerVerifier.Sign(hash[:])
 	if err != nil {
 		return err
 	}
@@ -197,7 +204,7 @@ func (hs *handShaker) sign(r io.Reader, w io.Writer) error {
 	return nil
 }
 
-func (hs *handShaker) verify(r io.Reader, w io.Writer) error {
+func (hs *handshaker) verify(r io.Reader, w io.Writer) error {
 	var size uint64
 	if err := binary.Read(r, binary.LittleEndian, &size); err != nil {
 		return err
@@ -208,7 +215,7 @@ func (hs *handShaker) verify(r io.Reader, w io.Writer) error {
 		return fmt.Errorf("failed to read [%d != %d]: %v", uint64(n), size, err)
 	}
 	hash := sha3.Sum256(data[:size-65])
-	if err := hs.signVerifier.Verify(hash[:], data[size-65:]); err != nil {
+	if err := hs.signerVerifier.Verify(hash[:], data[size-65:]); err != nil {
 		return err
 	}
 	if wn, err := w.Write(data[:size-65]); uint64(wn) != size-65 || err != nil {
