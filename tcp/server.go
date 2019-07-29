@@ -13,21 +13,20 @@ import (
 )
 
 type ServerOptions struct {
-	Logger       logrus.FieldLogger
-	Timeout      time.Duration
-	SignVerifier protocol.SignVerifier
+	Logger  logrus.FieldLogger
+	Timeout time.Duration
 }
 
 type Server struct {
 	options    ServerOptions
 	messages   protocol.MessageSender
-	handShaker handshake.HandShaker
+	handshaker handshake.Handshaker
 }
 
-func NewServer(options ServerOptions, messages protocol.MessageSender) *Server {
+func NewServer(options ServerOptions, messages protocol.MessageSender, signerVerifier protocol.SignerVerifier) *Server {
 	return &Server{
 		options:    options,
-		handShaker: handshake.NewHandShaker(options.SignVerifier),
+		handshaker: handshake.New(signerVerifier),
 		messages:   messages,
 	}
 }
@@ -68,10 +67,10 @@ func (server *Server) Listen(ctx context.Context, bind string) error {
 func (server *Server) handle(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
-	handshakeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	if err := server.handShaker.Respond(handshakeCtx, conn); err != nil {
-		server.options.Logger.Errorf("failed to perform handshake with %s: %v", conn.RemoteAddr().String(), err)
+	handshakeCtx, handshakeCancel := context.WithTimeout(ctx, server.options.Timeout)
+	defer handshakeCancel()
+	if err := server.handshaker.AcceptHandshake(handshakeCtx, conn); err != nil {
+		server.options.Logger.Errorf("bad handshake with %v: %v", conn.RemoteAddr().String(), err)
 		return
 	}
 
@@ -79,7 +78,8 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 	// setting the write deadline to zero
 	conn.SetWriteDeadline(time.Time{})
 
-	// We do not know when the client will send us messages, so we prevent rea timeouts by setting the read deadline to zero
+	// We do not know when the client will send us messages, so we prevent rea
+	// timeouts by setting the read deadline to zero
 	conn.SetReadDeadline(time.Time{})
 
 	for {

@@ -23,8 +23,6 @@ type ClientOptions struct {
 	Timeout time.Duration
 	// MaxConnections to remote servers that the Client will maintain.
 	MaxConnections int
-	// SignVerifier is used during the handshaking process
-	SignVerifier protocol.SignVerifier
 }
 
 // ClientConn is a network connection associated with a mutex. This allows for
@@ -48,12 +46,12 @@ type ClientConns struct {
 	options    ClientOptions
 	connsMu    *sync.RWMutex
 	conns      map[string]*ClientConn
-	handShaker handshake.HandShaker
+	handshaker handshake.Handshaker
 }
 
 // NewClientConns returns an empty ClientConns that will use ClientOptions to
 // control how to dials remote servers.
-func NewClientConns(options ClientOptions) *ClientConns {
+func NewClientConns(options ClientOptions, signerVerifier protocol.SignerVerifier) *ClientConns {
 	if options.Logger == nil {
 		panic("pre-condition violation: logger is nil")
 	}
@@ -68,7 +66,7 @@ func NewClientConns(options ClientOptions) *ClientConns {
 		options:    options,
 		connsMu:    new(sync.RWMutex),
 		conns:      map[string]*ClientConn{},
-		handShaker: handshake.NewHandShaker(options.SignVerifier),
+		handshaker: handshake.New(signerVerifier),
 	}
 }
 
@@ -172,11 +170,10 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 		return err
 	}
 
-	hsCTX, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
 	// Handshake
-	if err := clientConns.handShaker.Initiate(hsCTX, conn.conn); err != nil {
+	handshakeCtx, handshakeCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer handshakeCancel()
+	if err := clientConns.handshaker.Handshake(handshakeCtx, conn.conn); err != nil {
 		conn.conn.Close()
 		delete(clientConns.conns, addr.String())
 		return err
