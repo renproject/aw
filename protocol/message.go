@@ -151,6 +151,9 @@ func (message Message) Write(writer io.Writer) error {
 
 func (message *Message) Read(reader io.Reader) error {
 	if err := binary.Read(reader, binary.LittleEndian, &message.Length); err != nil {
+		if err == io.EOF {
+			return err
+		}
 		return fmt.Errorf("error unmarshaling message length: %v", err)
 	}
 	if message.Length < 32 {
