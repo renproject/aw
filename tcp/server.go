@@ -69,8 +69,8 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 
 	handshakeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	if err := server.handshake(handshakeCtx, conn); err != nil {
-		server.options.Logger.Error("failed to perform handshake with %s: %v", conn.RemoteAddr().String(), err)
+	if err := server.handShaker.Respond(handshakeCtx, conn); err != nil {
+		server.options.Logger.Errorf("failed to perform handshake with %s: %v", conn.RemoteAddr().String(), err)
 		return
 	}
 
@@ -97,16 +97,6 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		case server.messages <- messageOtw:
 		}
 	}
-}
-
-func (server *Server) handshake(ctx context.Context, conn net.Conn) error {
-	if err := server.handShaker.ValidateHandShakeMessage(ctx, conn, []byte(conn.RemoteAddr().String())); err != nil {
-		return err
-	}
-	if err := server.handShaker.SendHandShakeMessage(ctx, conn, []byte(conn.LocalAddr().String())); err != nil {
-		return err
-	}
-	return nil
 }
 
 type ErrReadingIncomingMessage struct {

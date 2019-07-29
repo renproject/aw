@@ -176,7 +176,7 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 	defer cancel()
 
 	// Handshake
-	if err := clientConns.handshake(hsCTX, conn.conn); err != nil {
+	if err := clientConns.handShaker.Initiate(hsCTX, conn.conn); err != nil {
 		conn.conn.Close()
 		delete(clientConns.conns, addr.String())
 		return err
@@ -274,14 +274,4 @@ func (client *Client) sendMessageOnTheWire(ctx context.Context, messageOtw proto
 			return
 		}
 	}()
-}
-
-func (clientConns *ClientConns) handshake(ctx context.Context, conn net.Conn) error {
-	if err := clientConns.handShaker.SendHandShakeMessage(ctx, conn, []byte(conn.LocalAddr().String())); err != nil {
-		return err
-	}
-	if err := clientConns.handShaker.ValidateHandShakeMessage(ctx, conn, []byte(conn.RemoteAddr().String())); err != nil {
-		return err
-	}
-	return nil
 }
