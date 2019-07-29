@@ -3,6 +3,7 @@ package tcp
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"time"
 
@@ -45,15 +46,15 @@ func (server *Server) Listen(ctx context.Context, bind string) error {
 	}()
 
 	for {
-		// Check whether or not the context is done
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-		}
-
 		conn, err := listener.Accept()
 		if err != nil {
+			// Check whether or not the context is done
+			select {
+			case <-ctx.Done():
+				return nil
+			default:
+			}
+
 			server.options.Logger.Errorf("error accepting tcp connection: %v", err)
 			continue
 		}
@@ -87,7 +88,9 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		}
 
 		if err := messageOtw.Message.Read(conn); err != nil {
-			server.options.Logger.Error(newErrReadingIncomingMessage(err))
+			if err != io.EOF {
+				server.options.Logger.Error(newErrReadingIncomingMessage(err))
+			}
 			return
 		}
 
