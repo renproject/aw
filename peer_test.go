@@ -3,7 +3,6 @@ package aw_test
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -63,7 +62,7 @@ var _ = Describe("airwaves peer", func() {
 			signVerifiers[i] = testutil.NewMockSignVerifier()
 		}
 
-		go co.ParForAll(peerAddresses, func(i int) {
+		co.ParForAll(peerAddresses, func(i int) {
 			serverMessages := make(chan protocol.MessageOnTheWire, 10)
 			clientMessages := make(chan protocol.MessageOnTheWire, 10)
 			events := make(chan protocol.Event, 10)
@@ -76,29 +75,28 @@ var _ = Describe("airwaves peer", func() {
 			go initServer(ctx, peerAddresses[i].NetworkAddress().String(), serverMessages, signVerifiers[i])
 			go initClient(ctx, clientMessages, signVerifiers[i])
 
-			logger := logrus.StandardLogger()
-			if i != 0 {
-				logger.SetOutput(ioutil.Discard)
-			}
 			peer := Default(PeerOptions{
 				Me:                 peerAddresses[i],
 				BootstrapAddresses: bootstrapAddrs,
 				Codec:              codec,
 
-				Logger: logger,
+				Logger: logrus.StandardLogger(),
 			}, serverMessages, clientMessages, events)
 
-			go func() {
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					case <-events:
+			go co.ParBegin(
+				func() {
+					for {
+						select {
+						case <-ctx.Done():
+							return
+						case <-events:
+						}
 					}
-				}
-			}()
-
-			peer.Run(ctx)
+				},
+				func() {
+					peer.Run(ctx)
+				},
+			)
 		})
 		return peerAddresses, nil
 	}
@@ -116,13 +114,13 @@ var _ = Describe("airwaves peer", func() {
 		// {40, 40, 40},
 
 		// // When half of nodes are known
-		// {4, 2, 4},
+		{4, 2, 4},
 		// {10, 5, 10},
 		// {20, 10, 20},
 		// {40, 20, 40},
 
 		// // When one node is known
-		// {4, 1, 4},
+		{4, 1, 4},
 		// {10, 1, 10},
 		// {20, 1, 20},
 		// {40, 1, 40},
@@ -185,12 +183,12 @@ var _ = Describe("airwaves peer", func() {
 				}
 
 				// wait for the nodes to bootstrap
-				time.Sleep(30 * time.Second)
+				time.Sleep(15 * time.Second)
 
 				for _, peer := range peers {
 					val, err := peer.NumPeers(ctx)
 					Expect(err).Should(BeNil())
-					Expect(val).Should(Equal(nodeCount.TotalBootstrap + nodeCount.NewNodes))
+					Expect(val).Should(Equal(nodeCount.TotalBootstrap + nodeCount.NewNodes - 1))
 				}
 			})
 		}
