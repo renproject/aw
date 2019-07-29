@@ -59,7 +59,6 @@ var _ = Describe("airwaves peer", func() {
 
 		for i := range peerAddresses {
 			peerAddresses[i] = testutil.NewSimpleTCPPeerAddress(fmt.Sprintf("bootstrap_%d", i), "127.0.0.1", fmt.Sprintf("%d", 46532+i))
-			signVerifiers[i] = testutil.NewMockSignVerifier()
 		}
 
 		co.ParForAll(peerAddresses, func(i int) {
@@ -67,11 +66,6 @@ var _ = Describe("airwaves peer", func() {
 			clientMessages := make(chan protocol.MessageOnTheWire, 10)
 			events := make(chan protocol.Event, 10)
 			bootstrapAddrs := testutil.Remove(peerAddresses, i)
-
-			for j := range peerAddresses {
-				signVerifiers[i].Whitelist(signVerifiers[j].ID())
-			}
-
 			go initServer(ctx, peerAddresses[i].NetworkAddress().String(), serverMessages, signVerifiers[i])
 			go initClient(ctx, clientMessages, signVerifiers[i])
 
