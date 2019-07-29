@@ -177,7 +177,7 @@ var _ = Describe("airwaves peer", func() {
 				}
 
 				// wait for the nodes to bootstrap
-				time.Sleep(15 * time.Second)
+				time.Sleep(time.Minute)
 
 				for _, peer := range peers {
 					val, err := peer.NumPeers(ctx)
