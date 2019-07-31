@@ -20,25 +20,23 @@ import (
 )
 
 var _ = Describe("Tcp", func() {
-	initServer := func(ctx context.Context, bind string, sender protocol.MessageSender, sv protocol.SignVerifier) {
+	initServer := func(ctx context.Context, bind string, sender protocol.MessageSender, sv protocol.SignerVerifier) {
 		err := tcp.NewServer(tcp.ServerOptions{
-			SignVerifier: sv,
-			Logger:       logrus.StandardLogger(),
-			Timeout:      time.Minute,
-		}, sender).Listen(ctx, bind)
+			Logger:  logrus.StandardLogger(),
+			Timeout: time.Minute,
+		}, sender, sv).Listen(ctx, bind)
 		if err != nil {
 			panic(err)
 		}
 	}
 
-	initClient := func(ctx context.Context, receiver protocol.MessageReceiver, sv protocol.SignVerifier) {
+	initClient := func(ctx context.Context, receiver protocol.MessageReceiver, sv protocol.SignerVerifier) {
 		tcp.NewClient(
 			tcp.NewClientConns(tcp.ClientOptions{
-				SignVerifier:   sv,
 				Logger:         logrus.StandardLogger(),
 				Timeout:        time.Minute,
 				MaxConnections: 10,
-			}),
+			}, sv),
 			receiver,
 		).Run(ctx)
 	}
@@ -52,13 +50,13 @@ var _ = Describe("Tcp", func() {
 			fromServer := make(chan protocol.MessageOnTheWire, 1000)
 			toClient := make(chan protocol.MessageOnTheWire, 1000)
 
-			clientSignVerifier := testutil.NewMockSignVerifier()
-			serverSignVerifier := testutil.NewMockSignVerifier(clientSignVerifier.ID())
-			clientSignVerifier.Whitelist(serverSignVerifier.ID())
+			clientSignerVerifier := testutil.NewMockSignerVerifier()
+			serverSignerVerifier := testutil.NewMockSignerVerifier(clientSignerVerifier.ID())
+			clientSignerVerifier.Whitelist(serverSignerVerifier.ID())
 
 			// start TCP server and client
-			go initServer(ctx, fmt.Sprintf("127.0.0.1:47326"), fromServer, serverSignVerifier)
-			go initClient(ctx, toClient, clientSignVerifier)
+			go initServer(ctx, fmt.Sprintf("127.0.0.1:47326"), fromServer, serverSignerVerifier)
+			go initClient(ctx, toClient, clientSignerVerifier)
 
 			addrOfServer, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("127.0.0.1:47326"))
 			Expect(err).Should(BeNil())

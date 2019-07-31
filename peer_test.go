@@ -17,43 +17,41 @@ import (
 )
 
 var _ = Describe("airwaves peer", func() {
-	initServer := func(ctx context.Context, bind string, sender protocol.MessageSender, sv protocol.SignVerifier) {
+	initServer := func(ctx context.Context, bind string, sender protocol.MessageSender, sv protocol.SignerVerifier) {
 		err := tcp.NewServer(tcp.ServerOptions{
-			SignVerifier: sv,
-			Logger:       logrus.StandardLogger(),
-			Timeout:      time.Minute,
-		}, sender).Listen(ctx, bind)
+			Logger:  logrus.StandardLogger(),
+			Timeout: time.Minute,
+		}, sender, sv).Listen(ctx, bind)
 		if err != nil {
 			panic(err)
 		}
 	}
 
-	initClient := func(ctx context.Context, receiver protocol.MessageReceiver, sv protocol.SignVerifier) {
+	initClient := func(ctx context.Context, receiver protocol.MessageReceiver, sv protocol.SignerVerifier) {
 		tcp.NewClient(
 			tcp.NewClientConns(tcp.ClientOptions{
-				SignVerifier:   sv,
 				Logger:         logrus.StandardLogger(),
 				Timeout:        time.Minute,
 				MaxConnections: 10,
-			}),
+			}, sv),
 			receiver,
 		).Run(ctx)
 	}
 
-	initSignVerifiers := func(nodeCount int) []testutil.MockSignVerifier {
-		signVerifiers := make([]testutil.MockSignVerifier, nodeCount)
-		for i := range signVerifiers {
-			signVerifiers[i] = testutil.NewMockSignVerifier()
+	initSignerVerifiers := func(nodeCount int) []testutil.MockSignerVerifier {
+		SignerVerifiers := make([]testutil.MockSignerVerifier, nodeCount)
+		for i := range SignerVerifiers {
+			SignerVerifiers[i] = testutil.NewMockSignerVerifier()
 		}
-		for i := range signVerifiers {
-			for j := range signVerifiers {
-				signVerifiers[i].Whitelist(signVerifiers[j].ID())
+		for i := range SignerVerifiers {
+			for j := range SignerVerifiers {
+				SignerVerifiers[i].Whitelist(SignerVerifiers[j].ID())
 			}
 		}
-		return signVerifiers
+		return SignerVerifiers
 	}
 
-	startNodes := func(ctx context.Context, signVerifiers []testutil.MockSignVerifier, nodeCount int) (PeerAddresses, error) {
+	startNodes := func(ctx context.Context, SignerVerifiers []testutil.MockSignerVerifier, nodeCount int) (PeerAddresses, error) {
 		codec := testutil.NewSimpleTCPPeerAddressCodec()
 		peerAddresses := make([]PeerAddress, nodeCount)
 
@@ -66,8 +64,8 @@ var _ = Describe("airwaves peer", func() {
 			clientMessages := make(chan protocol.MessageOnTheWire, 10)
 			events := make(chan protocol.Event, 10)
 			bootstrapAddrs := testutil.Remove(peerAddresses, i)
-			go initServer(ctx, peerAddresses[i].NetworkAddress().String(), serverMessages, signVerifiers[i])
-			go initClient(ctx, clientMessages, signVerifiers[i])
+			go initServer(ctx, peerAddresses[i].NetworkAddress().String(), serverMessages, SignerVerifiers[i])
+			go initClient(ctx, clientMessages, SignerVerifiers[i])
 
 			peer := Default(PeerOptions{
 				Me:                 peerAddresses[i],
@@ -127,15 +125,15 @@ var _ = Describe("airwaves peer", func() {
 				"should connect to %d nodes when %d nodes are known, when new nodes join sequentially",
 				nodeCount.TotalBootstrap+nodeCount.NewNodes, nodeCount.KnownBootstrap), func() {
 
-				signVerifiers := initSignVerifiers(nodeCount.TotalBootstrap + nodeCount.NewNodes)
-				bootstrapSignVerifiers := make([]testutil.MockSignVerifier, nodeCount.TotalBootstrap)
-				nodeSignVerifiers := make([]testutil.MockSignVerifier, nodeCount.NewNodes)
-				copy(bootstrapSignVerifiers, signVerifiers[:nodeCount.TotalBootstrap])
-				copy(nodeSignVerifiers, signVerifiers[nodeCount.TotalBootstrap:])
+				SignerVerifiers := initSignerVerifiers(nodeCount.TotalBootstrap + nodeCount.NewNodes)
+				bootstrapSignerVerifiers := make([]testutil.MockSignerVerifier, nodeCount.TotalBootstrap)
+				nodeSignerVerifiers := make([]testutil.MockSignerVerifier, nodeCount.NewNodes)
+				copy(bootstrapSignerVerifiers, SignerVerifiers[:nodeCount.TotalBootstrap])
+				copy(nodeSignerVerifiers, SignerVerifiers[nodeCount.TotalBootstrap:])
 
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
-				bootstrapAddrs, err := startNodes(ctx, bootstrapSignVerifiers, nodeCount.TotalBootstrap)
+				bootstrapAddrs, err := startNodes(ctx, bootstrapSignerVerifiers, nodeCount.TotalBootstrap)
 				Expect(err).Should(BeNil())
 
 				peerAddresses := make([]PeerAddress, nodeCount.NewNodes)
@@ -152,8 +150,8 @@ var _ = Describe("airwaves peer", func() {
 
 					me := peerAddr
 
-					go initServer(ctx, me.NetworkAddress().String(), serverMessages, nodeSignVerifiers[i])
-					go initClient(ctx, clientMessages, nodeSignVerifiers[i])
+					go initServer(ctx, me.NetworkAddress().String(), serverMessages, nodeSignerVerifiers[i])
+					go initClient(ctx, clientMessages, nodeSignerVerifiers[i])
 
 					peer := Default(PeerOptions{
 						Me:                 me,

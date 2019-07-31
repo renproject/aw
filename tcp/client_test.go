@@ -5,6 +5,7 @@ import (
 
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/aw/tcp"
+	"github.com/renproject/aw/testutil"
 	"github.com/sirupsen/logrus"
 
 	. "github.com/onsi/ginkgo"
@@ -21,10 +22,11 @@ var _ = Describe("Client", func() {
 		It("should connect after the server becomes available", func() {
 
 			toClient := make(chan protocol.MessageOnTheWire)
+			signerVerifier := testutil.NewMockSignerVerifier()
 			_ = tcp.NewClient(tcp.NewClientConns(tcp.ClientOptions{
 				Logger:  logrus.StandardLogger(),
 				Timeout: time.Second,
-			}), toClient)
+			}, signerVerifier), toClient)
 
 			Expect(true).To(BeTrue())
 		})
