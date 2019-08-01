@@ -29,11 +29,11 @@ type Handshaker interface {
 }
 
 type handshaker struct {
-	signerVerifier protocol.SignerVerifier
+	signVerifier protocol.SignVerifier
 }
 
-func New(signerVerifier protocol.SignerVerifier) Handshaker {
-	return &handshaker{signerVerifier: signerVerifier}
+func New(signVerifier protocol.SignVerifier) Handshaker {
+	return &handshaker{signVerifier: signVerifier}
 }
 
 func (hs *handshaker) Handshake(ctx context.Context, rw io.ReadWriter) error {
@@ -191,7 +191,7 @@ func (hs *handshaker) sign(r io.Reader, w io.Writer) error {
 	n := len(data)
 
 	hash := sha3.Sum256(data)
-	sig, err := hs.signerVerifier.Sign(hash[:])
+	sig, err := hs.signVerifier.Sign(hash[:])
 	if err != nil {
 		return err
 	}
@@ -215,7 +215,7 @@ func (hs *handshaker) verify(r io.Reader, w io.Writer) error {
 		return fmt.Errorf("failed to read [%d != %d]: %v", uint64(n), size, err)
 	}
 	hash := sha3.Sum256(data[:size-65])
-	if err := hs.signerVerifier.Verify(hash[:], data[size-65:]); err != nil {
+	if err := hs.signVerifier.Verify(hash[:], data[size-65:]); err != nil {
 		return err
 	}
 	if wn, err := w.Write(data[:size-65]); uint64(wn) != size-65 || err != nil {

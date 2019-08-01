@@ -20,7 +20,7 @@ import (
 )
 
 var _ = Describe("Tcp", func() {
-	initServer := func(ctx context.Context, bind string, sender protocol.MessageSender, sv protocol.SignerVerifier) {
+	initServer := func(ctx context.Context, bind string, sender protocol.MessageSender, sv protocol.SignVerifier) {
 		err := tcp.NewServer(tcp.ServerOptions{
 			Logger:  logrus.StandardLogger(),
 			Timeout: time.Minute,
@@ -30,7 +30,7 @@ var _ = Describe("Tcp", func() {
 		}
 	}
 
-	initClient := func(ctx context.Context, receiver protocol.MessageReceiver, sv protocol.SignerVerifier) {
+	initClient := func(ctx context.Context, receiver protocol.MessageReceiver, sv protocol.SignVerifier) {
 		tcp.NewClient(
 			tcp.NewClientConns(tcp.ClientOptions{
 				Logger:         logrus.StandardLogger(),
@@ -50,13 +50,13 @@ var _ = Describe("Tcp", func() {
 			fromServer := make(chan protocol.MessageOnTheWire, 1000)
 			toClient := make(chan protocol.MessageOnTheWire, 1000)
 
-			clientSignerVerifier := testutil.NewMockSignerVerifier()
-			serverSignerVerifier := testutil.NewMockSignerVerifier(clientSignerVerifier.ID())
-			clientSignerVerifier.Whitelist(serverSignerVerifier.ID())
+			clientSignVerifier := testutil.NewMockSignVerifier()
+			serverSignVerifier := testutil.NewMockSignVerifier(clientSignVerifier.ID())
+			clientSignVerifier.Whitelist(serverSignVerifier.ID())
 
 			// start TCP server and client
-			go initServer(ctx, fmt.Sprintf("127.0.0.1:47326"), fromServer, serverSignerVerifier)
-			go initClient(ctx, toClient, clientSignerVerifier)
+			go initServer(ctx, fmt.Sprintf("127.0.0.1:47326"), fromServer, serverSignVerifier)
+			go initClient(ctx, toClient, clientSignVerifier)
 
 			addrOfServer, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("127.0.0.1:47326"))
 			Expect(err).Should(BeNil())

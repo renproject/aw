@@ -1,6 +1,6 @@
 package protocol
 
-type SignerVerifier interface {
+type SignVerifier interface {
 	Sign(digest []byte) ([]byte, error)
 	Verify(digest, sig []byte) error
 }

@@ -8,18 +8,18 @@ import (
 	"github.com/renproject/aw/protocol"
 )
 
-type MockSignerVerifier interface {
-	protocol.SignerVerifier
+type MockSignVerifier interface {
+	protocol.SignVerifier
 	ID() string
 	Whitelist(id string)
 }
 
-type mockSignerVerifier struct {
+type mockSignVerifier struct {
 	privKey   *ecdsa.PrivateKey
 	whitelist map[string]bool
 }
 
-func NewMockSignerVerifier(whitelistIDs ...string) *mockSignerVerifier {
+func NewMockSignVerifier(whitelistIDs ...string) *mockSignVerifier {
 	privKey, err := crypto.GenerateKey()
 	if err != nil {
 		panic(err)
@@ -28,14 +28,14 @@ func NewMockSignerVerifier(whitelistIDs ...string) *mockSignerVerifier {
 	for _, id := range whitelistIDs {
 		whitelist[id] = true
 	}
-	return &mockSignerVerifier{privKey, whitelist}
+	return &mockSignVerifier{privKey, whitelist}
 }
 
-func (sv *mockSignerVerifier) Sign(digest []byte) ([]byte, error) {
+func (sv *mockSignVerifier) Sign(digest []byte) ([]byte, error) {
 	return crypto.Sign(digest, sv.privKey)
 }
 
-func (sv *mockSignerVerifier) Verify(digest, sig []byte) error {
+func (sv *mockSignVerifier) Verify(digest, sig []byte) error {
 	pubKey, err := crypto.SigToPub(digest, sig)
 	if err != nil {
 		return err
@@ -47,10 +47,10 @@ func (sv *mockSignerVerifier) Verify(digest, sig []byte) error {
 	return fmt.Errorf("unauthenticated user")
 }
 
-func (sv *mockSignerVerifier) ID() string {
+func (sv *mockSignVerifier) ID() string {
 	return crypto.PubkeyToAddress(sv.privKey.PublicKey).String()
 }
 
-func (sv *mockSignerVerifier) Whitelist(id string) {
+func (sv *mockSignVerifier) Whitelist(id string) {
 	sv.whitelist[id] = true
 }

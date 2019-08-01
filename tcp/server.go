@@ -23,10 +23,10 @@ type Server struct {
 	handshaker handshake.Handshaker
 }
 
-func NewServer(options ServerOptions, messages protocol.MessageSender, signerVerifier protocol.SignerVerifier) *Server {
+func NewServer(options ServerOptions, messages protocol.MessageSender, signVerifier protocol.SignVerifier) *Server {
 	return &Server{
 		options:    options,
-		handshaker: handshake.New(signerVerifier),
+		handshaker: handshake.New(signVerifier),
 		messages:   messages,
 	}
 }

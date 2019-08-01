@@ -22,11 +22,11 @@ var _ = Describe("Client", func() {
 		It("should connect after the server becomes available", func() {
 
 			toClient := make(chan protocol.MessageOnTheWire)
-			signerVerifier := testutil.NewMockSignerVerifier()
+			signVerifier := testutil.NewMockSignVerifier()
 			_ = tcp.NewClient(tcp.NewClientConns(tcp.ClientOptions{
 				Logger:  logrus.StandardLogger(),
 				Timeout: time.Second,
-			}, signerVerifier), toClient)
+			}, signVerifier), toClient)
 
 			Expect(true).To(BeTrue())
 		})
