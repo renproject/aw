@@ -6,6 +6,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/renproject/aw/protocol"
+	"golang.org/x/crypto/sha3"
 )
 
 type MockSignVerifier interface {
@@ -53,4 +54,13 @@ func (sv *mockSignVerifier) ID() string {
 
 func (sv *mockSignVerifier) Whitelist(id string) {
 	sv.whitelist[id] = true
+}
+
+func (sv *mockSignVerifier) Hash(data []byte) []byte {
+	hash := sha3.Sum256(data)
+	return hash[:]
+}
+
+func (sv *mockSignVerifier) SigLength() uint64 {
+	return 65
 }
