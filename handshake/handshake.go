@@ -13,7 +13,6 @@ import (
 	"math/big"
 
 	"github.com/renproject/aw/protocol"
-	"golang.org/x/crypto/sha3"
 )
 
 type Handshaker interface {
@@ -47,12 +46,12 @@ func (hs *handshaker) Handshake(ctx context.Context, rw io.ReadWriter) error {
 	if err := writePubKey(buf, rsaKey.PublicKey); err != nil {
 		return err
 	}
-	if err := hs.sign(buf, rw); err != nil {
+	if err := hs.signAndAppendSignature(buf, rw); err != nil {
 		return err
 	}
 
 	// Read responder's public key and challenge
-	if err := hs.verify(rw, buf); err != nil {
+	if err := hs.verifyAndStripSignature(rw, buf); err != nil {
 		return err
 	}
 	challenge, err := readChallenge(buf, rsaKey)
@@ -68,7 +67,7 @@ func (hs *handshaker) Handshake(ctx context.Context, rw io.ReadWriter) error {
 	if err := writeChallenge(buf, challenge, &responderPubKey); err != nil {
 		return err
 	}
-	if err := hs.sign(buf, rw); err != nil {
+	if err := hs.signAndAppendSignature(buf, rw); err != nil {
 		return err
 	}
 
@@ -83,7 +82,7 @@ func (hs *handshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) err
 	}
 
 	// Read initiator's public key
-	if err := hs.verify(rw, buf); err != nil {
+	if err := hs.verifyAndStripSignature(rw, buf); err != nil {
 		return err
 	}
 	initiatorPubKey, err := readPubKey(buf)
@@ -100,12 +99,12 @@ func (hs *handshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) err
 	if err := writePubKey(buf, rsaKey.PublicKey); err != nil {
 		return err
 	}
-	if err := hs.sign(buf, rw); err != nil {
+	if err := hs.signAndAppendSignature(buf, rw); err != nil {
 		return err
 	}
 
 	// Read initiator's challenge reply
-	if err := hs.verify(rw, buf); err != nil {
+	if err := hs.verifyAndStripSignature(rw, buf); err != nil {
 		return err
 	}
 	replyChallenge, err := readChallenge(buf, rsaKey)
@@ -183,28 +182,29 @@ func readChallenge(r io.Reader, privKey *rsa.PrivateKey) ([32]byte, error) {
 	return challenge, nil
 }
 
-func (hs *handshaker) sign(r io.Reader, w io.Writer) error {
+func (hs *handshaker) signAndAppendSignature(r io.Reader, w io.Writer) error {
 	data, err := ioutil.ReadAll(r)
 	if err != nil {
 		return err
 	}
 	n := len(data)
 
-	hash := sha3.Sum256(data)
-	sig, err := hs.signVerifier.Sign(hash[:])
+	hash := hs.signVerifier.Hash(data)
+	sig, err := hs.signVerifier.Sign(hash)
 	if err != nil {
 		return err
 	}
-	if err := binary.Write(w, binary.LittleEndian, uint64(n+65)); err != nil {
+	sigLen := int(hs.signVerifier.SigLength())
+	if err := binary.Write(w, binary.LittleEndian, uint64(n+sigLen)); err != nil {
 		return err
 	}
-	if wn, err := w.Write(append(data, sig...)); wn != n+65 || err != nil {
-		return fmt.Errorf("failed to add the signature [%d != %d]: %v", wn, n+65, err)
+	if wn, err := w.Write(append(data, sig...)); wn != n+sigLen || err != nil {
+		return fmt.Errorf("failed to add the signature [%d != %d]: %v", wn, n+sigLen, err)
 	}
 	return nil
 }
 
-func (hs *handshaker) verify(r io.Reader, w io.Writer) error {
+func (hs *handshaker) verifyAndStripSignature(r io.Reader, w io.Writer) error {
 	var size uint64
 	if err := binary.Read(r, binary.LittleEndian, &size); err != nil {
 		return err
@@ -214,12 +214,13 @@ func (hs *handshaker) verify(r io.Reader, w io.Writer) error {
 	if err != nil && uint64(n) != size {
 		return fmt.Errorf("failed to read [%d != %d]: %v", uint64(n), size, err)
 	}
-	hash := sha3.Sum256(data[:size-65])
-	if err := hs.signVerifier.Verify(hash[:], data[size-65:]); err != nil {
+	sigLen := hs.signVerifier.SigLength()
+	hash := hs.signVerifier.Hash(data[:size-sigLen])
+	if err := hs.signVerifier.Verify(hash, data[size-sigLen:]); err != nil {
 		return err
 	}
-	if wn, err := w.Write(data[:size-65]); uint64(wn) != size-65 || err != nil {
-		return fmt.Errorf("failed to strip the signature [%d != %d]: %v", wn, n+65, err)
+	if wn, err := w.Write(data[:size-sigLen]); uint64(wn) != size-sigLen || err != nil {
+		return fmt.Errorf("failed to strip the signature [%d != %d]: %v", wn, n+int(sigLen), err)
 	}
 	return nil
 }
