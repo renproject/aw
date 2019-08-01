@@ -51,7 +51,7 @@ type ClientConns struct {
 
 // NewClientConns returns an empty ClientConns that will use ClientOptions to
 // control how to dials remote servers.
-func NewClientConns(options ClientOptions, signVerifier protocol.SignVerifier) *ClientConns {
+func NewClientConns(options ClientOptions, handshaker handshake.Handshaker) *ClientConns {
 	if options.Logger == nil {
 		panic("pre-condition violation: logger is nil")
 	}
@@ -66,7 +66,7 @@ func NewClientConns(options ClientOptions, signVerifier protocol.SignVerifier) *
 		options:    options,
 		connsMu:    new(sync.RWMutex),
 		conns:      map[string]*ClientConn{},
-		handshaker: handshake.New(signVerifier),
+		handshaker: handshaker,
 	}
 }
 

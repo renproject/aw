@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 	. "github.com/renproject/aw"
 
+	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/aw/tcp"
 	"github.com/renproject/aw/testutil"
@@ -21,7 +22,7 @@ var _ = Describe("airwaves peer", func() {
 		err := tcp.NewServer(tcp.ServerOptions{
 			Logger:  logrus.StandardLogger(),
 			Timeout: time.Minute,
-		}, sender, sv).Listen(ctx, bind)
+		}, sender, handshake.New(sv)).Listen(ctx, bind)
 		if err != nil {
 			panic(err)
 		}
@@ -33,7 +34,7 @@ var _ = Describe("airwaves peer", func() {
 				Logger:         logrus.StandardLogger(),
 				Timeout:        time.Minute,
 				MaxConnections: 10,
-			}, sv),
+			}, handshake.New(sv)),
 			receiver,
 		).Run(ctx)
 	}

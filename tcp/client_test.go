@@ -3,6 +3,7 @@ package tcp_test
 import (
 	"time"
 
+	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/aw/tcp"
 	"github.com/renproject/aw/testutil"
@@ -22,11 +23,11 @@ var _ = Describe("Client", func() {
 		It("should connect after the server becomes available", func() {
 
 			toClient := make(chan protocol.MessageOnTheWire)
-			signVerifier := testutil.NewMockSignVerifier()
+			hs := handshake.New(testutil.NewMockSignVerifier())
 			_ = tcp.NewClient(tcp.NewClientConns(tcp.ClientOptions{
 				Logger:  logrus.StandardLogger(),
 				Timeout: time.Second,
-			}, signVerifier), toClient)
+			}, hs), toClient)
 
 			Expect(true).To(BeTrue())
 		})
