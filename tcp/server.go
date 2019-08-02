@@ -3,9 +3,11 @@ package tcp
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"time"
 
+	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/protocol"
 	"github.com/sirupsen/logrus"
 )
@@ -16,14 +18,16 @@ type ServerOptions struct {
 }
 
 type Server struct {
-	options  ServerOptions
-	messages protocol.MessageSender
+	options    ServerOptions
+	messages   protocol.MessageSender
+	handshaker handshake.Handshaker
 }
 
-func NewServer(options ServerOptions, messages protocol.MessageSender) *Server {
+func NewServer(options ServerOptions, messages protocol.MessageSender, handshaker handshake.Handshaker) *Server {
 	return &Server{
-		options:  options,
-		messages: messages,
+		options:    options,
+		handshaker: handshaker,
+		messages:   messages,
 	}
 }
 
@@ -41,15 +45,15 @@ func (server *Server) Listen(ctx context.Context, bind string) error {
 	}()
 
 	for {
-		// Check whether or not the context is done
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-		}
-
 		conn, err := listener.Accept()
 		if err != nil {
+			// Check whether or not the context is done
+			select {
+			case <-ctx.Done():
+				return nil
+			default:
+			}
+
 			server.options.Logger.Errorf("error accepting tcp connection: %v", err)
 			continue
 		}
@@ -63,11 +67,19 @@ func (server *Server) Listen(ctx context.Context, bind string) error {
 func (server *Server) handle(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
+	handshakeCtx, handshakeCancel := context.WithTimeout(ctx, server.options.Timeout)
+	defer handshakeCancel()
+	if err := server.handshaker.AcceptHandshake(handshakeCtx, conn); err != nil {
+		server.options.Logger.Errorf("bad handshake with %v: %v", conn.RemoteAddr().String(), err)
+		return
+	}
+
 	// Accepted connections are not written to, so we prevent write timeouts by
 	// setting the write deadline to zero
 	conn.SetWriteDeadline(time.Time{})
 
-	// We do not know when the client will send us messages, so we prevent rea timeouts by setting the read deadline to zero
+	// We do not know when the client will send us messages, so we prevent rea
+	// timeouts by setting the read deadline to zero
 	conn.SetReadDeadline(time.Time{})
 
 	for {
@@ -76,7 +88,9 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		}
 
 		if err := messageOtw.Message.Read(conn); err != nil {
-			server.options.Logger.Error(newErrReadingIncomingMessage(err))
+			if err != io.EOF {
+				server.options.Logger.Error(newErrReadingIncomingMessage(err))
+			}
 			return
 		}
 

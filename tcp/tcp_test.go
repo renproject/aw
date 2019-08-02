@@ -10,8 +10,10 @@ import (
 	"testing/quick"
 	"time"
 
+	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/aw/tcp"
+	"github.com/renproject/aw/testutil"
 	"github.com/sirupsen/logrus"
 
 	. "github.com/onsi/ginkgo"
@@ -19,29 +21,29 @@ import (
 )
 
 var _ = Describe("Tcp", func() {
-	initServer := func(ctx context.Context, bind string, sender protocol.MessageSender) {
+	initServer := func(ctx context.Context, bind string, sender protocol.MessageSender, sv protocol.SignVerifier) {
 		err := tcp.NewServer(tcp.ServerOptions{
 			Logger:  logrus.StandardLogger(),
 			Timeout: time.Minute,
-		}, sender).Listen(ctx, bind)
+		}, sender, handshake.New(sv)).Listen(ctx, bind)
 		if err != nil {
 			panic(err)
 		}
 	}
 
-	initClient := func(ctx context.Context, receiver protocol.MessageReceiver) {
+	initClient := func(ctx context.Context, receiver protocol.MessageReceiver, sv protocol.SignVerifier) {
 		tcp.NewClient(
 			tcp.NewClientConns(tcp.ClientOptions{
 				Logger:         logrus.StandardLogger(),
 				Timeout:        time.Minute,
 				MaxConnections: 10,
-			}),
+			}, handshake.New(sv)),
 			receiver,
 		).Run(ctx)
 	}
 
 	Context("when sending a valid message", func() {
-		It("should successfully send and receive", func() {
+		It("should successfully send and receive when both nodes are authenticated", func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			// defer time.Sleep(time.Millisecond)
 			defer cancel()
@@ -49,9 +51,13 @@ var _ = Describe("Tcp", func() {
 			fromServer := make(chan protocol.MessageOnTheWire, 1000)
 			toClient := make(chan protocol.MessageOnTheWire, 1000)
 
+			clientSignVerifier := testutil.NewMockSignVerifier()
+			serverSignVerifier := testutil.NewMockSignVerifier(clientSignVerifier.ID())
+			clientSignVerifier.Whitelist(serverSignVerifier.ID())
+
 			// start TCP server and client
-			go initServer(ctx, fmt.Sprintf("127.0.0.1:47326"), fromServer)
-			go initClient(ctx, toClient)
+			go initServer(ctx, fmt.Sprintf("127.0.0.1:47326"), fromServer, serverSignVerifier)
+			go initClient(ctx, toClient, clientSignVerifier)
 
 			addrOfServer, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("127.0.0.1:47326"))
 			Expect(err).Should(BeNil())

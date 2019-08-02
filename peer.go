@@ -113,13 +113,14 @@ func New(options PeerOptions, receiver MessageReceiver, dht dht.DHT, pingponger 
 }
 
 func (peer *peer) Run(ctx context.Context) {
+	peer.bootstrap(ctx)
+
 	ticker := time.NewTicker(peer.options.BootstrapDuration)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			peer.options.Logger.Errorf("%v", newErrBootstrapCanceled(ctx.Err()))
 			return
 
 		case <-ticker.C:

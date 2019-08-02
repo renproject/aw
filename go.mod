@@ -3,6 +3,7 @@ module github.com/renproject/aw
 go 1.12
 
 require (
+	github.com/ethereum/go-ethereum v1.9.1
 	github.com/onsi/ginkgo v1.8.0
 	github.com/onsi/gomega v1.5.0
 	github.com/renproject/kv v0.0.0-20190710041758-5f4eb2a837a8
