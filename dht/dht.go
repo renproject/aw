@@ -24,8 +24,7 @@ type DHT interface {
 
 type dht struct {
 	me    protocol.PeerAddress
-	codec protocol.PeerAddressCodec
-	store kv.Iterable
+	store kv.Table
 
 	inMemCacheMu *sync.RWMutex
 	inMemCache   map[string]protocol.PeerAddress
@@ -34,10 +33,9 @@ type dht struct {
 // New DHT that stores peer addresses in the given store. It will cache all peer
 // addresses in memory for fast access. It is safe for concurrent use,
 // regardless of the underlying store.
-func New(me protocol.PeerAddress, codec protocol.PeerAddressCodec, store kv.Iterable, bootstrapAddrs ...protocol.PeerAddress) (DHT, error) {
+func New(me protocol.PeerAddress, store kv.Table, bootstrapAddrs ...protocol.PeerAddress) (DHT, error) {
 	dht := &dht{
 		me:    me,
-		codec: codec,
 		store: store,
 
 		inMemCacheMu: new(sync.RWMutex),
@@ -140,11 +138,7 @@ func (dht *dht) RemovePeerAddress(id protocol.PeerID) error {
 }
 
 func (dht *dht) addPeerAddressWithoutLock(peerAddr protocol.PeerAddress) error {
-	data, err := dht.codec.Encode(peerAddr)
-	if err != nil {
-		return fmt.Errorf("error encoding peer address=%v: %v", peerAddr, err)
-	}
-	if err := dht.store.Insert(peerAddr.PeerID().String(), data); err != nil {
+	if err := dht.store.Insert(peerAddr.PeerID().String(), peerAddr); err != nil {
 		return fmt.Errorf("error inserting peer address=%v into dht: %v", peerAddr, err)
 	}
 	dht.inMemCache[peerAddr.PeerID().String()] = peerAddr

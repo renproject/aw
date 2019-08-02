@@ -29,8 +29,7 @@ type PeerOptions struct {
 	EventBuffer       int           // Defaults to 0
 	BootstrapWorkers  int           // Defaults to 2x the number of CPUs
 	BootstrapDuration time.Duration // Defaults to 1 hour
-	DHTStore          db.Iterable   // Defaults to using in memory store
-	BroadcasterStore  db.Iterable   // Defaults to using in memory store
+	Store             db.DB         // Defaults to using in memory store
 }
 
 type Peer interface {
@@ -61,15 +60,21 @@ func Default(options PeerOptions, receiver MessageReceiver, sender MessageSender
 		panic(fmt.Errorf("pre-condition violation: %v", newErrInvalidPeerOptions(err)))
 	}
 
-	if options.DHTStore == nil {
-		options.DHTStore = kv.NewMemDB()
+	if options.Store == nil {
+		options.Store = kv.NewMemDB()
 	}
 
-	if options.BroadcasterStore == nil {
-		options.BroadcasterStore = kv.NewMemDB()
+	dhtTable, err := options.Store.NewTable("DHT", kv.GobCodec)
+	if err != nil {
+		panic(fmt.Errorf("failed to initialize DHT table: %v", err))
 	}
 
-	dht, err := dht.New(options.Me, options.Codec, kv.NewGob(options.DHTStore), options.BootstrapAddresses...)
+	broadcasterTable, err := options.Store.NewTable("Broadcaster", kv.GobCodec)
+	if err != nil {
+		panic(fmt.Errorf("failed to initialize Broadcaster table: %v", err))
+	}
+
+	dht, err := dht.New(options.Me, dhtTable, options.BootstrapAddresses...)
 	if err != nil {
 		panic(fmt.Errorf("failed to initialize DHT: %v", err))
 	}
@@ -81,7 +86,7 @@ func Default(options PeerOptions, receiver MessageReceiver, sender MessageSender
 		pingpong.NewPingPonger(dht, sender, events, options.Codec, options.Logger),
 		cast.NewCaster(dht, sender, events, options.Logger),
 		multicast.NewMulticaster(dht, sender, events, options.Logger),
-		broadcast.NewBroadcaster(broadcast.NewStorage(kv.NewGob(options.BroadcasterStore)), dht, sender, events, options.Logger),
+		broadcast.NewBroadcaster(broadcast.NewStorage(broadcasterTable), dht, sender, events, options.Logger),
 	)
 }
 

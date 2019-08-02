@@ -19,6 +19,7 @@ github.com/ethereum/go-ethereum v1.9.1 h1:MrdTRvKIa3apdx6NW1azzSgl8BQB1eTBVSUmFh
 github.com/ethereum/go-ethereum v1.9.1/go.mod h1:PwpWDrCLZrV+tfrhqqF6kPknbISMHaJv9Ln3kPCZLwY=
 github.com/fsnotify/fsnotify v1.4.7 h1:IXs+QLmnXW2CcXuY+8Mzv/fWEsPGWxqefPtCP5CnV9I=
 github.com/fsnotify/fsnotify v1.4.7/go.mod h1:jwhsz4b93w/PPRr/qN1Yymfu8t87LnFCMoQvtojpjFo=
+github.com/golang/groupcache v0.0.0-20190702054246-869f871628b6/go.mod h1:cIg4eruTrX1D+g88fzRXU5OdNfaM+9IcxsU14FzY7Hc=
 github.com/golang/protobuf v1.2.0/go.mod h1:6lQm79b+lXiMfvg/cZm0SGofjICqVBUtrP5yJMmIC1U=
 github.com/golang/protobuf v1.3.1 h1:YF8+flBXS5eO826T4nzqPrxfhQThhXl0YzfuUPu4SBg=
 github.com/golang/protobuf v1.3.1/go.mod h1:6lQm79b+lXiMfvg/cZm0SGofjICqVBUtrP5yJMmIC1U=
@@ -43,6 +44,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/renproject/kv v0.0.0-20190710041758-5f4eb2a837a8 h1:7uijJXktgaROJyw8BEH9qbS9y+/r7mycURjloPhPtT4=
 github.com/renproject/kv v0.0.0-20190710041758-5f4eb2a837a8/go.mod h1:nZKydcWRJJKIQ1tfw6vPTqcQd2o6IBSE+1gQZsLzakM=
+github.com/renproject/kv v0.0.0-20190801074235-b3e278037777 h1:F7caAKgCgh+BMmzPQm2iVU1WAgBt7a3lMGaZn8Ze1+o=
+github.com/renproject/kv v0.0.0-20190801074235-b3e278037777/go.mod h1:TSQeSPmEmx0I+2izBRuNwu+apPdBpBB+l5GQJ8tSVXk=
 github.com/renproject/phi v0.0.0-20190708065633-aec44623117b h1:tvpONRRRRIvL0O4yBMgemgJxhd8eSblqZxfAuxp6DL8=
 github.com/renproject/phi v0.0.0-20190708065633-aec44623117b/go.mod h1:Hrxx2ONVpfByficRjyRd1trecalYr0lo7Z0akx8UXqg=
 github.com/russross/blackfriday v1.5.2/go.mod h1:JO/DiYxRf+HjHt06OyowR9PTA263kcR/rfWxYHBV53g=
