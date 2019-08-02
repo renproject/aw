@@ -64,12 +64,12 @@ func Default(options PeerOptions, receiver MessageReceiver, sender MessageSender
 		options.Store = kv.NewMemDB()
 	}
 
-	dhtTable, err := options.Store.NewTable("DHT", kv.GobCodec)
+	dhtTable, err := options.Store.NewTable("peerAddrs", kv.GobCodec)
 	if err != nil {
-		panic(fmt.Errorf("failed to initialize DHT table: %v", err))
+		panic(fmt.Errorf("failed to initialize peerAddrs table: %v", err))
 	}
 
-	broadcasterTable, err := options.Store.NewTable("Broadcaster", kv.GobCodec)
+	broadcasterTable, err := options.Store.NewTable("broadcastMessageHashes", kv.GobCodec)
 	if err != nil {
 		panic(fmt.Errorf("failed to initialize Broadcaster table: %v", err))
 	}
