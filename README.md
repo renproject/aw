@@ -17,6 +17,6 @@ Airwave uses a 3 way sync handshake method to authorize peers in the network. Th
 
 ![](arch/handshake.svg)
 
-The initiator sends a signed rsa public key on connect. The responder validates the signature, generates a random challenge, and sends signned random challenge encrypted with the initiators public key and the responder's public key. The initator validates the signature decrypts the challenge encrypts it with the responder's publickey, signs it and sends it back.
+The client sends a signed rsa public key on connect. The server validates the signature, generates a random challenge, and sends the signed random challenge encrypted with the client's public key; and the server's public key. The client validates the server's signature decrypts the challenge encrypts it with the server's publickey, signs it and sends it back.
 
 Built with ❤ by Ren. 
