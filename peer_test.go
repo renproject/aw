@@ -18,23 +18,25 @@ import (
 )
 
 var _ = Describe("airwaves peer", func() {
-	initServer := func(ctx context.Context, bind string, sender protocol.MessageSender, sv protocol.SignVerifier) {
+	initServer := func(ctx context.Context, bind string, sender protocol.MessageSender, hs handshake.Handshaker) {
 		err := tcp.NewServer(tcp.ServerOptions{
-			Logger:  logrus.StandardLogger(),
-			Timeout: time.Minute,
-		}, sender, handshake.New(sv)).Listen(ctx, bind)
+			Logger:     logrus.StandardLogger(),
+			Timeout:    time.Minute,
+			Handshaker: hs,
+		}, sender).Listen(ctx, bind)
 		if err != nil {
 			panic(err)
 		}
 	}
 
-	initClient := func(ctx context.Context, receiver protocol.MessageReceiver, sv protocol.SignVerifier) {
+	initClient := func(ctx context.Context, receiver protocol.MessageReceiver, hs handshake.Handshaker) {
 		tcp.NewClient(
 			tcp.NewClientConns(tcp.ClientOptions{
 				Logger:         logrus.StandardLogger(),
 				Timeout:        time.Minute,
 				MaxConnections: 10,
-			}, handshake.New(sv)),
+				Handshaker:     hs,
+			}),
 			receiver,
 		).Run(ctx)
 	}
@@ -65,15 +67,16 @@ var _ = Describe("airwaves peer", func() {
 			clientMessages := make(chan protocol.MessageOnTheWire, 10)
 			events := make(chan protocol.Event, 10)
 			bootstrapAddrs := testutil.Remove(peerAddresses, i)
-			go initServer(ctx, peerAddresses[i].NetworkAddress().String(), serverMessages, SignVerifiers[i])
-			go initClient(ctx, clientMessages, SignVerifiers[i])
+			go initServer(ctx, peerAddresses[i].NetworkAddress().String(), serverMessages, handshake.New(SignVerifiers[i]))
+			go initClient(ctx, clientMessages, handshake.New(SignVerifiers[i]))
 
 			peer := Default(PeerOptions{
 				Me:                 peerAddresses[i],
 				BootstrapAddresses: bootstrapAddrs,
 				Codec:              codec,
 
-				Logger: logrus.StandardLogger(),
+				Logger:            logrus.StandardLogger(),
+				BootstrapDuration: 10 * time.Second,
 			}, serverMessages, clientMessages, events)
 
 			go co.ParBegin(
@@ -151,15 +154,16 @@ var _ = Describe("airwaves peer", func() {
 
 					me := peerAddr
 
-					go initServer(ctx, me.NetworkAddress().String(), serverMessages, nodeSignVerifiers[i])
-					go initClient(ctx, clientMessages, nodeSignVerifiers[i])
+					go initServer(ctx, me.NetworkAddress().String(), serverMessages, handshake.New(nodeSignVerifiers[i]))
+					go initClient(ctx, clientMessages, handshake.New(nodeSignVerifiers[i]))
 
 					peer := Default(PeerOptions{
 						Me:                 me,
 						BootstrapAddresses: bootstrapAddrs[:nodeCount.KnownBootstrap],
 						Codec:              codec,
 
-						Logger: logrus.StandardLogger(),
+						Logger:            logrus.StandardLogger(),
+						BootstrapDuration: 10 * time.Second,
 					}, serverMessages, clientMessages, events)
 
 					go peer.Run(ctx)
