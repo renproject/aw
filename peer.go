@@ -203,6 +203,12 @@ func (peer *peer) bootstrap(ctx context.Context) {
 }
 
 func (peer *peer) receiveMessageOnTheWire(ctx context.Context, messageOtw protocol.MessageOnTheWire) error {
+	peerAddr, err := peer.dht.ReverseLookup(messageOtw.From)
+	if err != nil {
+		return fmt.Errorf("invalid sender: %v", err)
+	}
+	messageOtw.Message.From = peerAddr.PeerID()
+
 	switch messageOtw.Message.Variant {
 	case protocol.Ping:
 		return peer.pingPonger.AcceptPing(ctx, messageOtw.Message)
