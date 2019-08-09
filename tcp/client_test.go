@@ -25,9 +25,10 @@ var _ = Describe("Client", func() {
 			toClient := make(chan protocol.MessageOnTheWire)
 			hs := handshake.New(testutil.NewMockSignVerifier())
 			_ = tcp.NewClient(tcp.NewClientConns(tcp.ClientOptions{
-				Logger:  logrus.StandardLogger(),
-				Timeout: time.Second,
-			}, hs), toClient)
+				Logger:     logrus.StandardLogger(),
+				Timeout:    time.Second,
+				Handshaker: hs,
+			}), toClient)
 
 			Expect(true).To(BeTrue())
 		})

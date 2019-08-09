@@ -23,6 +23,8 @@ type ClientOptions struct {
 	Timeout time.Duration
 	// MaxConnections to remote servers that the Client will maintain.
 	MaxConnections int
+	// Handshaker handles the handshake process between peers. Default: no handshake
+	Handshaker handshake.Handshaker
 }
 
 // ClientConn is a network connection associated with a mutex. This allows for
@@ -43,15 +45,14 @@ func NewClientConn() *ClientConn {
 // ClientConns is an in memory cache of connections to remote servers that is
 // safe for concurrent use.
 type ClientConns struct {
-	options    ClientOptions
-	connsMu    *sync.RWMutex
-	conns      map[string]*ClientConn
-	handshaker handshake.Handshaker
+	options ClientOptions
+	connsMu *sync.RWMutex
+	conns   map[string]*ClientConn
 }
 
 // NewClientConns returns an empty ClientConns that will use ClientOptions to
 // control how to dials remote servers.
-func NewClientConns(options ClientOptions, handshaker handshake.Handshaker) *ClientConns {
+func NewClientConns(options ClientOptions) *ClientConns {
 	if options.Logger == nil {
 		panic("pre-condition violation: logger is nil")
 	}
@@ -63,10 +64,9 @@ func NewClientConns(options ClientOptions, handshaker handshake.Handshaker) *Cli
 	}
 
 	return &ClientConns{
-		options:    options,
-		connsMu:    new(sync.RWMutex),
-		conns:      map[string]*ClientConn{},
-		handshaker: handshaker,
+		options: options,
+		connsMu: new(sync.RWMutex),
+		conns:   map[string]*ClientConn{},
 	}
 }
 
@@ -170,13 +170,15 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 		return err
 	}
 
-	// Handshake
-	handshakeCtx, handshakeCancel := context.WithTimeout(ctx, 30*time.Second)
-	defer handshakeCancel()
-	if err := clientConns.handshaker.Handshake(handshakeCtx, conn.conn); err != nil {
-		conn.conn.Close()
-		delete(clientConns.conns, addr.String())
-		return err
+	if clientConns.options.Handshaker != nil {
+		// Handshake
+		handshakeCtx, handshakeCancel := context.WithTimeout(ctx, 30*time.Second)
+		defer handshakeCancel()
+		if err := clientConns.options.Handshaker.Handshake(handshakeCtx, conn.conn); err != nil {
+			conn.conn.Close()
+			delete(clientConns.conns, addr.String())
+			return err
+		}
 	}
 
 	// Write

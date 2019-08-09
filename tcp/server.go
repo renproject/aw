@@ -15,19 +15,19 @@ import (
 type ServerOptions struct {
 	Logger  logrus.FieldLogger
 	Timeout time.Duration
+	// Handshaker handles the handshake process between peers. Default: no handshake
+	Handshaker handshake.Handshaker
 }
 
 type Server struct {
-	options    ServerOptions
-	messages   protocol.MessageSender
-	handshaker handshake.Handshaker
+	options  ServerOptions
+	messages protocol.MessageSender
 }
 
-func NewServer(options ServerOptions, messages protocol.MessageSender, handshaker handshake.Handshaker) *Server {
+func NewServer(options ServerOptions, messages protocol.MessageSender) *Server {
 	return &Server{
-		options:    options,
-		handshaker: handshaker,
-		messages:   messages,
+		options:  options,
+		messages: messages,
 	}
 }
 
@@ -67,11 +67,13 @@ func (server *Server) Listen(ctx context.Context, bind string) error {
 func (server *Server) handle(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
-	handshakeCtx, handshakeCancel := context.WithTimeout(ctx, server.options.Timeout)
-	defer handshakeCancel()
-	if err := server.handshaker.AcceptHandshake(handshakeCtx, conn); err != nil {
-		server.options.Logger.Errorf("bad handshake with %v: %v", conn.RemoteAddr().String(), err)
-		return
+	if server.options.Handshaker != nil {
+		handshakeCtx, handshakeCancel := context.WithTimeout(ctx, server.options.Timeout)
+		defer handshakeCancel()
+		if err := server.options.Handshaker.AcceptHandshake(handshakeCtx, conn); err != nil {
+			server.options.Logger.Errorf("bad handshake with %v: %v", conn.RemoteAddr().String(), err)
+			return
+		}
 	}
 
 	// Accepted connections are not written to, so we prevent write timeouts by
