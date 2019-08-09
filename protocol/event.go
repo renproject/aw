@@ -19,6 +19,7 @@ func (EventPeerChanged) IsEvent() {}
 type EventMessageReceived struct {
 	Time    time.Time
 	Message MessageBody
+	From    PeerID
 }
 
 func (EventMessageReceived) IsEvent() {}
