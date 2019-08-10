@@ -12,11 +12,14 @@ import (
 	"github.com/renproject/aw/multicast"
 	"github.com/renproject/aw/pingpong"
 	"github.com/renproject/aw/protocol"
+	"github.com/renproject/aw/tcp"
 	"github.com/renproject/kv"
 	"github.com/renproject/kv/db"
 	"github.com/renproject/phi"
 	"github.com/sirupsen/logrus"
 )
+
+type RunFn func(context.Context)
 
 type PeerOptions struct {
 	Logger logrus.FieldLogger
@@ -31,6 +34,7 @@ type PeerOptions struct {
 	BootstrapDuration time.Duration // Defaults to 1 hour
 	DHTStore          db.Iterable   // Defaults to using in memory store
 	BroadcasterStore  db.Iterable   // Defaults to using in memory store
+	RunFns            []RunFn       // Defaults to nil
 }
 
 type Peer interface {
@@ -53,6 +57,30 @@ type peer struct {
 	broadcaster broadcast.Broadcaster
 
 	receiver MessageReceiver
+}
+
+func DefaultTCP(options PeerOptions, events EventSender, port int) Peer {
+	serverMessages := make(chan protocol.MessageOnTheWire)
+	clientMessages := make(chan protocol.MessageOnTheWire)
+	options.RunFns = []RunFn{
+		func(ctx context.Context) {
+			err := tcp.NewServer(tcp.ServerOptions{
+				Logger:  options.Logger,
+				Timeout: time.Minute,
+			}, serverMessages).Listen(context.Background(), fmt.Sprintf("0.0.0.0:%v", port))
+			if err != nil {
+				panic(fmt.Errorf("tcp server has crashed: %v", err))
+			}
+		},
+		func(ctx context.Context) {
+			tcp.NewClient(tcp.NewClientConns(tcp.ClientOptions{
+				Logger:         options.Logger,
+				Timeout:        10 * time.Second,
+				MaxConnections: 200,
+			}), clientMessages).Run(context.Background())
+		},
+	}
+	return Default(options, serverMessages, clientMessages, events)
 }
 
 func Default(options PeerOptions, receiver MessageReceiver, sender MessageSender, events EventSender) Peer {
@@ -113,8 +141,13 @@ func New(options PeerOptions, receiver MessageReceiver, dht dht.DHT, pingponger 
 }
 
 func (peer *peer) Run(ctx context.Context) {
-	peer.bootstrap(ctx)
+	if peer.options.RunFns != nil {
+		for _, fn := range peer.options.RunFns {
+			go fn(ctx)
+		}
+	}
 
+	peer.bootstrap(ctx)
 	ticker := time.NewTicker(peer.options.BootstrapDuration)
 	defer ticker.Stop()
 
