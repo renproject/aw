@@ -30,13 +30,14 @@ type PeerOptions struct {
 	Codec              PeerAddressCodec
 
 	// Optional
-	EventBuffer       int                   // Defaults to 0
-	BootstrapWorkers  int                   // Defaults to 2x the number of CPUs
-	BootstrapDuration time.Duration         // Defaults to 1 hour
-	DHTStore          db.Iterable           // Defaults to using in memory store
-	BroadcasterStore  db.Iterable           // Defaults to using in memory store
-	SignVerifier      protocol.SignVerifier // Defaults to nil
-	RunFns            []RunFn               // Defaults to nil
+	DisablePeerDiscovery bool                  // Defaults to false
+	EventBuffer          int                   // Defaults to 0
+	BootstrapWorkers     int                   // Defaults to 2x the number of CPUs
+	BootstrapDuration    time.Duration         // Defaults to 1 hour
+	DHTStore             db.Iterable           // Defaults to using in memory store
+	BroadcasterStore     db.Iterable           // Defaults to using in memory store
+	SignVerifier         protocol.SignVerifier // Defaults to nil
+	RunFns               []RunFn               // Defaults to nil
 }
 
 type Peer interface {
@@ -140,6 +141,9 @@ func (peer *peer) Broadcast(ctx context.Context, data []byte) error {
 }
 
 func (peer *peer) bootstrap(ctx context.Context) {
+	if peer.options.DisablePeerDiscovery {
+		return
+	}
 	// Load all peer addresses into a fully buffered queue so that
 	// workers can process them most efficiently
 	peerAddrs, err := peer.dht.PeerAddresses()
