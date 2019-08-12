@@ -30,14 +30,15 @@ type PeerOptions struct {
 	Codec              PeerAddressCodec
 
 	// Optional
-	DisablePeerDiscovery bool                  // Defaults to false
-	EventBuffer          int                   // Defaults to 0
-	BootstrapWorkers     int                   // Defaults to 2x the number of CPUs
-	BootstrapDuration    time.Duration         // Defaults to 1 hour
-	DHTStore             db.Iterable           // Defaults to using in memory store
-	BroadcasterStore     db.Iterable           // Defaults to using in memory store
-	SignVerifier         protocol.SignVerifier // Defaults to nil
-	RunFns               []RunFn               // Defaults to nil
+	DisablePeerDiscovery bool          `json:"disablePeerDiscovery"` // Defaults to false
+	EventBuffer          int           `json:"eventBuffer"`          // Defaults to 0
+	BootstrapWorkers     int           `json:"bootstrapWorkers"`     // Defaults to 2x the number of CPUs
+	BootstrapDuration    time.Duration `json:"bootstrapDuration"`    // Defaults to 1 hour
+
+	DHTStore         db.Iterable           // Defaults to using in memory store
+	BroadcasterStore db.Iterable           // Defaults to using in memory store
+	SignVerifier     protocol.SignVerifier // Defaults to nil
+	RunFns           []RunFn               // Defaults to nil
 }
 
 type Peer interface {
