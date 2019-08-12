@@ -59,7 +59,6 @@ func (caster *caster) AcceptCast(ctx context.Context, message protocol.Message) 
 	event := protocol.EventMessageReceived{
 		Time:    time.Now(),
 		Message: message.Body,
-		From:    message.From,
 	}
 	select {
 	case <-ctx.Done():

@@ -70,7 +70,6 @@ func (multicaster *multicaster) AcceptMulticast(ctx context.Context, message pro
 	event := protocol.EventMessageReceived{
 		Time:    time.Now(),
 		Message: message.Body,
-		From:    message.From,
 	}
 	select {
 	case <-ctx.Done():

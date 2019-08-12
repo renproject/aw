@@ -2,7 +2,6 @@ package dht
 
 import (
 	"fmt"
-	"net"
 	"sync"
 
 	"github.com/renproject/aw/protocol"
@@ -17,7 +16,6 @@ type DHT interface {
 	NumPeers() (int, error)
 	PeerAddress(protocol.PeerID) (protocol.PeerAddress, error)
 	PeerAddresses() (protocol.PeerAddresses, error)
-	ReverseLookup(net.Addr) (protocol.PeerAddress, error)
 	AddPeerAddress(protocol.PeerAddress) error
 	AddPeerAddresses(protocol.PeerAddresses) error
 	UpdatePeerAddress(peerAddr protocol.PeerAddress) (bool, error)
@@ -29,9 +27,8 @@ type dht struct {
 	codec protocol.PeerAddressCodec
 	store kv.Iterable
 
-	inMemCacheMu       *sync.RWMutex
-	lookupCache        map[string]protocol.PeerAddress
-	reverseLookupCache map[string]protocol.PeerAddress
+	inMemCacheMu *sync.RWMutex
+	inMemCache   map[string]protocol.PeerAddress
 }
 
 // New DHT that stores peer addresses in the given store. It will cache all peer
@@ -43,9 +40,8 @@ func New(me protocol.PeerAddress, codec protocol.PeerAddressCodec, store kv.Iter
 		codec: codec,
 		store: store,
 
-		inMemCacheMu:       new(sync.RWMutex),
-		lookupCache:        map[string]protocol.PeerAddress{},
-		reverseLookupCache: map[string]protocol.PeerAddress{},
+		inMemCacheMu: new(sync.RWMutex),
+		inMemCache:   map[string]protocol.PeerAddress{},
 	}
 
 	if err := dht.fillInMemCache(); err != nil {
@@ -70,15 +66,15 @@ func (dht *dht) NumPeers() (int, error) {
 	dht.inMemCacheMu.RLock()
 	defer dht.inMemCacheMu.RUnlock()
 
-	return len(dht.lookupCache), nil
+	return len(dht.inMemCache), nil
 }
 
 func (dht *dht) PeerAddresses() (protocol.PeerAddresses, error) {
 	dht.inMemCacheMu.RLock()
 	defer dht.inMemCacheMu.RUnlock()
 
-	peerAddrs := make(protocol.PeerAddresses, 0, len(dht.lookupCache))
-	for _, peerAddr := range dht.lookupCache {
+	peerAddrs := make(protocol.PeerAddresses, 0, len(dht.inMemCache))
+	for _, peerAddr := range dht.inMemCache {
 		peerAddrs = append(peerAddrs, peerAddr)
 	}
 
@@ -108,20 +104,9 @@ func (dht *dht) PeerAddress(id protocol.PeerID) (protocol.PeerAddress, error) {
 	dht.inMemCacheMu.RLock()
 	defer dht.inMemCacheMu.RUnlock()
 
-	peerAddr, ok := dht.lookupCache[id.String()]
+	peerAddr, ok := dht.inMemCache[id.String()]
 	if !ok {
 		return nil, NewErrPeerNotFound(id)
-	}
-	return peerAddr, nil
-}
-
-func (dht *dht) ReverseLookup(addr net.Addr) (protocol.PeerAddress, error) {
-	dht.inMemCacheMu.RLock()
-	defer dht.inMemCacheMu.RUnlock()
-
-	peerAddr, ok := dht.lookupCache[addr.String()]
-	if !ok {
-		return nil, NewErrReverseLookupFailed(addr)
 	}
 	return peerAddr, nil
 }
@@ -130,7 +115,7 @@ func (dht *dht) UpdatePeerAddress(peerAddr protocol.PeerAddress) (bool, error) {
 	dht.inMemCacheMu.Lock()
 	defer dht.inMemCacheMu.Unlock()
 
-	prevPeerAddr, ok := dht.lookupCache[peerAddr.PeerID().String()]
+	prevPeerAddr, ok := dht.inMemCache[peerAddr.PeerID().String()]
 	if ok && !peerAddr.IsNewer(prevPeerAddr) {
 		return false, nil
 	}
@@ -150,10 +135,7 @@ func (dht *dht) RemovePeerAddress(id protocol.PeerID) error {
 		return fmt.Errorf("error deleting peer=%v from dht: %v", id, err)
 	}
 
-	peerAddr := dht.lookupCache[id.String()]
-	delete(dht.lookupCache, id.String())
-	delete(dht.reverseLookupCache, peerAddr.NetworkAddress().String())
-
+	delete(dht.inMemCache, id.String())
 	return nil
 }
 
@@ -165,8 +147,7 @@ func (dht *dht) addPeerAddressWithoutLock(peerAddr protocol.PeerAddress) error {
 	if err := dht.store.Insert(peerAddr.PeerID().String(), data); err != nil {
 		return fmt.Errorf("error inserting peer address=%v into dht: %v", peerAddr, err)
 	}
-	dht.lookupCache[peerAddr.PeerID().String()] = peerAddr
-	dht.reverseLookupCache[peerAddr.NetworkAddress().String()] = peerAddr
+	dht.inMemCache[peerAddr.PeerID().String()] = peerAddr
 	return nil
 }
 
@@ -180,8 +161,7 @@ func (dht *dht) fillInMemCache() error {
 		if err := iter.Value(&peerAddr); err != nil {
 			return fmt.Errorf("error scanning dht iterator: %v", err)
 		}
-		dht.lookupCache[peerAddr.PeerID().String()] = peerAddr
-		dht.reverseLookupCache[peerAddr.NetworkAddress().String()] = peerAddr
+		dht.inMemCache[peerAddr.PeerID().String()] = peerAddr
 	}
 	return nil
 }
@@ -195,17 +175,5 @@ func NewErrPeerNotFound(peerID protocol.PeerID) error {
 	return ErrPeerNotFound{
 		error:  fmt.Errorf("peer=%v not found", peerID),
 		PeerID: peerID,
-	}
-}
-
-type ErrReverseLookupFailed struct {
-	error
-	net.Addr
-}
-
-func NewErrReverseLookupFailed(addr net.Addr) error {
-	return ErrReverseLookupFailed{
-		error: fmt.Errorf("reverse lookup for=%v failed", addr),
-		Addr:  addr,
 	}
 }

@@ -196,32 +196,14 @@ func (peer *peer) receiveMessageOnTheWire(ctx context.Context, messageOtw protoc
 	case protocol.Pong:
 		return peer.pingPonger.AcceptPong(ctx, messageOtw.Message)
 	case protocol.Broadcast:
-		if err := peer.addFromPeerID(&messageOtw); err != nil {
-			return err
-		}
 		return peer.broadcaster.AcceptBroadcast(ctx, messageOtw.Message)
 	case protocol.Multicast:
-		if err := peer.addFromPeerID(&messageOtw); err != nil {
-			return err
-		}
 		return peer.multicaster.AcceptMulticast(ctx, messageOtw.Message)
 	case protocol.Cast:
-		if err := peer.addFromPeerID(&messageOtw); err != nil {
-			return err
-		}
 		return peer.caster.AcceptCast(ctx, messageOtw.Message)
 	default:
 		return fmt.Errorf("unexpected message variant=%v", messageOtw.Message.Variant)
 	}
-}
-
-func (peer *peer) addFromPeerID(messageOtw *protocol.MessageOnTheWire) error {
-	peerAddr, err := peer.dht.ReverseLookup(messageOtw.From)
-	if err != nil {
-		return fmt.Errorf("invalid sender: %v", err)
-	}
-	messageOtw.Message.From = peerAddr.PeerID()
-	return nil
 }
 
 func validateOptions(options PeerOptions) error {

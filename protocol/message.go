@@ -82,7 +82,6 @@ func (body MessageBody) String() string {
 }
 
 type Message struct {
-	From    PeerID
 	Length  MessageLength
 	Version MessageVersion
 	Variant MessageVariant
