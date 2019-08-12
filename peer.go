@@ -264,7 +264,7 @@ func DefaultTCP(options PeerOptions, events EventSender, port int) Peer {
 				Logger:     options.Logger,
 				Timeout:    time.Minute,
 				Handshaker: handshaker,
-			}, serverMessages).Listen(context.Background(), fmt.Sprintf("0.0.0.0:%v", port))
+			}, serverMessages).Listen(ctx, fmt.Sprintf("0.0.0.0:%v", port))
 			if err != nil {
 				panic(fmt.Errorf("tcp server has crashed: %v", err))
 			}
@@ -275,7 +275,7 @@ func DefaultTCP(options PeerOptions, events EventSender, port int) Peer {
 				Timeout:        10 * time.Second,
 				Handshaker:     handshaker,
 				MaxConnections: 200,
-			}), clientMessages).Run(context.Background())
+			}), clientMessages).Run(ctx)
 		},
 	}
 	return Default(options, serverMessages, clientMessages, events)
