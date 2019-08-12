@@ -83,8 +83,6 @@ var _ = Describe("airwaves peer", func() {
 			It(fmt.Sprintf(
 				"should connect to %d nodes when %d nodes are known, when new nodes join sequentially",
 				nodeCount.TotalBootstrap+nodeCount.NewNodes-1, nodeCount.KnownBootstrap), func() {
-				defer time.Sleep(5 * time.Second)
-
 				logger := logrus.StandardLogger()
 				SignVerifiers := initSignVerifiers(nodeCount.TotalBootstrap + nodeCount.NewNodes)
 				bootstrapSignVerifiers := make([]testutil.MockSignVerifier, nodeCount.TotalBootstrap)
