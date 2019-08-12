@@ -9,6 +9,7 @@ import (
 	"github.com/renproject/aw/broadcast"
 	"github.com/renproject/aw/cast"
 	"github.com/renproject/aw/dht"
+	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/multicast"
 	"github.com/renproject/aw/pingpong"
 	"github.com/renproject/aw/protocol"
@@ -29,12 +30,13 @@ type PeerOptions struct {
 	Codec              PeerAddressCodec
 
 	// Optional
-	EventBuffer       int           // Defaults to 0
-	BootstrapWorkers  int           // Defaults to 2x the number of CPUs
-	BootstrapDuration time.Duration // Defaults to 1 hour
-	DHTStore          db.Iterable   // Defaults to using in memory store
-	BroadcasterStore  db.Iterable   // Defaults to using in memory store
-	RunFns            []RunFn       // Defaults to nil
+	EventBuffer       int                   // Defaults to 0
+	BootstrapWorkers  int                   // Defaults to 2x the number of CPUs
+	BootstrapDuration time.Duration         // Defaults to 1 hour
+	DHTStore          db.Iterable           // Defaults to using in memory store
+	BroadcasterStore  db.Iterable           // Defaults to using in memory store
+	SignVerifier      protocol.SignVerifier // Defaults to nil
+	RunFns            []RunFn               // Defaults to nil
 }
 
 type Peer interface {
@@ -57,60 +59,6 @@ type peer struct {
 	broadcaster broadcast.Broadcaster
 
 	receiver MessageReceiver
-}
-
-func DefaultTCP(options PeerOptions, events EventSender, port int) Peer {
-	serverMessages := make(chan protocol.MessageOnTheWire)
-	clientMessages := make(chan protocol.MessageOnTheWire)
-	options.RunFns = []RunFn{
-		func(ctx context.Context) {
-			err := tcp.NewServer(tcp.ServerOptions{
-				Logger:  options.Logger,
-				Timeout: time.Minute,
-			}, serverMessages).Listen(context.Background(), fmt.Sprintf("0.0.0.0:%v", port))
-			if err != nil {
-				panic(fmt.Errorf("tcp server has crashed: %v", err))
-			}
-		},
-		func(ctx context.Context) {
-			tcp.NewClient(tcp.NewClientConns(tcp.ClientOptions{
-				Logger:         options.Logger,
-				Timeout:        10 * time.Second,
-				MaxConnections: 200,
-			}), clientMessages).Run(context.Background())
-		},
-	}
-	return Default(options, serverMessages, clientMessages, events)
-}
-
-func Default(options PeerOptions, receiver MessageReceiver, sender MessageSender, events EventSender) Peer {
-	// Pre-condition check
-	if err := validateOptions(options); err != nil {
-		panic(fmt.Errorf("pre-condition violation: %v", newErrInvalidPeerOptions(err)))
-	}
-
-	if options.DHTStore == nil {
-		options.DHTStore = kv.NewMemDB()
-	}
-
-	if options.BroadcasterStore == nil {
-		options.BroadcasterStore = kv.NewMemDB()
-	}
-
-	dht, err := dht.New(options.Me, options.Codec, kv.NewGob(options.DHTStore), options.BootstrapAddresses...)
-	if err != nil {
-		panic(fmt.Errorf("failed to initialize DHT: %v", err))
-	}
-
-	return New(
-		options,
-		receiver,
-		dht,
-		pingpong.NewPingPonger(dht, sender, events, options.Codec, options.Logger),
-		cast.NewCaster(dht, sender, events, options.Logger),
-		multicast.NewMulticaster(dht, sender, events, options.Logger),
-		broadcast.NewBroadcaster(broadcast.NewStorage(kv.NewGob(options.BroadcasterStore)), dht, sender, events, options.Logger),
-	)
 }
 
 func New(options PeerOptions, receiver MessageReceiver, dht dht.DHT, pingponger pingpong.PingPonger, caster cast.Caster, multicaster multicast.Multicaster, broadcaster broadcast.Broadcaster) Peer {
@@ -160,7 +108,9 @@ func (peer *peer) Run(ctx context.Context) {
 			peer.bootstrap(ctx)
 
 		case m := <-peer.receiver:
-			peer.receiveMessageOnTheWire(ctx, m)
+			if err := peer.receiveMessageOnTheWire(ctx, m); err != nil {
+				peer.options.Logger.Error(err)
+			}
 		}
 	}
 }
@@ -236,26 +186,38 @@ func (peer *peer) bootstrap(ctx context.Context) {
 }
 
 func (peer *peer) receiveMessageOnTheWire(ctx context.Context, messageOtw protocol.MessageOnTheWire) error {
-	peerAddr, err := peer.dht.ReverseLookup(messageOtw.From)
-	if err != nil {
-		return fmt.Errorf("invalid sender: %v", err)
-	}
-	messageOtw.Message.From = peerAddr.PeerID()
-
 	switch messageOtw.Message.Variant {
 	case protocol.Ping:
 		return peer.pingPonger.AcceptPing(ctx, messageOtw.Message)
 	case protocol.Pong:
 		return peer.pingPonger.AcceptPong(ctx, messageOtw.Message)
 	case protocol.Broadcast:
+		if err := peer.addFromPeerID(&messageOtw); err != nil {
+			return err
+		}
 		return peer.broadcaster.AcceptBroadcast(ctx, messageOtw.Message)
 	case protocol.Multicast:
+		if err := peer.addFromPeerID(&messageOtw); err != nil {
+			return err
+		}
 		return peer.multicaster.AcceptMulticast(ctx, messageOtw.Message)
 	case protocol.Cast:
+		if err := peer.addFromPeerID(&messageOtw); err != nil {
+			return err
+		}
 		return peer.caster.AcceptCast(ctx, messageOtw.Message)
 	default:
 		return fmt.Errorf("unexpected message variant=%v", messageOtw.Message.Variant)
 	}
+}
+
+func (peer *peer) addFromPeerID(messageOtw *protocol.MessageOnTheWire) error {
+	peerAddr, err := peer.dht.ReverseLookup(messageOtw.From)
+	if err != nil {
+		return fmt.Errorf("invalid sender: %v", err)
+	}
+	messageOtw.Message.From = peerAddr.PeerID()
+	return nil
 }
 
 func validateOptions(options PeerOptions) error {
@@ -287,4 +249,64 @@ func newErrPeerNotFound(err error) error {
 
 func newErrInvalidPeerOptions(err error) error {
 	return fmt.Errorf("invalid peer options: %v", err)
+}
+
+func DefaultTCP(options PeerOptions, events EventSender, port int) Peer {
+	var handshaker handshake.Handshaker
+	if options.SignVerifier != nil {
+		handshaker = handshake.New(options.SignVerifier)
+	}
+	serverMessages := make(chan protocol.MessageOnTheWire)
+	clientMessages := make(chan protocol.MessageOnTheWire)
+	options.RunFns = []RunFn{
+		func(ctx context.Context) {
+			err := tcp.NewServer(tcp.ServerOptions{
+				Logger:     options.Logger,
+				Timeout:    time.Minute,
+				Handshaker: handshaker,
+			}, serverMessages).Listen(context.Background(), fmt.Sprintf("0.0.0.0:%v", port))
+			if err != nil {
+				panic(fmt.Errorf("tcp server has crashed: %v", err))
+			}
+		},
+		func(ctx context.Context) {
+			tcp.NewClient(tcp.NewClientConns(tcp.ClientOptions{
+				Logger:         options.Logger,
+				Timeout:        10 * time.Second,
+				Handshaker:     handshaker,
+				MaxConnections: 200,
+			}), clientMessages).Run(context.Background())
+		},
+	}
+	return Default(options, serverMessages, clientMessages, events)
+}
+
+func Default(options PeerOptions, receiver MessageReceiver, sender MessageSender, events EventSender) Peer {
+	// Pre-condition check
+	if err := validateOptions(options); err != nil {
+		panic(fmt.Errorf("pre-condition violation: %v", newErrInvalidPeerOptions(err)))
+	}
+
+	if options.DHTStore == nil {
+		options.DHTStore = kv.NewMemDB()
+	}
+
+	if options.BroadcasterStore == nil {
+		options.BroadcasterStore = kv.NewMemDB()
+	}
+
+	dht, err := dht.New(options.Me, options.Codec, kv.NewGob(options.DHTStore), options.BootstrapAddresses...)
+	if err != nil {
+		panic(fmt.Errorf("failed to initialize DHT: %v", err))
+	}
+
+	return New(
+		options,
+		receiver,
+		dht,
+		pingpong.NewPingPonger(dht, sender, events, options.Codec, options.Logger),
+		cast.NewCaster(dht, sender, events, options.Logger),
+		multicast.NewMulticaster(dht, sender, events, options.Logger),
+		broadcast.NewBroadcaster(broadcast.NewStorage(kv.NewGob(options.BroadcasterStore)), dht, sender, events, options.Logger),
+	)
 }
