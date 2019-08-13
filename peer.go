@@ -238,13 +238,13 @@ func newErrInvalidPeerOptions(err error) error {
 	return fmt.Errorf("invalid peer options: %v", err)
 }
 
-func DefaultTCP(options PeerOptions, events EventSender, port int) Peer {
+func DefaultTCP(options PeerOptions, events EventSender, cap, port int) Peer {
 	var handshaker handshake.Handshaker
 	if options.SignVerifier != nil {
 		handshaker = handshake.New(options.SignVerifier)
 	}
-	serverMessages := make(chan protocol.MessageOnTheWire)
-	clientMessages := make(chan protocol.MessageOnTheWire)
+	serverMessages := make(chan protocol.MessageOnTheWire, cap)
+	clientMessages := make(chan protocol.MessageOnTheWire, cap)
 	options.RunFns = []RunFn{
 		func(ctx context.Context) {
 			err := tcp.NewServer(tcp.ServerOptions{
