@@ -15,6 +15,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const CAPACITY = 1000
+
 var _ = Describe("airwaves peer", func() {
 	initSignVerifiers := func(nodeCount int) []testutil.MockSignVerifier {
 		SignVerifiers := make([]testutil.MockSignVerifier, nodeCount)
@@ -47,7 +49,7 @@ var _ = Describe("airwaves peer", func() {
 			if signVerifiers != nil && len(signVerifiers) == len(peerAddresses) {
 				options.SignVerifier = signVerifiers[i]
 			}
-			go DefaultTCP(options, events, 46532+i).Run(ctx)
+			go DefaultTCP(options, events, CAPACITY, 46532+i).Run(ctx)
 		})
 		return peerAddresses, nil
 	}
@@ -110,7 +112,7 @@ var _ = Describe("airwaves peer", func() {
 						SignVerifier:       nodeSignVerifiers[i],
 						Me:                 peerAddr,
 						BootstrapAddresses: bootstrapAddrs,
-					}, events, 5000+i)
+					}, events, CAPACITY, 5000+i)
 					go peer.Run(ctx)
 					peers[i] = peer
 				}
