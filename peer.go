@@ -15,7 +15,6 @@ import (
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/aw/tcp"
 	"github.com/renproject/kv"
-	"github.com/renproject/kv/db"
 	"github.com/renproject/phi"
 	"github.com/sirupsen/logrus"
 )
@@ -35,8 +34,8 @@ type PeerOptions struct {
 	BootstrapWorkers     int           `json:"bootstrapWorkers"`     // Defaults to 2x the number of CPUs
 	BootstrapDuration    time.Duration `json:"bootstrapDuration"`    // Defaults to 1 hour
 
-	DHTStore         db.Iterable           // Defaults to using in memory store
-	BroadcasterStore db.Iterable           // Defaults to using in memory store
+	DHTStore         kv.Table              // Defaults to using in memory store
+	BroadcasterStore kv.Table              // Defaults to using in memory store
 	SignVerifier     protocol.SignVerifier // Defaults to nil
 	RunFns           []RunFn               // Defaults to nil
 }
@@ -275,14 +274,14 @@ func Default(options PeerOptions, receiver MessageReceiver, sender MessageSender
 	}
 
 	if options.DHTStore == nil {
-		options.DHTStore = kv.NewMemDB()
+		options.DHTStore = kv.NewTable(kv.NewMemDB(kv.GobCodec), "dht")
 	}
 
 	if options.BroadcasterStore == nil {
-		options.BroadcasterStore = kv.NewMemDB()
+		options.BroadcasterStore = kv.NewTable(kv.NewMemDB(kv.GobCodec), "broadcaster")
 	}
 
-	dht, err := dht.New(options.Me, options.Codec, kv.NewGob(options.DHTStore), options.BootstrapAddresses...)
+	dht, err := dht.New(options.Me, options.Codec, options.DHTStore, options.BootstrapAddresses...)
 	if err != nil {
 		panic(fmt.Errorf("failed to initialize DHT: %v", err))
 	}
@@ -294,6 +293,6 @@ func Default(options PeerOptions, receiver MessageReceiver, sender MessageSender
 		pingpong.NewPingPonger(dht, sender, events, options.Codec, options.Logger),
 		cast.NewCaster(dht, sender, events, options.Logger),
 		multicast.NewMulticaster(dht, sender, events, options.Logger),
-		broadcast.NewBroadcaster(broadcast.NewStorage(kv.NewGob(options.BroadcasterStore)), dht, sender, events, options.Logger),
+		broadcast.NewBroadcaster(broadcast.NewStorage(options.BroadcasterStore), dht, sender, events, options.Logger),
 	)
 }
