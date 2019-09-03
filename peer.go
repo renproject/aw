@@ -44,6 +44,8 @@ type Peer interface {
 	Run(context.Context)
 	Peer(context.Context, PeerID) (PeerAddress, error)
 	Peers(context.Context) (PeerAddresses, error)
+	AddPeer(context.Context, PeerAddress) error
+	AddPeers(context.Context, PeerAddresses) error
 	NumPeers(context.Context) (int, error)
 	Cast(context.Context, PeerID, []byte) error
 	Multicast(context.Context, []byte) error
@@ -114,6 +116,14 @@ func (peer *peer) Run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (peer *peer) AddPeer(_ context.Context, address PeerAddress) error {
+	return peer.dht.AddPeerAddress(address)
+}
+
+func (peer *peer) AddPeers(_ context.Context, addresses PeerAddresses) error {
+	return peer.dht.AddPeerAddresses(addresses)
 }
 
 func (peer *peer) Peer(_ context.Context, peerID PeerID) (PeerAddress, error) {
@@ -212,12 +222,6 @@ func validateOptions(options PeerOptions) error {
 	}
 	if options.Me == nil {
 		return fmt.Errorf("nil me address")
-	}
-	if options.BootstrapAddresses == nil {
-		return fmt.Errorf("nil bootstrap addresses")
-	}
-	if len(options.BootstrapAddresses) == 0 {
-		return fmt.Errorf("empty bootstrap addresses")
 	}
 	if options.Codec == nil {
 		return fmt.Errorf("nil peer address codec")
