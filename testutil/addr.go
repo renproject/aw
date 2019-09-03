@@ -31,7 +31,7 @@ func (codec SimpleTCPPeerAddressCodec) Decode(peerAddress []byte) (protocol.Peer
 	return address, nil
 }
 
-func NewSimpleTCPPeerAddress(id, address, port string) protocol.PeerAddress {
+func NewSimpleTCPPeerAddress(id, address, port string) SimpleTCPPeerAddress {
 	return SimpleTCPPeerAddress{
 		ID:        SimplePeerID(id),
 		Nonce:     0,
