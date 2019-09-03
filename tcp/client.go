@@ -142,11 +142,6 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 		return nil
 	}
 
-	// A new connection needs to be dialed, so we lock the connection to prevent
-	// multiple dials against the same remote server
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-
 	// Double-check the connection, because while waiting to acquire the write lock
 	// another goroutine may have already dialed the remote server
 	if conn.conn != nil {
@@ -163,6 +158,11 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 		}
 		return nil
 	}
+
+	// A new connection needs to be dialed, so we lock the connection to prevent
+	// multiple dials against the same remote server
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
 
 	// Dial
 	conn.conn, err = net.DialTimeout("tcp", addr.String(), clientConns.options.Timeout)
