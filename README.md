@@ -19,7 +19,7 @@ A flexible P2P networking library for upgradable distributed systems. The core m
 
 Airwave uses a 3 way sync handshake method to authorize peers in the network. The process is as follows:
 
-![](arch/handshake.svg)
+![](docs/handshake.svg)
 
 The client sends a signed rsa public key on connect. The server validates the signature, generates a random challenge, and sends the signed random challenge encrypted with the client's public key; and the server's public key. The client validates the server's signature decrypts the challenge encrypts it with the server's publickey, signs it and sends it back.
 
