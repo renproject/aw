@@ -49,7 +49,7 @@ var _ = Describe("airwaves peer", func() {
 			if signVerifiers != nil && len(signVerifiers) == len(peerAddresses) {
 				options.SignVerifier = signVerifiers[i]
 			}
-			go DefaultTCP(options, events, CAPACITY, 46532+i).Run(ctx)
+			go NewTCPPeer(options, events, CAPACITY, 46532+i).Run(ctx)
 		})
 		return peerAddresses, nil
 	}
@@ -105,7 +105,7 @@ var _ = Describe("airwaves peer", func() {
 				peers := make([]Peer, nodeCount.NewNodes)
 				for i, peerAddr := range peerAddresses {
 					events := make(chan protocol.Event, 10)
-					peer := DefaultTCP(PeerOptions{
+					peer := NewTCPPeer(PeerOptions{
 						Logger: logger.WithField("test_node", i),
 						Codec:  codec,
 
@@ -127,5 +127,86 @@ var _ = Describe("airwaves peer", func() {
 				}
 			})
 		}
+	})
+
+	Context("when updating peer address", func() {
+		FIt("should be able to send messages to the new address", func() {
+			logger := logrus.StandardLogger()
+
+			peer1Events := make(chan protocol.Event, 65535)
+			peer2Events := make(chan protocol.Event, 65535)
+			updatedPeer2Events := make(chan protocol.Event, 65535)
+
+			codec := testutil.NewSimpleTCPPeerAddressCodec()
+			peer1Address := testutil.NewSimpleTCPPeerAddress("peer_1", "127.0.0.1", fmt.Sprintf("%d", 8080))
+			peer2Address := testutil.NewSimpleTCPPeerAddress("peer_2", "127.0.0.1", fmt.Sprintf("%d", 8081))
+			updatedPeer2Address := testutil.NewSimpleTCPPeerAddress("peer_2", "127.0.0.1", fmt.Sprintf("%d", 8082))
+			updatedPeer2Address.Nonce = 1
+
+			peer1 := NewTCPPeer(PeerOptions{
+				Logger:             logger,
+				Me:                 peer1Address,
+				BootstrapAddresses: PeerAddresses{peer2Address},
+				Codec:              codec,
+
+				BootstrapDuration: 3 * time.Second,
+			}, peer1Events, 65535, 8080)
+
+			peer2 := NewTCPPeer(PeerOptions{
+				Logger:             logger,
+				Me:                 peer2Address,
+				BootstrapAddresses: PeerAddresses{peer1Address},
+				Codec:              codec,
+
+				BootstrapDuration: 3 * time.Second,
+			}, peer2Events, 65535, 8081)
+
+			updatedPeer2 := NewTCPPeer(PeerOptions{
+				Logger:             logger,
+				Me:                 updatedPeer2Address,
+				BootstrapAddresses: PeerAddresses{peer1Address},
+				Codec:              codec,
+
+				BootstrapDuration: 3 * time.Second,
+			}, updatedPeer2Events, 65535, 8082)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			go func() {
+				<-ctx.Done()
+				cancel()
+			}()
+
+			co.ParBegin(
+				func() {
+					peer1.Run(context.Background())
+				},
+				func() {
+					peer2.Run(ctx)
+					fmt.Println("peer 2 restarted")
+					updatedPeer2.Run(context.Background())
+				},
+				func() {
+					<-ctx.Done()
+					ctx2, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					go func() {
+						<-ctx2.Done()
+						cancel()
+					}()
+					if err := peer1.Cast(ctx2, testutil.SimplePeerID("peer_2"), []byte("hello")); err != nil {
+						panic(err)
+					}
+				},
+				func() {
+					for event := range peer1Events {
+						fmt.Println(event)
+					}
+				},
+				func() {
+					for event := range updatedPeer2Events {
+						fmt.Println(event)
+					}
+				},
+			)
+		})
 	})
 })

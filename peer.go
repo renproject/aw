@@ -19,7 +19,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type RunFn func(context.Context)
+type Runner interface {
+	Run(ctx context.Context)
+}
 
 type PeerOptions struct {
 	Logger logrus.FieldLogger
@@ -37,7 +39,7 @@ type PeerOptions struct {
 	DHTStore         kv.Table              // Defaults to using in memory store
 	BroadcasterStore kv.Table              // Defaults to using in memory store
 	SignVerifier     protocol.SignVerifier // Defaults to nil
-	RunFns           []RunFn               // Defaults to nil
+	Runners          []Runner              // Defaults to nil
 }
 
 type Peer interface {
@@ -92,9 +94,9 @@ func New(options PeerOptions, receiver MessageReceiver, dht dht.DHT, pingponger 
 }
 
 func (peer *peer) Run(ctx context.Context) {
-	if peer.options.RunFns != nil {
-		for _, fn := range peer.options.RunFns {
-			go fn(ctx)
+	if peer.options.Runners != nil {
+		for _, runner := range peer.options.Runners {
+			go runner.Run(ctx)
 		}
 	}
 
@@ -241,40 +243,10 @@ func newErrInvalidPeerOptions(err error) error {
 	return fmt.Errorf("invalid peer options: %v", err)
 }
 
-func DefaultTCP(options PeerOptions, events EventSender, cap, port int) Peer {
+func NewTCPPeer(options PeerOptions, events EventSender, cap, port int) Peer {
 	var handshaker handshake.Handshaker
 	if options.SignVerifier != nil {
 		handshaker = handshake.New(options.SignVerifier)
-	}
-	serverMessages := make(chan protocol.MessageOnTheWire, cap)
-	clientMessages := make(chan protocol.MessageOnTheWire, cap)
-	options.RunFns = []RunFn{
-		func(ctx context.Context) {
-			err := tcp.NewServer(tcp.ServerOptions{
-				Logger:     options.Logger,
-				Timeout:    time.Minute,
-				Handshaker: handshaker,
-			}, serverMessages).Listen(ctx, fmt.Sprintf("0.0.0.0:%v", port))
-			if err != nil {
-				panic(fmt.Errorf("tcp server has crashed: %v", err))
-			}
-		},
-		func(ctx context.Context) {
-			tcp.NewClient(tcp.NewClientConns(tcp.ClientOptions{
-				Logger:         options.Logger,
-				Timeout:        10 * time.Second,
-				Handshaker:     handshaker,
-				MaxConnections: 200,
-			}), clientMessages).Run(ctx)
-		},
-	}
-	return Default(options, serverMessages, clientMessages, events)
-}
-
-func Default(options PeerOptions, receiver MessageReceiver, sender MessageSender, events EventSender) Peer {
-	// Pre-condition check
-	if err := validateOptions(options); err != nil {
-		panic(fmt.Errorf("pre-condition violation: %v", newErrInvalidPeerOptions(err)))
 	}
 
 	if options.DHTStore == nil {
@@ -285,18 +257,36 @@ func Default(options PeerOptions, receiver MessageReceiver, sender MessageSender
 		options.BroadcasterStore = kv.NewTable(kv.NewMemDB(kv.GobCodec), "broadcaster")
 	}
 
+	serverMessages := make(chan protocol.MessageOnTheWire, cap)
+	clientMessages := make(chan protocol.MessageOnTheWire, cap)
+
 	dht, err := dht.New(options.Me, options.Codec, options.DHTStore, options.BootstrapAddresses...)
 	if err != nil {
 		panic(fmt.Errorf("failed to initialize DHT: %v", err))
 	}
 
+	options.Runners = []Runner{
+		tcp.NewServer(tcp.ServerOptions{
+			Logger:     options.Logger,
+			Timeout:    time.Minute,
+			Handshaker: handshaker,
+			Port:       port,
+		}, serverMessages),
+		tcp.NewClient(tcp.NewClientConns(tcp.ClientOptions{
+			Logger:         options.Logger,
+			Timeout:        10 * time.Second,
+			Handshaker:     handshaker,
+			MaxConnections: 200,
+		}), dht, clientMessages),
+	}
+
 	return New(
 		options,
-		receiver,
+		serverMessages,
 		dht,
-		pingpong.NewPingPonger(dht, sender, events, options.Codec, options.Logger),
-		cast.NewCaster(dht, sender, events, options.Logger),
-		multicast.NewMulticaster(dht, sender, events, options.Logger),
-		broadcast.NewBroadcaster(broadcast.NewStorage(options.BroadcasterStore), dht, sender, events, options.Logger),
+		pingpong.NewPingPonger(dht, clientMessages, events, options.Codec, options.Logger),
+		cast.NewCaster(clientMessages, events, options.Logger),
+		multicast.NewMulticaster(clientMessages, events, options.Logger),
+		broadcast.NewBroadcaster(options.BroadcasterStore, clientMessages, events, options.Logger),
 	)
 }
