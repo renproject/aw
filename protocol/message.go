@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"net"
 
 	"golang.org/x/crypto/sha3"
 )
@@ -16,8 +15,7 @@ type MessageSender chan<- MessageOnTheWire
 type MessageReceiver <-chan MessageOnTheWire
 
 type MessageOnTheWire struct {
-	From    net.Addr
-	To      net.Addr
+	To      PeerID
 	Message Message
 }
 
@@ -65,7 +63,7 @@ func (variant MessageVariant) String() string {
 	case Broadcast:
 		return "broadcast"
 	default:
-		panic(newErrMessageVariantIsNotSupported(variant))
+		panic(NewErrMessageVariantIsNotSupported(variant))
 	}
 }
 
@@ -97,7 +95,7 @@ func NewMessage(version MessageVersion, variant MessageVariant, body MessageBody
 	switch variant {
 	case Ping, Pong, Cast, Multicast, Broadcast:
 	default:
-		panic(newErrMessageVariantIsNotSupported(variant))
+		panic(NewErrMessageVariantIsNotSupported(variant))
 	}
 	if body == nil {
 		body = make(MessageBody, 0)
@@ -131,7 +129,7 @@ func (message Message) Write(writer io.Writer) error {
 	switch message.Variant {
 	case Ping, Pong, Cast, Multicast, Broadcast:
 	default:
-		return newErrMessageVariantIsNotSupported(message.Variant)
+		return NewErrMessageVariantIsNotSupported(message.Variant)
 	}
 
 	if err := binary.Write(writer, binary.LittleEndian, message.Length); err != nil {
@@ -175,7 +173,7 @@ func (message *Message) Read(reader io.Reader) error {
 	switch message.Variant {
 	case Ping, Pong, Cast, Multicast, Broadcast:
 	default:
-		return newErrMessageVariantIsNotSupported(message.Variant)
+		return NewErrMessageVariantIsNotSupported(message.Variant)
 	}
 
 	message.Body = make(MessageBody, message.Length-32)
@@ -214,7 +212,7 @@ type ErrMessageVariantIsNotSupported struct {
 	Variant MessageVariant
 }
 
-func newErrMessageVariantIsNotSupported(variant MessageVariant) error {
+func NewErrMessageVariantIsNotSupported(variant MessageVariant) error {
 	return ErrMessageVariantIsNotSupported{
 		error:   fmt.Errorf("message variant=%d is not supported", variant),
 		Variant: variant,
