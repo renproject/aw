@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/protocol"
 	"github.com/sirupsen/logrus"
 )
@@ -16,15 +15,13 @@ type Multicaster interface {
 }
 
 type multicaster struct {
-	dht      dht.DHT
 	logger   logrus.FieldLogger
 	messages protocol.MessageSender
 	events   protocol.EventSender
 }
 
-func NewMulticaster(dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender, logger logrus.FieldLogger) Multicaster {
+func NewMulticaster(messages protocol.MessageSender, events protocol.EventSender, logger logrus.FieldLogger) Multicaster {
 	return &multicaster{
-		dht:      dht,
 		messages: messages,
 		events:   events,
 		logger:   logger,
@@ -32,40 +29,26 @@ func NewMulticaster(dht dht.DHT, messages protocol.MessageSender, events protoco
 }
 
 func (multicaster *multicaster) Multicast(ctx context.Context, body protocol.MessageBody) error {
-	peerAddrs, err := multicaster.dht.PeerAddresses()
-	if err != nil {
-		return newErrMulticastingMessage(err)
+	messageWire := protocol.MessageOnTheWire{
+		Message: protocol.NewMessage(protocol.V1, protocol.Multicast, body),
 	}
-	if peerAddrs == nil {
-		return newErrMulticastingMessage(fmt.Errorf("nil peer addresses"))
+	select {
+	case <-ctx.Done():
+		return newErrMulticastingMessage(ctx.Err())
+	case multicaster.messages <- messageWire:
 	}
-	if len(peerAddrs) <= 0 {
-		return newErrMulticastingMessage(fmt.Errorf("empty peer addresses"))
-	}
-
-	// Using the messaging sending channel protects the multicaster from
-	// cascading time outs, but will still capture back pressure
-	for i := range peerAddrs {
-		messageWire := protocol.MessageOnTheWire{
-			To:      peerAddrs[i].NetworkAddress(),
-			Message: protocol.NewMessage(protocol.V1, protocol.Multicast, body),
-		}
-		select {
-		case <-ctx.Done():
-			err = newErrMulticastingMessage(ctx.Err())
-		case multicaster.messages <- messageWire:
-		}
-	}
-
-	// Return the last error
-	return err
+	return nil
 }
 
 func (multicaster *multicaster) AcceptMulticast(ctx context.Context, message protocol.Message) error {
-	// TODO: Check for compatible message version.
-
 	// TODO: Multicasting will always emit an event for a received message, even
 	// if the message has been seen before. Should this be changed?
+	if message.Version != protocol.V1 {
+		return newErrMulticastVersionNotSupported(message.Version)
+	}
+	if message.Variant != protocol.Multicast {
+		return newErrMulticastVariantNotSupported(message.Variant)
+	}
 
 	event := protocol.EventMessageReceived{
 		Time:    time.Now(),
@@ -86,5 +69,29 @@ type ErrMulticastingMessage struct {
 func newErrMulticastingMessage(err error) error {
 	return ErrMulticastingMessage{
 		error: fmt.Errorf("error multicasting: %v", err),
+	}
+}
+
+// ErrMulticastVersionNotSupported is returned when a multicast message has an
+// unsupported version.
+type ErrMulticastVersionNotSupported struct {
+	error
+}
+
+func newErrMulticastVersionNotSupported(version protocol.MessageVersion) error {
+	return ErrMulticastVersionNotSupported{
+		error: fmt.Errorf("multicast version=%v not supported", version),
+	}
+}
+
+// ErrMulticastVariantNotSupported is returned when a multicast message has an
+// unsupported variant.
+type ErrMulticastVariantNotSupported struct {
+	error
+}
+
+func newErrMulticastVariantNotSupported(variant protocol.MessageVariant) error {
+	return ErrMulticastVariantNotSupported{
+		error: fmt.Errorf("multicast variant=%v not supported", variant),
 	}
 }
