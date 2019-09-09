@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/protocol"
+	"github.com/renproject/kv"
 	"github.com/sirupsen/logrus"
 )
 
@@ -27,8 +27,7 @@ type Broadcaster interface {
 }
 
 type broadcaster struct {
-	storage  Storage
-	dht      dht.DHT
+	store    kv.Table
 	messages protocol.MessageSender
 	events   protocol.EventSender
 	logger   logrus.FieldLogger
@@ -37,10 +36,9 @@ type broadcaster struct {
 // NewBroadcaster returns a Broadcaster that will use the given Storage
 // interface and DHT interface for storing messages and peer addresses
 // respectively.
-func NewBroadcaster(storage Storage, dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender, logger logrus.FieldLogger) Broadcaster {
+func NewBroadcaster(store kv.Table, messages protocol.MessageSender, events protocol.EventSender, logger logrus.FieldLogger) Broadcaster {
 	return &broadcaster{
-		storage:  storage,
-		dht:      dht,
+		store:    store,
 		messages: messages,
 		events:   events,
 		logger:   logger,
@@ -50,33 +48,15 @@ func NewBroadcaster(storage Storage, dht dht.DHT, messages protocol.MessageSende
 // Broadcast a message to multiple remote servers in an attempt to saturate the
 // network.
 func (broadcaster *broadcaster) Broadcast(ctx context.Context, body protocol.MessageBody) error {
-	peerAddrs, err := broadcaster.dht.PeerAddresses()
-	if err != nil {
-		return newErrBroadcastInternal(err)
+	messageWire := protocol.MessageOnTheWire{
+		Message: protocol.NewMessage(protocol.V1, protocol.Broadcast, body),
 	}
-	if peerAddrs == nil {
-		return newErrBroadcastInternal(fmt.Errorf("nil peer addresses"))
+	select {
+	case <-ctx.Done():
+		return newErrBroadcastCanceled(ctx.Err())
+	case broadcaster.messages <- messageWire:
 	}
-	if len(peerAddrs) <= 0 {
-		return newErrBroadcastInternal(fmt.Errorf("empty peer addresses"))
-	}
-
-	// Using the messaging sending channel protects the multicaster from
-	// cascading time outs, but will still capture back pressure
-	for i := range peerAddrs {
-		messageWire := protocol.MessageOnTheWire{
-			To:      peerAddrs[i].NetworkAddress(),
-			Message: protocol.NewMessage(protocol.V1, protocol.Broadcast, body),
-		}
-		select {
-		case <-ctx.Done():
-			err = newErrBroadcastCanceled(ctx.Err())
-		case broadcaster.messages <- messageWire:
-		}
-	}
-
-	// Return the last error
-	return err
+	return nil
 }
 
 // AcceptBroadcast from a remote client and propagate it to all peers in the
@@ -91,7 +71,7 @@ func (broadcaster *broadcaster) AcceptBroadcast(ctx context.Context, message pro
 	}
 
 	messageHash := message.Hash()
-	ok, err := broadcaster.storage.MessageHash(messageHash)
+	ok, err := broadcaster.messageHash(messageHash)
 	if err != nil {
 		return newErrBroadcastInternal(fmt.Errorf("error loading message hash=%v: %v", messageHash, err))
 	}
@@ -99,7 +79,7 @@ func (broadcaster *broadcaster) AcceptBroadcast(ctx context.Context, message pro
 		// Ignore messages that have already been seen
 		return nil
 	}
-	if err := broadcaster.storage.InsertMessageHash(messageHash); err != nil {
+	if err := broadcaster.insertMessageHash(messageHash); err != nil {
 		return newErrBroadcastInternal(fmt.Errorf("error inserting message hash=%v: %v", messageHash, err))
 	}
 
@@ -117,6 +97,18 @@ func (broadcaster *broadcaster) AcceptBroadcast(ctx context.Context, message pro
 	// Re-broadcasting the message will downgrade its version to the version
 	// supported by this broadcaster
 	return broadcaster.Broadcast(ctx, message.Body)
+}
+
+func (broadcaster *broadcaster) insertMessageHash(hash protocol.MessageHash) error {
+	return broadcaster.store.Insert(hash.String(), true)
+}
+
+func (broadcaster *broadcaster) messageHash(hash protocol.MessageHash) (bool, error) {
+	var exists bool
+	if err := broadcaster.store.Get(hash.String(), &exists); err != nil && err.Error() != kv.ErrKeyNotFound.Error() {
+		return false, err
+	}
+	return exists, nil
 }
 
 // ErrBroadcastInternal is returned when there is an internal broadcasting
