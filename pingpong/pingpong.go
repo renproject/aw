@@ -50,7 +50,7 @@ func (pp *pingPonger) Ping(ctx context.Context, to protocol.PeerID) error {
 		return err
 	}
 	messageWire := protocol.MessageOnTheWire{
-		To:      peerAddr.NetworkAddress(),
+		To:      peerAddr.PeerID(),
 		Message: protocol.NewMessage(protocol.V1, protocol.Ping, me),
 	}
 
@@ -116,7 +116,7 @@ func (pp *pingPonger) pong(ctx context.Context, to protocol.PeerAddress) error {
 		return err
 	}
 	messageWire := protocol.MessageOnTheWire{
-		To:      to.NetworkAddress(),
+		To:      to.PeerID(),
 		Message: protocol.NewMessage(protocol.V1, protocol.Pong, me),
 	}
 	select {
@@ -145,7 +145,7 @@ func (pp *pingPonger) propagatePing(ctx context.Context, body protocol.MessageBo
 	// cascading time outs, but will still capture back pressure
 	for i := range peerAddrs {
 		messageWire := protocol.MessageOnTheWire{
-			To:      peerAddrs[i].NetworkAddress(),
+			To:      peerAddrs[i].PeerID(),
 			Message: protocol.NewMessage(protocol.V1, protocol.Ping, body),
 		}
 		select {
