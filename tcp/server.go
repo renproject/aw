@@ -12,9 +12,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const DefaultTCPPort = 19231
+
 type ServerOptions struct {
 	Logger  logrus.FieldLogger
 	Timeout time.Duration
+	Port    int
 	// Handshaker handles the handshake process between peers. Default: no handshake
 	Handshaker handshake.Handshaker
 }
@@ -31,10 +34,11 @@ func NewServer(options ServerOptions, messages protocol.MessageSender) *Server {
 	}
 }
 
-func (server *Server) Listen(ctx context.Context, bind string) error {
-	listener, err := net.Listen("tcp", bind)
+func (server *Server) Run(ctx context.Context) {
+	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", server.options.Port))
 	if err != nil {
-		return err
+		server.options.Logger.Errorf("failed to listen on: 0.0.0.0:%d: %v", server.options.Port, err)
+		return
 	}
 
 	go func() {
@@ -50,7 +54,7 @@ func (server *Server) Listen(ctx context.Context, bind string) error {
 			// Check whether or not the context is done
 			select {
 			case <-ctx.Done():
-				return nil
+				return
 			default:
 			}
 
@@ -85,10 +89,7 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 	conn.SetReadDeadline(time.Time{})
 
 	for {
-		messageOtw := protocol.MessageOnTheWire{
-			From: conn.RemoteAddr(),
-		}
-
+		messageOtw := protocol.MessageOnTheWire{}
 		if err := messageOtw.Message.Read(conn); err != nil {
 			if err != io.EOF {
 				server.options.Logger.Error(newErrReadingIncomingMessage(err))

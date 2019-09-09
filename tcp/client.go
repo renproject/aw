@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/handshake"
 
 	"github.com/renproject/aw/protocol"
@@ -73,7 +74,7 @@ func NewClientConns(options ClientOptions) *ClientConns {
 // Dial a remote server. If a connection to the remote server already exists,
 // then that connection is immediately returned. If a connection to the remote
 // server does not exist, then one is established.
-func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messageOtw protocol.MessageOnTheWire) error {
+func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, message protocol.Message) error {
 	// Pre-condition checks
 	if addr == nil {
 		panic("pre-condition violation: nil net.Addr")
@@ -93,7 +94,7 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 
 		// Write
 		conn.conn.SetWriteDeadline(time.Now().Add(clientConns.options.Timeout))
-		if err := messageOtw.Message.Write(conn.conn); err != nil {
+		if err := message.Write(conn.conn); err != nil {
 			conn.conn.Close()
 			delete(clientConns.conns, addr.String())
 			return err
@@ -134,7 +135,7 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 
 		// Write
 		conn.conn.SetWriteDeadline(time.Now().Add(clientConns.options.Timeout))
-		if err := messageOtw.Message.Write(conn.conn); err != nil {
+		if err := message.Write(conn.conn); err != nil {
 			conn.conn.Close()
 			delete(clientConns.conns, addr.String())
 			return err
@@ -151,7 +152,7 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 
 		// Write
 		conn.conn.SetWriteDeadline(time.Now().Add(clientConns.options.Timeout))
-		if err := messageOtw.Message.Write(conn.conn); err != nil {
+		if err := message.Write(conn.conn); err != nil {
 			conn.conn.Close()
 			delete(clientConns.conns, addr.String())
 			return err
@@ -183,7 +184,7 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 
 	// Write
 	conn.conn.SetWriteDeadline(time.Now().Add(clientConns.options.Timeout))
-	if err := messageOtw.Message.Write(conn.conn); err != nil {
+	if err := message.Write(conn.conn); err != nil {
 		return err
 	}
 
@@ -226,12 +227,14 @@ func (clientConns *ClientConns) Close(addr net.Addr) error {
 
 type Client struct {
 	conns    *ClientConns
+	dht      dht.DHT
 	messages protocol.MessageReceiver
 }
 
-func NewClient(conns *ClientConns, messages protocol.MessageReceiver) *Client {
+func NewClient(conns *ClientConns, dht dht.DHT, messages protocol.MessageReceiver) *Client {
 	return &Client{
 		conns:    conns,
+		dht:      dht,
 		messages: messages,
 	}
 }
@@ -242,25 +245,62 @@ func (client *Client) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case messageOtw := <-client.messages:
-			client.sendMessageOnTheWire(ctx, messageOtw)
+			client.handleMessageOnTheWire(ctx, messageOtw)
 		}
 	}
 }
 
-func (client *Client) sendMessageOnTheWire(ctx context.Context, messageOtw protocol.MessageOnTheWire) {
-	err := client.conns.Write(ctx, messageOtw.To, messageOtw)
+func (client *Client) handleMessageOnTheWire(ctx context.Context, message protocol.MessageOnTheWire) {
+	netAddrs, err := client.toNetAddrs(message)
+	if err != nil {
+		client.conns.options.Logger.Error("failed to load net addresses for a message", err)
+	}
+
+	for _, netAddr := range netAddrs {
+		client.sendMessageOnTheWire(ctx, netAddr, message.Message)
+	}
+}
+
+func (client *Client) toNetAddrs(message protocol.MessageOnTheWire) ([]net.Addr, error) {
+	var peerAddrs protocol.PeerAddresses
+	switch message.Message.Variant {
+	case protocol.Broadcast, protocol.Multicast:
+		peerAddresses, err := client.dht.PeerAddresses()
+		if err != nil {
+			return nil, err
+		}
+		peerAddrs = peerAddresses
+	case protocol.Cast, protocol.Ping, protocol.Pong:
+		peerAddress, err := client.dht.PeerAddress(message.To)
+		if err != nil {
+			return nil, err
+		}
+		peerAddrs = protocol.PeerAddresses{peerAddress}
+	default:
+		return nil, protocol.NewErrMessageVariantIsNotSupported(message.Message.Variant)
+	}
+
+	netAddrs := make([]net.Addr, len(peerAddrs))
+	for i, peerAddr := range peerAddrs {
+		netAddrs[i] = peerAddr.NetworkAddress()
+	}
+	return netAddrs, nil
+}
+
+func (client *Client) sendMessageOnTheWire(ctx context.Context, to net.Addr, message protocol.Message) {
+	err := client.conns.Write(ctx, to, message)
 	if err == nil {
 		return
 	}
-	client.conns.options.Logger.Errorf("error writing to tcp connection to %v: %v", messageOtw.To.String(), err)
+	client.conns.options.Logger.Errorf("error writing to tcp connection to %v: %v", to.String(), err)
 
 	go func() {
 		begin := time.Now()
 		delay := time.Duration(1000)
 		for i := 0; i < 60; i++ {
 			// Dial
-			client.conns.options.Logger.Warnf("retrying write to tcp connection to %v with delay of %.4f second(s)", messageOtw.To.String(), time.Now().Sub(begin).Seconds())
-			err := client.conns.Write(ctx, messageOtw.To, messageOtw)
+			client.conns.options.Logger.Warnf("retrying write to tcp connection to %v with delay of %.4f second(s)", to.String(), time.Now().Sub(begin).Seconds())
+			err := client.conns.Write(ctx, to, message)
 			if err != nil {
 				time.Sleep(delay * time.Millisecond)
 				delay = time.Duration(float64(delay) * 1.6)
@@ -269,7 +309,7 @@ func (client *Client) sendMessageOnTheWire(ctx context.Context, messageOtw proto
 				}
 				continue
 			}
-			client.conns.options.Logger.Infof("write to tcp connection to %v success after delay of %.4f second(s)", messageOtw.To.String(), time.Now().Sub(begin).Seconds())
+			client.conns.options.Logger.Infof("write to tcp connection to %v success after delay of %.4f second(s)", to.String(), time.Now().Sub(begin).Seconds())
 			return
 		}
 	}()

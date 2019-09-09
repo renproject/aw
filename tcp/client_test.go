@@ -3,10 +3,12 @@ package tcp_test
 import (
 	"time"
 
+	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/aw/tcp"
 	"github.com/renproject/aw/testutil"
+	"github.com/renproject/kv"
 	"github.com/sirupsen/logrus"
 
 	. "github.com/onsi/ginkgo"
@@ -21,6 +23,11 @@ var _ = Describe("Client", func() {
 		})
 
 		It("should connect after the server becomes available", func() {
+			addr := testutil.NewSimpleTCPPeerAddress("peer-1", "127.0.0.1", "5000")
+			codec := testutil.NewSimpleTCPPeerAddressCodec()
+
+			dht, err := dht.New(addr, codec, kv.NewTable(kv.NewMemDB(kv.JSONCodec), "dht"))
+			Expect(err).ShouldNot(HaveOccurred())
 
 			toClient := make(chan protocol.MessageOnTheWire)
 			hs := handshake.New(testutil.NewMockSignVerifier())
@@ -28,9 +35,7 @@ var _ = Describe("Client", func() {
 				Logger:     logrus.StandardLogger(),
 				Timeout:    time.Second,
 				Handshaker: hs,
-			}), toClient)
-
-			Expect(true).To(BeTrue())
+			}), dht, toClient)
 		})
 	})
 

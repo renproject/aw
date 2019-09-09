@@ -4,16 +4,16 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"fmt"
-	"net"
 	"reflect"
 	"testing/quick"
 	"time"
 
+	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/aw/tcp"
 	"github.com/renproject/aw/testutil"
+	"github.com/renproject/kv"
 	"github.com/sirupsen/logrus"
 
 	. "github.com/onsi/ginkgo"
@@ -21,18 +21,16 @@ import (
 )
 
 var _ = Describe("Tcp", func() {
-	initServer := func(ctx context.Context, bind string, sender protocol.MessageSender, hs handshake.Handshaker) {
-		err := tcp.NewServer(tcp.ServerOptions{
+	initServer := func(ctx context.Context, sender protocol.MessageSender, hs handshake.Handshaker, port int) {
+		tcp.NewServer(tcp.ServerOptions{
 			Logger:     logrus.StandardLogger(),
 			Timeout:    time.Minute,
 			Handshaker: hs,
-		}, sender).Listen(ctx, bind)
-		if err != nil {
-			panic(err)
-		}
+			Port:       port,
+		}, sender).Run(ctx)
 	}
 
-	initClient := func(ctx context.Context, receiver protocol.MessageReceiver, hs handshake.Handshaker) {
+	initClient := func(ctx context.Context, receiver protocol.MessageReceiver, hs handshake.Handshaker, dht dht.DHT) {
 		tcp.NewClient(
 			tcp.NewClientConns(tcp.ClientOptions{
 				Logger:         logrus.StandardLogger(),
@@ -40,7 +38,7 @@ var _ = Describe("Tcp", func() {
 				MaxConnections: 10,
 				Handshaker:     hs,
 			}),
-			receiver,
+			dht, receiver,
 		).Run(ctx)
 	}
 
@@ -53,12 +51,15 @@ var _ = Describe("Tcp", func() {
 			fromServer := make(chan protocol.MessageOnTheWire, 1000)
 			toClient := make(chan protocol.MessageOnTheWire, 1000)
 
-			// start TCP server and client
-			go initServer(ctx, fmt.Sprintf("127.0.0.1:47326"), fromServer, nil)
-			go initClient(ctx, toClient, nil)
-
-			addrOfServer, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("127.0.0.1:47326"))
+			sender := testutil.NewSimpleTCPPeerAddress("sender", "127.0.0.1", "47325")
+			receiver := testutil.NewSimpleTCPPeerAddress("receiver", "127.0.0.1", "47326")
+			codec := testutil.NewSimpleTCPPeerAddressCodec()
+			dht, err := dht.New(sender, codec, kv.NewTable(kv.NewMemDB(kv.JSONCodec), "dht"), receiver)
 			Expect(err).Should(BeNil())
+
+			// start TCP server and client
+			go initServer(ctx, fromServer, nil, 47326)
+			go initClient(ctx, toClient, nil, dht)
 
 			check := func(x uint, y uint) bool {
 				// Set variant and body size to an appropriate range
@@ -77,7 +78,7 @@ var _ = Describe("Tcp", func() {
 				// Send a message to the server using the client and read from
 				// message received by the server
 				toClient <- protocol.MessageOnTheWire{
-					To:      addrOfServer,
+					To:      receiver.ID,
 					Message: protocol.NewMessage(protocol.V1, variant, body),
 				}
 				messageOtw := <-fromServer
@@ -106,12 +107,15 @@ var _ = Describe("Tcp", func() {
 			serverSignVerifier := testutil.NewMockSignVerifier(clientSignVerifier.ID())
 			clientSignVerifier.Whitelist(serverSignVerifier.ID())
 
-			// start TCP server and client
-			go initServer(ctx, fmt.Sprintf("127.0.0.1:47326"), fromServer, handshake.New(serverSignVerifier))
-			go initClient(ctx, toClient, handshake.New(clientSignVerifier))
-
-			addrOfServer, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("127.0.0.1:47326"))
+			sender := testutil.NewSimpleTCPPeerAddress("sender", "127.0.0.1", "47325")
+			receiver := testutil.NewSimpleTCPPeerAddress("receiver", "127.0.0.1", "47326")
+			codec := testutil.NewSimpleTCPPeerAddressCodec()
+			dht, err := dht.New(sender, codec, kv.NewTable(kv.NewMemDB(kv.JSONCodec), "dht"), receiver)
 			Expect(err).Should(BeNil())
+
+			// start TCP server and client
+			go initServer(ctx, fromServer, handshake.New(serverSignVerifier), 47326)
+			go initClient(ctx, toClient, handshake.New(clientSignVerifier), dht)
 
 			check := func(x uint, y uint) bool {
 				// Set variant and body size to an appropriate range
@@ -130,7 +134,7 @@ var _ = Describe("Tcp", func() {
 				// Send a message to the server using the client and read from
 				// message received by the server
 				toClient <- protocol.MessageOnTheWire{
-					To:      addrOfServer,
+					To:      receiver.ID,
 					Message: protocol.NewMessage(protocol.V1, variant, body),
 				}
 				messageOtw := <-fromServer
