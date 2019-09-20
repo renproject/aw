@@ -265,7 +265,7 @@ func NewTCPPeer(options PeerOptions, events EventSender, cap, port int) Peer {
 		panic(fmt.Errorf("failed to initialize DHT: %v", err))
 	}
 
-	options.Runners = []Runner{
+	options.Runners = append(options.Runners,
 		tcp.NewServer(tcp.ServerOptions{
 			Logger:     options.Logger,
 			Timeout:    time.Minute,
@@ -278,7 +278,7 @@ func NewTCPPeer(options PeerOptions, events EventSender, cap, port int) Peer {
 			Handshaker:     handshaker,
 			MaxConnections: 200,
 		}), dht, clientMessages),
-	}
+	)
 
 	return New(
 		options,
