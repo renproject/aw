@@ -31,6 +31,25 @@ func (codec SimpleTCPPeerAddressCodec) Decode(peerAddress []byte) (protocol.Peer
 	return address, nil
 }
 
+type SimplePeerIDCodec struct {
+}
+
+func (codec SimplePeerIDCodec) Encode(id protocol.PeerID) ([]byte, error) {
+	peerID, ok := id.(SimplePeerID)
+	if !ok {
+		return nil, fmt.Errorf("unsupported peer peerID of type: %T", id)
+	}
+	return json.Marshal(peerID)
+}
+
+func (codec SimplePeerIDCodec) Decode(data []byte) (protocol.PeerID, error) {
+	var peerID SimplePeerID
+	if err := json.Unmarshal(data, &peerID); err != nil {
+		return nil, err
+	}
+	return peerID, nil
+}
+
 func NewSimpleTCPPeerAddress(id, address, port string) SimpleTCPPeerAddress {
 	return SimpleTCPPeerAddress{
 		ID:        SimplePeerID(id),
