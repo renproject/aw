@@ -53,7 +53,7 @@ func (broadcaster *broadcaster) Broadcast(ctx context.Context, body protocol.Mes
 	}
 	select {
 	case <-ctx.Done():
-		return newErrBroadcastCanceled(ctx.Err())
+		return newErrBroadcasting(ctx.Err())
 	case broadcaster.messages <- messageWire:
 	}
 	return nil
@@ -90,7 +90,7 @@ func (broadcaster *broadcaster) AcceptBroadcast(ctx context.Context, message pro
 	}
 	select {
 	case <-ctx.Done():
-		return newErrBroadcastCanceled(ctx.Err())
+		return newErrAcceptingBroadcast(ctx.Err())
 	case broadcaster.events <- event:
 	}
 
@@ -148,14 +148,26 @@ func newErrBroadcastVariantNotSupported(variant protocol.MessageVariant) error {
 	}
 }
 
-// ErrBroadcastCanceled is returned when a broadcast is canceled. This is
-// usually caused by a context being done.
-type ErrBroadcastCanceled struct {
+// ErrBroadcasting is returned when a broadcast is canceled. This is usually
+// caused by a context being done.
+type ErrBroadcasting struct {
 	error
 }
 
-func newErrBroadcastCanceled(err error) error {
-	return ErrBroadcastCanceled{
-		error: fmt.Errorf("broadcast canceled: %v", err),
+func newErrBroadcasting(err error) error {
+	return ErrBroadcasting{
+		error: fmt.Errorf("broadcasting canceled: %v", err),
+	}
+}
+
+// ErrAcceptingBroadcast is returned when accepting a broadcast is canceled.
+// This is usually caused by a context being done.
+type ErrAcceptingBroadcast struct {
+	error
+}
+
+func newErrAcceptingBroadcast(err error) error {
+	return ErrAcceptingBroadcast{
+		error: fmt.Errorf("accepting broadcast canceled: %v", err),
 	}
 }
