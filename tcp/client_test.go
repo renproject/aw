@@ -5,6 +5,7 @@ import (
 
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/handshake"
+	"github.com/renproject/aw/handshake/session"
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/aw/tcp"
 	"github.com/renproject/aw/testutil"
@@ -30,7 +31,7 @@ var _ = Describe("Client", func() {
 			Expect(err).ShouldNot(HaveOccurred())
 
 			toClient := make(chan protocol.MessageOnTheWire)
-			hs := handshake.New(testutil.NewMockSignVerifier())
+			hs := handshake.New(testutil.NewMockSignVerifier(), session.NewNOPSessionCreator())
 			_ = tcp.NewClient(tcp.NewClientConns(tcp.ClientOptions{
 				Logger:     logrus.StandardLogger(),
 				Timeout:    time.Second,

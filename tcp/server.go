@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"time"
 
@@ -12,12 +13,18 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const DefaultTCPPort = 19231
+var DefaultServerOptions = ServerOptions{
+	Logger:  logrus.StandardLogger(),
+	Timeout: time.Second,
+	Host:    "127.0.0.1:19231",
+
+	Handshaker: nil,
+}
 
 type ServerOptions struct {
 	Logger  logrus.FieldLogger
 	Timeout time.Duration
-	Port    int
+	Host    string
 	// Handshaker handles the handshake process between peers. Default: no handshake
 	Handshaker handshake.Handshaker
 }
@@ -28,6 +35,20 @@ type Server struct {
 }
 
 func NewServer(options ServerOptions, messages protocol.MessageSender) *Server {
+	if options.Host == "" {
+		options.Host = DefaultServerOptions.Host
+	}
+
+	if options.Logger == nil {
+		logger := logrus.New()
+		logger.SetOutput(ioutil.Discard)
+		options.Logger = logger
+	}
+
+	if options.Timeout == time.Duration(0) {
+		options.Timeout = DefaultServerOptions.Timeout
+	}
+
 	return &Server{
 		options:  options,
 		messages: messages,
@@ -35,9 +56,9 @@ func NewServer(options ServerOptions, messages protocol.MessageSender) *Server {
 }
 
 func (server *Server) Run(ctx context.Context) {
-	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", server.options.Port))
+	listener, err := net.Listen("tcp", server.options.Host)
 	if err != nil {
-		server.options.Logger.Errorf("failed to listen on: 0.0.0.0:%d: %v", server.options.Port, err)
+		server.options.Logger.Errorf("failed to listen on %s: %v", server.options.Host, err)
 		return
 	}
 
@@ -71,10 +92,13 @@ func (server *Server) Run(ctx context.Context) {
 func (server *Server) handle(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
+	var session protocol.Session
+	var err error
 	if server.options.Handshaker != nil {
 		handshakeCtx, handshakeCancel := context.WithTimeout(ctx, server.options.Timeout)
 		defer handshakeCancel()
-		if err := server.options.Handshaker.AcceptHandshake(handshakeCtx, conn); err != nil {
+		session, err = server.options.Handshaker.AcceptHandshake(handshakeCtx, conn)
+		if err != nil {
 			server.options.Logger.Errorf("bad handshake with %v: %v", conn.RemoteAddr().String(), err)
 			return
 		}
@@ -90,11 +114,24 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 
 	for {
 		messageOtw := protocol.MessageOnTheWire{}
-		if err := messageOtw.Message.Read(conn); err != nil {
-			if err != io.EOF {
-				server.options.Logger.Error(newErrReadingIncomingMessage(err))
+		if session != nil {
+			var err error
+			messageOtw, err = session.ReadMessage(conn)
+			if err != nil {
+				if err != io.EOF {
+					server.options.Logger.Error(newErrReadingIncomingMessage(err))
+				}
+				return
 			}
-			return
+		} else {
+			msg, err := protocol.ReadMessage(conn)
+			if err != nil {
+				if err != io.EOF {
+					server.options.Logger.Error(newErrReadingIncomingMessage(err))
+				}
+				return
+			}
+			messageOtw.Message = msg
 		}
 
 		select {

@@ -31,8 +31,9 @@ type ClientOptions struct {
 // ClientConn is a network connection associated with a mutex. This allows for
 // concurrent safe dialing of the network connection.
 type ClientConn struct {
-	mu   *sync.Mutex
-	conn net.Conn
+	mu      *sync.Mutex
+	conn    net.Conn
+	session protocol.Session
 }
 
 // NewClientConn returns an un-dialed connection.
@@ -93,8 +94,7 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 		defer conn.mu.Unlock()
 
 		// Write
-		conn.conn.SetWriteDeadline(time.Now().Add(clientConns.options.Timeout))
-		if err := message.Write(conn.conn); err != nil {
+		if err := conn.writeMessage(message, clientConns.options.Timeout); err != nil {
 			conn.conn.Close()
 			delete(clientConns.conns, addr.String())
 			return err
@@ -134,8 +134,7 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 		defer conn.mu.Unlock()
 
 		// Write
-		conn.conn.SetWriteDeadline(time.Now().Add(clientConns.options.Timeout))
-		if err := message.Write(conn.conn); err != nil {
+		if err := conn.writeMessage(message, clientConns.options.Timeout); err != nil {
 			conn.conn.Close()
 			delete(clientConns.conns, addr.String())
 			return err
@@ -151,8 +150,7 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 		defer conn.mu.Unlock()
 
 		// Write
-		conn.conn.SetWriteDeadline(time.Now().Add(clientConns.options.Timeout))
-		if err := message.Write(conn.conn); err != nil {
+		if err := conn.writeMessage(message, clientConns.options.Timeout); err != nil {
 			conn.conn.Close()
 			delete(clientConns.conns, addr.String())
 			return err
@@ -175,7 +173,8 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 		// Handshake
 		handshakeCtx, handshakeCancel := context.WithTimeout(ctx, 30*time.Second)
 		defer handshakeCancel()
-		if err := clientConns.options.Handshaker.Handshake(handshakeCtx, conn.conn); err != nil {
+		conn.session, err = clientConns.options.Handshaker.Handshake(handshakeCtx, conn.conn)
+		if err != nil {
 			conn.conn.Close()
 			delete(clientConns.conns, addr.String())
 			return err
@@ -183,11 +182,11 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 	}
 
 	// Write
-	conn.conn.SetWriteDeadline(time.Now().Add(clientConns.options.Timeout))
-	if err := message.Write(conn.conn); err != nil {
+	if err := conn.writeMessage(message, clientConns.options.Timeout); err != nil {
+		conn.conn.Close()
+		delete(clientConns.conns, addr.String())
 		return err
 	}
-
 	return nil
 }
 
@@ -313,4 +312,19 @@ func (client *Client) sendMessageOnTheWire(ctx context.Context, to net.Addr, mes
 			return
 		}
 	}()
+}
+
+func (conn *ClientConn) writeMessage(msg protocol.Message, timeout time.Duration) error {
+	conn.conn.SetWriteDeadline(time.Now().Add(timeout))
+	if conn.session != nil {
+		return conn.session.WriteMessage(msg, conn.conn)
+	}
+	msgBytes, err := msg.MarshalBinary()
+	if err != nil {
+		return err
+	}
+	if _, err := conn.conn.Write(msgBytes); err != nil {
+		return err
+	}
+	return nil
 }
