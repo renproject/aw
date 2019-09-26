@@ -19,103 +19,125 @@ type Handshaker interface {
 	// Handshake with a remote server by initiating, and then interactively
 	// completing, a handshake protocol. The remote server is accessed by
 	// reading/writing to the `io.ReaderWriter`.
-	Handshake(ctx context.Context, rw io.ReadWriter) error
+	Handshake(ctx context.Context, rw io.ReadWriter) (protocol.Session, error)
 
 	// AcceptHandshake from a remote client by waiting for the initiation of,
 	// and then interactively completing, a handshake protocol. The remote
 	// client is accessed by reading/writing to the `io.ReaderWriter`.
-	AcceptHandshake(ctx context.Context, rw io.ReadWriter) error
+	AcceptHandshake(ctx context.Context, rw io.ReadWriter) (protocol.Session, error)
 }
 
 type handshaker struct {
-	signVerifier protocol.SignVerifier
+	signVerifier   protocol.SignVerifier
+	sessionCreator protocol.SessionCreator
 }
 
-func New(signVerifier protocol.SignVerifier) Handshaker {
-	return &handshaker{signVerifier: signVerifier}
+func New(signVerifier protocol.SignVerifier, sessionCreator protocol.SessionCreator) Handshaker {
+	if signVerifier == nil {
+		panic("invariant violation: signVerifier cannot be nil")
+	}
+	if sessionCreator == nil {
+		panic("invariant violation: sessionCreator cannot be nil")
+	}
+	return &handshaker{signVerifier: signVerifier, sessionCreator: sessionCreator}
 }
 
-func (hs *handshaker) Handshake(ctx context.Context, rw io.ReadWriter) error {
+func (hs *handshaker) Handshake(ctx context.Context, rw io.ReadWriter) (protocol.Session, error) {
 	buf := new(bytes.Buffer)
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Write initiator's public key
 	if err := writePubKey(buf, rsaKey.PublicKey); err != nil {
-		return err
+		return nil, err
 	}
 	if err := hs.signAndAppendSignature(buf, rw); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Read responder's public key and challenge
-	if err := hs.verifyAndStripSignature(rw, buf); err != nil {
-		return err
+	challenger, err := hs.verifyAndStripSignature(rw, buf)
+	if err != nil {
+		return nil, err
 	}
 	challenge, err := readChallenge(buf, rsaKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	responderPubKey, err := readPubKey(buf)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Write the challenge reply
 	if err := writeChallenge(buf, challenge, &responderPubKey); err != nil {
-		return err
+		return nil, err
 	}
 	if err := hs.signAndAppendSignature(buf, rw); err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return hs.sessionCreator.Create(challenger, challenge), nil
 }
 
-func (hs *handshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) error {
+func (hs *handshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) (protocol.Session, error) {
 	buf := new(bytes.Buffer)
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Read initiator's public key
-	if err := hs.verifyAndStripSignature(rw, buf); err != nil {
-		return err
+	initiator, err := hs.verifyAndStripSignature(rw, buf)
+	if err != nil {
+		return nil, err
 	}
 	initiatorPubKey, err := readPubKey(buf)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
+	// Create a challenge
+	challengeLen := 32
+	if hs.sessionCreator != nil {
+		challengeLen = hs.sessionCreator.SecretLength()
+	}
+	challenge := make([]byte, challengeLen)
+	rand.Read(challenge)
+
 	// Write challenge and responder's public key and challenge
-	challenge := [32]byte{}
-	rand.Read(challenge[:])
 	if err := writeChallenge(buf, challenge, &initiatorPubKey); err != nil {
-		return err
+		return nil, err
 	}
 	if err := writePubKey(buf, rsaKey.PublicKey); err != nil {
-		return err
+		return nil, err
 	}
 	if err := hs.signAndAppendSignature(buf, rw); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Read initiator's challenge reply
-	if err := hs.verifyAndStripSignature(rw, buf); err != nil {
-		return err
-	}
-	replyChallenge, err := readChallenge(buf, rsaKey)
+	challengeResponder, err := hs.verifyAndStripSignature(rw, buf)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	if challenge != replyChallenge {
-		return fmt.Errorf("initiator failed the challenge %s != %s", base64.StdEncoding.EncodeToString(challenge[:]), base64.StdEncoding.EncodeToString(replyChallenge[:]))
+	if !challengeResponder.Equal(initiator) {
+		return nil, fmt.Errorf("initiator and challenge responder are not the same %s != %s", initiator, challengeResponder)
 	}
-	return nil
+
+	replyChallenge, err := readChallenge(buf, rsaKey)
+	if err != nil {
+		return nil, err
+	}
+
+	if !bytes.Equal(challenge, replyChallenge) {
+		return nil, fmt.Errorf("initiator failed the challenge %s != %s", base64.StdEncoding.EncodeToString(challenge[:]), base64.StdEncoding.EncodeToString(replyChallenge[:]))
+	}
+
+	return hs.sessionCreator.Create(initiator, challenge), nil
 }
 
 func writePubKey(w io.Writer, pubKey rsa.PublicKey) error {
@@ -150,8 +172,8 @@ func readPubKey(r io.Reader) (rsa.PublicKey, error) {
 	return pubKey, nil
 }
 
-func writeChallenge(w io.Writer, challenge [32]byte, pubKey *rsa.PublicKey) error {
-	encryptedChallenge, err := rsa.EncryptPKCS1v15(rand.Reader, pubKey, challenge[:])
+func writeChallenge(w io.Writer, challenge []byte, pubKey *rsa.PublicKey) error {
+	encryptedChallenge, err := rsa.EncryptPKCS1v15(rand.Reader, pubKey, challenge)
 	if err != nil {
 		return err
 	}
@@ -164,22 +186,20 @@ func writeChallenge(w io.Writer, challenge [32]byte, pubKey *rsa.PublicKey) erro
 	return nil
 }
 
-func readChallenge(r io.Reader, privKey *rsa.PrivateKey) ([32]byte, error) {
+func readChallenge(r io.Reader, privKey *rsa.PrivateKey) ([]byte, error) {
 	var size uint64
 	if err := binary.Read(r, binary.LittleEndian, &size); err != nil {
-		return [32]byte{}, err
+		return []byte{}, err
 	}
 	encryptedChallenge := make([]byte, size)
 	if n, err := r.Read(encryptedChallenge); uint64(n) != size || err != nil {
-		return [32]byte{}, fmt.Errorf("failed to write the pubkey [%d != %d]: %v", n, size, err)
+		return []byte{}, fmt.Errorf("failed to write the pubkey [%d != %d]: %v", n, size, err)
 	}
 	challengeBytes, err := rsa.DecryptPKCS1v15(rand.Reader, privKey, encryptedChallenge)
-	if err != nil || len(challengeBytes) != 32 {
-		return [32]byte{}, fmt.Errorf("failed to decrypt the challenge [%d != 32]: %v", len(challengeBytes), err)
+	if err != nil {
+		return []byte{}, fmt.Errorf("failed to decrypt the challenge [%d != 32]: %v", len(challengeBytes), err)
 	}
-	challenge := [32]byte{}
-	copy(challenge[:], challengeBytes)
-	return challenge, nil
+	return challengeBytes, nil
 }
 
 func (hs *handshaker) signAndAppendSignature(r io.Reader, w io.Writer) error {
@@ -204,23 +224,24 @@ func (hs *handshaker) signAndAppendSignature(r io.Reader, w io.Writer) error {
 	return nil
 }
 
-func (hs *handshaker) verifyAndStripSignature(r io.Reader, w io.Writer) error {
+func (hs *handshaker) verifyAndStripSignature(r io.Reader, w io.Writer) (protocol.PeerID, error) {
 	var size uint64
 	if err := binary.Read(r, binary.LittleEndian, &size); err != nil {
-		return err
+		return nil, err
 	}
 	data := make([]byte, size)
 	n, err := r.Read(data)
 	if err != nil && uint64(n) != size {
-		return fmt.Errorf("failed to read [%d != %d]: %v", uint64(n), size, err)
+		return nil, fmt.Errorf("failed to read [%d != %d]: %v", uint64(n), size, err)
 	}
 	sigLen := hs.signVerifier.SigLength()
 	hash := hs.signVerifier.Hash(data[:size-sigLen])
-	if err := hs.signVerifier.Verify(hash, data[size-sigLen:]); err != nil {
-		return err
+	peerID, err := hs.signVerifier.Verify(hash, data[size-sigLen:])
+	if err != nil {
+		return peerID, err
 	}
 	if wn, err := w.Write(data[:size-sigLen]); uint64(wn) != size-sigLen || err != nil {
-		return fmt.Errorf("failed to strip the signature [%d != %d]: %v", wn, n+int(sigLen), err)
+		return peerID, fmt.Errorf("failed to strip the signature [%d != %d]: %v", wn, n+int(sigLen), err)
 	}
-	return nil
+	return peerID, nil
 }
