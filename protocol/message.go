@@ -14,9 +14,19 @@ type MessageSender chan<- MessageOnTheWire
 
 type MessageReceiver <-chan MessageOnTheWire
 
+type MessageResponseSender chan<- MessageOnTheWireResponse
+
+type MessageResponseReceiver <-chan MessageOnTheWireResponse
+
 type MessageOnTheWire struct {
 	To      PeerID
+	From    PeerID
 	Message Message
+}
+
+type MessageOnTheWireResponse struct {
+	To      PeerID
+	Success bool
 }
 
 type MessageReceive struct {
@@ -102,7 +112,7 @@ func NewMessage(version MessageVersion, variant MessageVariant, body MessageBody
 	}
 
 	return Message{
-		Length:  MessageLength(32 + len(body)),
+		Length:  MessageLength(8 + len(body)),
 		Version: version,
 		Variant: variant,
 		Body:    body,
@@ -110,55 +120,57 @@ func NewMessage(version MessageVersion, variant MessageVariant, body MessageBody
 }
 
 func (message Message) Hash() MessageHash {
-	buf := new(bytes.Buffer)
-	if err := message.Write(buf); err != nil {
+	data, err := message.MarshalBinary()
+	if err != nil {
 		panic(fmt.Errorf("invariant violation: sha3 hash of bad message: %v", err))
 	}
-	return MessageHash(sha3.Sum256(buf.Bytes()))
+	return MessageHash(sha3.Sum256(data))
 }
 
-func (message Message) Write(writer io.Writer) error {
-	if message.Length < 32 {
-		return newErrMessageLengthIsTooLow(message.Length)
+func (message Message) MarshalBinary() ([]byte, error) {
+	buffer := new(bytes.Buffer)
+	if message.Length < 8 {
+		return nil, newErrMessageLengthIsTooLow(message.Length)
 	}
 	switch message.Version {
 	case V1:
 	default:
-		return newErrMessageVersionIsNotSupported(message.Version)
+		return nil, newErrMessageVersionIsNotSupported(message.Version)
 	}
 	switch message.Variant {
 	case Ping, Pong, Cast, Multicast, Broadcast:
 	default:
-		return NewErrMessageVariantIsNotSupported(message.Variant)
+		return nil, NewErrMessageVariantIsNotSupported(message.Variant)
 	}
 
-	if err := binary.Write(writer, binary.LittleEndian, message.Length); err != nil {
-		return fmt.Errorf("error marshaling message length=%v: %v", message.Length, err)
+	if err := binary.Write(buffer, binary.LittleEndian, message.Length); err != nil {
+		return nil, fmt.Errorf("error marshaling message length=%v: %v", message.Length, err)
 	}
-	if err := binary.Write(writer, binary.LittleEndian, message.Version); err != nil {
-		return fmt.Errorf("error marshaling message version=%v: %v", message.Version, err)
+	if err := binary.Write(buffer, binary.LittleEndian, message.Version); err != nil {
+		return nil, fmt.Errorf("error marshaling message version=%v: %v", message.Version, err)
 	}
-	if err := binary.Write(writer, binary.LittleEndian, message.Variant); err != nil {
-		return fmt.Errorf("error marshaling message variant=%v: %v", message.Variant, err)
+	if err := binary.Write(buffer, binary.LittleEndian, message.Variant); err != nil {
+		return nil, fmt.Errorf("error marshaling message variant=%v: %v", message.Variant, err)
 	}
-	if err := binary.Write(writer, binary.LittleEndian, message.Body); err != nil {
-		return fmt.Errorf("error marshaling message body: %v", err)
+	if err := binary.Write(buffer, binary.LittleEndian, message.Body); err != nil {
+		return nil, fmt.Errorf("error marshaling message body: %v", err)
 	}
-	return nil
+	return buffer.Bytes(), nil
 }
 
-func (message *Message) Read(reader io.Reader) error {
-	if err := binary.Read(reader, binary.LittleEndian, &message.Length); err != nil {
+func (message *Message) UnmarshalBinary(data []byte) error {
+	buffer := bytes.NewBuffer(data)
+	if err := binary.Read(buffer, binary.LittleEndian, &message.Length); err != nil {
 		if err == io.EOF {
 			return err
 		}
 		return fmt.Errorf("error unmarshaling message length: %v", err)
 	}
-	if message.Length < 32 {
+	if message.Length < 8 {
 		return newErrMessageLengthIsTooLow(message.Length)
 	}
 
-	if err := binary.Read(reader, binary.LittleEndian, &message.Version); err != nil {
+	if err := binary.Read(buffer, binary.LittleEndian, &message.Version); err != nil {
 		return fmt.Errorf("error unmarshaling message version: %v", err)
 	}
 	switch message.Version {
@@ -167,7 +179,7 @@ func (message *Message) Read(reader io.Reader) error {
 		return newErrMessageVersionIsNotSupported(message.Version)
 	}
 
-	if err := binary.Read(reader, binary.LittleEndian, &message.Variant); err != nil {
+	if err := binary.Read(buffer, binary.LittleEndian, &message.Variant); err != nil {
 		return fmt.Errorf("error unmarshaling message variant: %v", err)
 	}
 	switch message.Variant {
@@ -176,11 +188,48 @@ func (message *Message) Read(reader io.Reader) error {
 		return NewErrMessageVariantIsNotSupported(message.Variant)
 	}
 
-	message.Body = make(MessageBody, message.Length-32)
-	if err := binary.Read(reader, binary.LittleEndian, message.Body); err != nil {
+	message.Body = make(MessageBody, message.Length-8)
+	if err := binary.Read(buffer, binary.LittleEndian, message.Body); err != nil {
 		return fmt.Errorf("error unmarshaling message body: %v", err)
 	}
 	return nil
+}
+
+func ReadMessage(reader io.Reader) (Message, error) {
+	var message Message
+	if err := binary.Read(reader, binary.LittleEndian, &message.Length); err != nil {
+		if err == io.EOF {
+			return message, err
+		}
+		return message, fmt.Errorf("error unmarshaling message length: %v", err)
+	}
+	if message.Length < 8 {
+		return message, newErrMessageLengthIsTooLow(message.Length)
+	}
+
+	if err := binary.Read(reader, binary.LittleEndian, &message.Version); err != nil {
+		return message, fmt.Errorf("error unmarshaling message version: %v", err)
+	}
+	switch message.Version {
+	case V1:
+	default:
+		return message, newErrMessageVersionIsNotSupported(message.Version)
+	}
+
+	if err := binary.Read(reader, binary.LittleEndian, &message.Variant); err != nil {
+		return message, fmt.Errorf("error unmarshaling message variant: %v", err)
+	}
+	switch message.Variant {
+	case Ping, Pong, Cast, Multicast, Broadcast:
+	default:
+		return message, NewErrMessageVariantIsNotSupported(message.Variant)
+	}
+
+	message.Body = make(MessageBody, message.Length-8)
+	if err := binary.Read(reader, binary.LittleEndian, message.Body); err != nil {
+		return message, fmt.Errorf("error unmarshaling message body: %v", err)
+	}
+	return message, nil
 }
 
 type ErrMessageLengthIsTooLow struct {

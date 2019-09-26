@@ -28,3 +28,8 @@ type PeerAddressCodec interface {
 	Encode(PeerAddress) ([]byte, error)
 	Decode([]byte) (PeerAddress, error)
 }
+
+type PeerIDCodec interface {
+	Encode(PeerID) ([]byte, error)
+	Decode([]byte) (PeerID, error)
+}
