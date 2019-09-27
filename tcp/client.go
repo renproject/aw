@@ -24,6 +24,8 @@ type ClientOptions struct {
 	Timeout time.Duration
 	// MaxConnections to remote servers that the Client will maintain.
 	MaxConnections int
+	// DefaultNumBroadcastPeers to send a broadcast message to
+	DefaultNumBroadcastPeers int
 	// Handshaker handles the handshake process between peers. Default: no handshake
 	Handshaker handshake.Handshaker
 }
@@ -61,8 +63,11 @@ func NewClientConns(options ClientOptions) *ClientConns {
 	if options.Timeout == 0 {
 		options.Timeout = 10 * time.Second
 	}
-	if options.MaxConnections == 256 {
+	if options.MaxConnections == 0 {
 		options.MaxConnections = 256
+	}
+	if options.DefaultNumBroadcastPeers == 0 {
+		options.DefaultNumBroadcastPeers = 32
 	}
 
 	return &ClientConns{
@@ -263,7 +268,16 @@ func (client *Client) handleMessageOnTheWire(ctx context.Context, message protoc
 func (client *Client) toNetAddrs(message protocol.MessageOnTheWire) ([]net.Addr, error) {
 	var peerAddrs protocol.PeerAddresses
 	switch message.Message.Variant {
-	case protocol.Broadcast, protocol.Multicast:
+	case protocol.Broadcast:
+		peerAddresses, err := client.dht.PeerAddresses()
+		if err != nil {
+			return nil, err
+		}
+		peerAddrs = peerAddresses
+		if len(peerAddrs) > client.conns.options.DefaultNumBroadcastPeers {
+			peerAddrs = peerAddrs[:client.conns.options.DefaultNumBroadcastPeers]
+		}
+	case protocol.Multicast:
 		peerAddresses, err := client.dht.PeerAddresses()
 		if err != nil {
 			return nil, err
