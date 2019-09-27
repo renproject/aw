@@ -53,7 +53,7 @@ func (broadcaster *broadcaster) Broadcast(ctx context.Context, body protocol.Mes
 	}
 	select {
 	case <-ctx.Done():
-		return newErrBroadcasting(fmt.Errorf("error sending: %v", ctx.Err()))
+		return newErrBroadcasting(ctx.Err())
 	case broadcaster.messages <- messageWire:
 	}
 	return nil
@@ -155,7 +155,7 @@ type ErrBroadcasting struct {
 
 func newErrBroadcasting(err error) error {
 	return ErrBroadcasting{
-		error: fmt.Errorf("broadcasting canceled: %v", err),
+		error: fmt.Errorf("error broadcasting: %v", err),
 	}
 }
 
@@ -167,6 +167,6 @@ type ErrAcceptingBroadcast struct {
 
 func newErrAcceptingBroadcast(err error) error {
 	return ErrAcceptingBroadcast{
-		error: fmt.Errorf("accepting broadcast canceled: %v", err),
+		error: fmt.Errorf("error accepting broadcast: %v", err),
 	}
 }

@@ -35,7 +35,7 @@ func (caster *caster) Cast(ctx context.Context, to protocol.PeerID, body protoco
 	}
 	select {
 	case <-ctx.Done():
-		return newErrCastingMessage(to, fmt.Errorf("error sending: %v", ctx.Err()))
+		return newErrCastingMessage(to, ctx.Err())
 	case caster.messages <- messageWire:
 		return nil
 	}
@@ -57,7 +57,7 @@ func (caster *caster) AcceptCast(ctx context.Context, message protocol.Message) 
 	}
 	select {
 	case <-ctx.Done():
-		return newErrAcceptingCastMessage(fmt.Errorf("error receiving: %v", ctx.Err()))
+		return newErrAcceptingCastMessage(ctx.Err())
 	case caster.events <- event:
 		return nil
 	}
@@ -70,7 +70,7 @@ type ErrCastingMessage struct {
 
 func newErrCastingMessage(peerID protocol.PeerID, err error) error {
 	return ErrCastingMessage{
-		error:  fmt.Errorf("error casting to peer=%v: %v", peerID, err),
+		error:  fmt.Errorf("error casting to %v: %v", peerID, err),
 		PeerID: peerID,
 	}
 }
