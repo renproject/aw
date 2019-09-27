@@ -274,9 +274,7 @@ func NewTCPPeer(options PeerOptions, events EventSender, cap, port int) Peer {
 		}, serverMessages),
 		tcp.NewClient(tcp.ClientOptions{
 			Logger:         options.Logger,
-			Timeout:        10 * time.Second,
 			Handshaker:     handshaker,
-			MaxConnections: 200,
 		}, tcp.NewConnPool(tcp.ConnPoolOptions{}), dht, clientMessages),
 	)
 
