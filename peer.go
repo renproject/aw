@@ -78,7 +78,6 @@ func New(options PeerOptions, receiver MessageReceiver, dht dht.DHT, pingponger 
 		options.BootstrapDuration = time.Hour
 	}
 	if options.BootstrapWorkers <= 0 {
-		fmt.Println(2 * runtime.NumCPU())
 		options.BootstrapWorkers = 2 * runtime.NumCPU()
 	}
 
