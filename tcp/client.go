@@ -3,8 +3,6 @@ package tcp
 import (
 	"context"
 	"net"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/renproject/aw/dht"
@@ -63,31 +61,24 @@ func (client *Client) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case messageOtw := <-client.messages:
-			client.handleMessageOnTheWire(ctx, messageOtw)
+			client.handleMessageOnTheWire(messageOtw)
 		}
 	}
 }
 
-func (client *Client) handleMessageOnTheWire(ctx context.Context, message protocol.MessageOnTheWire) {
+func (client *Client) handleMessageOnTheWire(message protocol.MessageOnTheWire) {
 	netAddrs, err := client.netAddrs(message)
 	if err != nil {
-		client.options.Logger.Error("failed to load net addresses for a message", err)
+		client.options.Logger.Errorf("error loading network addresses: %v", err)
 	}
 
 	for _, netAddr := range netAddrs {
-		client.sendMessageOnTheWire(ctx, netAddr, message.Message)
+		client.sendMessageOnTheWire(netAddr, message.Message)
 	}
 }
 
-func (client *Client) sendMessageOnTheWire(ctx context.Context, to net.Addr, message protocol.Message) {
-	port, err := strconv.Atoi(strings.Split(to.String(), ":")[1])
-	if err != nil {
-		panic(err)
-	}
-	if err := client.pool.Write(&net.TCPAddr{
-		IP:   net.ParseIP(strings.Split(to.String(), ":")[0]),
-		Port: port,
-	}, message); err != nil {
+func (client *Client) sendMessageOnTheWire(to net.Addr, message protocol.Message) {
+	if err := client.pool.Write(to, message, client.options.Timeout); err != nil {
 		client.options.Logger.Errorf("error writing to tcp connection to %v: %v", to.String(), err)
 		return
 	}

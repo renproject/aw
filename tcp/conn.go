@@ -9,7 +9,7 @@ import (
 )
 
 type ConnPool interface {
-	Write(to net.Addr, m protocol.Message) error
+	Write(net.Addr, protocol.Message, time.Duration) error
 }
 
 type connPool struct {
@@ -24,13 +24,13 @@ func NewConnPool() ConnPool {
 	}
 }
 
-func (pool *connPool) Write(to net.Addr, m protocol.Message) (err error) {
+func (pool *connPool) Write(to net.Addr, m protocol.Message, timeout time.Duration) (err error) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
 	conn, ok := pool.conns[to.String()]
 	if !ok {
-		conn, err = net.DialTimeout(to.Network(), to.String(), 10*time.Second) // TODO: Make this value configurable.
+		conn, err = net.DialTimeout(to.Network(), to.String(), timeout) // TODO: Make this value configurable.
 		if err != nil {
 			return err
 		}
