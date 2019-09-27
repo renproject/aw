@@ -90,6 +90,8 @@ func (client *Client) sendMessageOnTheWire(ctx context.Context, to net.Addr, mes
 		panic(err)
 	}
 	defer inner.Close()
+	inner.SetKeepAlive(true)
+	inner.SetKeepAlivePeriod(10 * time.Second) // TODO: Make this value configurable.
 
 	if err := message.Write(inner); err != nil {
 		client.options.Logger.Errorf("error writing to tcp connection to %v: %v", to.String(), err)
