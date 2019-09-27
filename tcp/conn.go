@@ -10,10 +10,16 @@ import (
 	"github.com/renproject/aw/protocol"
 )
 
+// A ConnPool maintains multiple connections to different remote peers and
+// re-uses these connections when sending multiple message to the peer. If a
+// connection to a peer does not exist when a message is sent, then it is
+// established. When there are multiple Clients, they should all use a shared
+// ConnPool.
 type ConnPool interface {
 	Send(net.Addr, protocol.Message) error
 }
 
+// ConnPoolOptions are used to parameterise the behaviour of a ConnPool.
 type ConnPoolOptions struct {
 	Logger         logrus.FieldLogger
 	Timeout        time.Duration // Timeout when dialing new connections.
