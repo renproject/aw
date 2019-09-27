@@ -42,14 +42,16 @@ func (options *ClientOptions) setZerosToDefaults() {
 
 type Client struct {
 	options  ClientOptions
+	pool     ConnPool
 	dht      dht.DHT
 	messages protocol.MessageReceiver
 }
 
-func NewClient(options ClientOptions, dht dht.DHT, messages protocol.MessageReceiver) *Client {
+func NewClient(options ClientOptions, pool ConnPool, dht dht.DHT, messages protocol.MessageReceiver) *Client {
 	options.setZerosToDefaults()
 	return &Client{
 		options:  options,
+		pool:     pool,
 		dht:      dht,
 		messages: messages,
 	}
@@ -82,19 +84,10 @@ func (client *Client) sendMessageOnTheWire(ctx context.Context, to net.Addr, mes
 	if err != nil {
 		panic(err)
 	}
-	inner, err := net.DialTCP(to.Network(), nil, &net.TCPAddr{
+	if err := client.pool.Write(&net.TCPAddr{
 		IP:   net.ParseIP(strings.Split(to.String(), ":")[0]),
 		Port: port,
-	})
-	if err != nil {
-		client.options.Logger.Errorf("error dialing tcp connection to %v: %v", to.String(), err)
-		return
-	}
-	defer inner.Close()
-	inner.SetKeepAlive(true)
-	inner.SetKeepAlivePeriod(10 * time.Second) // TODO: Make this value configurable.
-
-	if err := message.Write(inner); err != nil {
+	}, message); err != nil {
 		client.options.Logger.Errorf("error writing to tcp connection to %v: %v", to.String(), err)
 		return
 	}
