@@ -78,7 +78,7 @@ func (client *Client) handleMessageOnTheWire(message protocol.MessageOnTheWire) 
 }
 
 func (client *Client) sendMessageOnTheWire(to net.Addr, message protocol.Message) {
-	if err := client.pool.Write(to, message, client.options.Timeout); err != nil {
+	if err := client.pool.Send(to, message); err != nil {
 		client.options.Logger.Errorf("error writing to tcp connection to %v: %v", to.String(), err)
 		return
 	}
