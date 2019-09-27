@@ -16,7 +16,7 @@ import (
 type ClientOptions struct {
 	// Logger is used to log information and errors.
 	Logger logrus.FieldLogger
-	
+
 	// Handshaker handles the handshake process between peers. Default: no handshake
 	Handshaker handshake.Handshaker
 }
@@ -24,9 +24,6 @@ type ClientOptions struct {
 func (options *ClientOptions) setZerosToDefaults() {
 	if options.Logger == nil {
 		options.Logger = logrus.New()
-	}
-	if options.MaxConnections == 0 {
-		options.MaxConnections = 512
 	}
 }
 
