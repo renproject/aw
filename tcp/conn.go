@@ -53,11 +53,12 @@ func (pool *connPool) Send(to net.Addr, m protocol.Message) (err error) {
 
 	conn, ok := pool.conns[to.String()]
 	if !ok {
-		conn, err = net.DialTimeout(to.Network(), to.String(), pool.options.TimeoutDial) // TODO: Make this value configurable.
+		conn, err = net.DialTimeout(to.Network(), to.String(), pool.options.TimeoutDial)
 		if err != nil {
 			return err
 		}
 		pool.conns[to.String()] = conn
+
 		go func() {
 			<-time.After(pool.options.TimeoutConn)
 
