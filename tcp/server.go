@@ -51,11 +51,9 @@ func NewServer(options ServerOptions, messages protocol.MessageSender) *Server {
 }
 
 func (server *Server) Run(ctx context.Context) {
-	listener, err := net.ListenTCP("tcp", &net.TCPAddr{
-		Port: server.options.Port,
-	})
+	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%v", server.options.Port))
 	if err != nil {
-		server.options.Logger.Errorf("error listening on: 0.0.0.0:%d: %v", server.options.Port, err)
+		server.options.Logger.Errorf("error listening on: 0.0.0.0:%v: %v", server.options.Port, err)
 		return
 	}
 
@@ -67,7 +65,7 @@ func (server *Server) Run(ctx context.Context) {
 	}()
 
 	for {
-		conn, err := listener.AcceptTCP()
+		conn, err := listener.Accept()
 		if err != nil {
 			// Check whether or not the context is done
 			select {
@@ -79,8 +77,6 @@ func (server *Server) Run(ctx context.Context) {
 			server.options.Logger.Errorf("error accepting connection: %v", err)
 			continue
 		}
-		conn.SetKeepAlive(true)
-		conn.SetKeepAlivePeriod(server.options.Timeout)
 
 		// Spawn background goroutine to handle this connection so that it does
 		// not block other connections
@@ -88,7 +84,7 @@ func (server *Server) Run(ctx context.Context) {
 	}
 }
 
-func (server *Server) handle(ctx context.Context, conn *net.TCPConn) {
+func (server *Server) handle(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
 	if server.options.Handshaker != nil {
