@@ -15,11 +15,26 @@ import (
 const DefaultTCPPort = 19231
 
 type ServerOptions struct {
-	Logger  logrus.FieldLogger
-	Timeout time.Duration
-	Port    int
-	// Handshaker handles the handshake process between peers. Default: no handshake
-	Handshaker handshake.Handshaker
+	Logger           logrus.FieldLogger
+	Timeout          time.Duration
+	TimeoutKeepAlive time.Duration
+	Port             int
+	Handshaker       handshake.Handshaker
+}
+
+func (options *ServerOptions) setZerosToDefaults() {
+	if options.Logger == nil {
+		options.Logger = logrus.New()
+	}
+	if options.Timeout == 0 {
+		options.Timeout = 20 * time.Second
+	}
+	if options.TimeoutKeepAlive == 0 {
+		options.TimeoutKeepAlive = 10 * time.Second
+	}
+	if options.Port == 0 {
+		options.Port = DefaultTCPPort
+	}
 }
 
 type Server struct {
@@ -28,6 +43,7 @@ type Server struct {
 }
 
 func NewServer(options ServerOptions, messages protocol.MessageSender) *Server {
+	options.setZerosToDefaults()
 	return &Server{
 		options:  options,
 		messages: messages,
@@ -35,21 +51,23 @@ func NewServer(options ServerOptions, messages protocol.MessageSender) *Server {
 }
 
 func (server *Server) Run(ctx context.Context) {
-	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", server.options.Port))
+	listener, err := net.ListenTCP("tcp", &net.TCPAddr{
+		Port: server.options.Port,
+	})
 	if err != nil {
-		server.options.Logger.Errorf("failed to listen on: 0.0.0.0:%d: %v", server.options.Port, err)
+		server.options.Logger.Errorf("error listening on: 0.0.0.0:%d: %v", server.options.Port, err)
 		return
 	}
 
 	go func() {
 		<-ctx.Done()
 		if err := listener.Close(); err != nil {
-			server.options.Logger.Errorf("error closing tcp listener: %v", err)
+			server.options.Logger.Errorf("error closing listener: %v", err)
 		}
 	}()
 
 	for {
-		conn, err := listener.Accept()
+		conn, err := listener.AcceptTCP()
 		if err != nil {
 			// Check whether or not the context is done
 			select {
@@ -58,9 +76,11 @@ func (server *Server) Run(ctx context.Context) {
 			default:
 			}
 
-			server.options.Logger.Errorf("error accepting tcp connection: %v", err)
+			server.options.Logger.Errorf("error accepting connection: %v", err)
 			continue
 		}
+		conn.SetKeepAlive(true)
+		conn.SetKeepAlivePeriod(server.options.Timeout)
 
 		// Spawn background goroutine to handle this connection so that it does
 		// not block other connections
@@ -68,25 +88,18 @@ func (server *Server) Run(ctx context.Context) {
 	}
 }
 
-func (server *Server) handle(ctx context.Context, conn net.Conn) {
+func (server *Server) handle(ctx context.Context, conn *net.TCPConn) {
 	defer conn.Close()
 
 	if server.options.Handshaker != nil {
 		handshakeCtx, handshakeCancel := context.WithTimeout(ctx, server.options.Timeout)
 		defer handshakeCancel()
+
 		if err := server.options.Handshaker.AcceptHandshake(handshakeCtx, conn); err != nil {
 			server.options.Logger.Errorf("bad handshake with %v: %v", conn.RemoteAddr().String(), err)
 			return
 		}
 	}
-
-	// Accepted connections are not written to, so we prevent write timeouts by
-	// setting the write deadline to zero
-	conn.SetWriteDeadline(time.Time{})
-
-	// We do not know when the client will send us messages, so we prevent rea
-	// timeouts by setting the read deadline to zero
-	conn.SetReadDeadline(time.Time{})
 
 	for {
 		messageOtw := protocol.MessageOnTheWire{}
