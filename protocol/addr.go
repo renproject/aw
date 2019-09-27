@@ -7,6 +7,8 @@ import (
 
 type PeerIDs []PeerID
 
+// PeerID uniquely identifies a peer in the network, but it does not provide
+// information about the network address of the peer.
 type PeerID interface {
 	fmt.Stringer
 
@@ -15,6 +17,8 @@ type PeerID interface {
 
 type PeerAddresses []PeerAddress
 
+// PeerAddress stores information about the network address of a peer in the
+// network.
 type PeerAddress interface {
 	fmt.Stringer
 

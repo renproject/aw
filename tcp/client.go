@@ -87,7 +87,8 @@ func (client *Client) sendMessageOnTheWire(ctx context.Context, to net.Addr, mes
 		Port: port,
 	})
 	if err != nil {
-		panic(err)
+		client.options.Logger.Errorf("error dialing tcp connection to %v: %v", to.String(), err)
+		return
 	}
 	defer inner.Close()
 	inner.SetKeepAlive(true)
