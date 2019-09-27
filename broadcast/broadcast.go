@@ -53,7 +53,7 @@ func (broadcaster *broadcaster) Broadcast(ctx context.Context, body protocol.Mes
 	}
 	select {
 	case <-ctx.Done():
-		return newErrBroadcasting(ctx.Err())
+		return newErrBroadcasting(fmt.Errorf("error sending: %v", ctx.Err()))
 	case broadcaster.messages <- messageWire:
 	}
 	return nil
@@ -90,7 +90,7 @@ func (broadcaster *broadcaster) AcceptBroadcast(ctx context.Context, message pro
 	}
 	select {
 	case <-ctx.Done():
-		return newErrAcceptingBroadcast(ctx.Err())
+		return newErrAcceptingBroadcast(fmt.Errorf("error receiving: %v", ctx.Err()))
 	case broadcaster.events <- event:
 	}
 
