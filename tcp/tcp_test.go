@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"fmt"
 	"reflect"
 	"testing/quick"
 	"time"
@@ -144,6 +145,72 @@ var _ = Describe("Tcp", func() {
 					reflect.DeepEqual(messageOtw.Message.Version, protocol.V1) &&
 					reflect.DeepEqual(messageOtw.Message.Variant, variant) &&
 					bytes.Compare(messageOtw.Message.Body, body) == 0)
+			}
+
+			Expect(quick.Check(check, &quick.Config{
+				MaxCount: 100,
+			})).Should(BeNil())
+		})
+
+		FIt("should successfully send and receive", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			// defer time.Sleep(time.Millisecond)
+			defer cancel()
+
+			fromServerChans := make([]chan protocol.MessageOnTheWire, 10)
+			receivers := make([]protocol.PeerAddress, 10)
+			for i := range receivers {
+				receivers[i] = testutil.NewSimpleTCPPeerAddress(fmt.Sprintf("receiver_%d", i), "127.0.0.1", fmt.Sprintf("%d", 47326+i))
+				fromServerChans[i] = make(chan protocol.MessageOnTheWire, 100000)
+				go initServer(ctx, fromServerChans[i], nil, 47326+i)
+			}
+
+			codec := testutil.NewSimpleTCPPeerAddressCodec()
+			toClientChans := make([]chan protocol.MessageOnTheWire, 10)
+			clients := make([]protocol.PeerAddress, 10)
+			for i := range clients {
+				sender := testutil.NewSimpleTCPPeerAddress(fmt.Sprintf("sender_%d", i), "127.0.0.1", fmt.Sprintf("%d", 47325-i))
+				dht, err := dht.New(sender, codec, kv.NewTable(kv.NewMemDB(kv.JSONCodec), "dht"), receivers...)
+				Expect(err).Should(BeNil())
+				clients[i] = testutil.NewSimpleTCPPeerAddress(fmt.Sprintf("receiver_%d", i), "127.0.0.1", fmt.Sprintf("%d", 47326+i))
+				toClientChans[i] = make(chan protocol.MessageOnTheWire, 100000)
+				go initClient(ctx, toClientChans[i], nil, dht)
+			}
+
+			check := func(x uint, y uint) bool {
+				// Set variant and body size to an appropriate range
+				// v := int((x % 5) + 1)
+				numBytes := int(y % 1000000) // 0 bytes to 1 megabyte
+
+				// Generate random variant
+				// variant := protocol.MessageVariant(v)
+				body := make([]byte, numBytes)
+				if len(body) > 0 {
+					n, err := rand.Read(body)
+					Expect(n).To(Equal(numBytes))
+					Expect(err).ToNot(HaveOccurred())
+				}
+
+				// Send a message to the server using the client and read from
+				// message received by the server
+				for _, toClient := range toClientChans {
+					toClient <- protocol.MessageOnTheWire{
+						Message: protocol.NewMessage(protocol.V1, protocol.Multicast, body),
+					}
+				}
+				for range toClientChans {
+					for _, fromServer := range fromServerChans {
+						messageOtw := <-fromServer
+						if !(messageOtw.Message.Length == protocol.MessageLength(len(body)+32) &&
+							reflect.DeepEqual(messageOtw.Message.Version, protocol.V1) &&
+							reflect.DeepEqual(messageOtw.Message.Variant, protocol.Multicast) &&
+							bytes.Compare(messageOtw.Message.Body, body) == 0) {
+							return false
+						}
+					}
+				}
+				// Check that the message sent equals the message received
+				return true
 			}
 
 			Expect(quick.Check(check, &quick.Config{
