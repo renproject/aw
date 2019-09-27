@@ -23,6 +23,7 @@ import (
 
 var _ = Describe("Tcp", func() {
 	initServer := func(ctx context.Context, sender protocol.MessageSender, hs handshake.Handshaker, port int) {
+		defer GinkgoRecover()
 		tcp.NewServer(tcp.ServerOptions{
 			Logger:     logrus.StandardLogger(),
 			Timeout:    time.Minute,
@@ -32,14 +33,13 @@ var _ = Describe("Tcp", func() {
 	}
 
 	initClient := func(ctx context.Context, receiver protocol.MessageReceiver, hs handshake.Handshaker, dht dht.DHT) {
+		defer GinkgoRecover()
 		tcp.NewClient(
-			tcp.NewClientConns(tcp.ClientOptions{
-				Logger:         logrus.StandardLogger(),
-				Timeout:        time.Minute,
-				MaxConnections: 10,
-				Handshaker:     hs,
-			}),
-			dht, receiver,
+			tcp.ClientOptions{
+				Logger:     logrus.StandardLogger(),
+				Handshaker: hs,
+			},
+			tcp.NewConnPool(tcp.ConnPoolOptions{Timeout: 30 * time.Second}), dht, receiver,
 		).Run(ctx)
 	}
 
@@ -157,22 +157,19 @@ var _ = Describe("Tcp", func() {
 			// defer time.Sleep(time.Millisecond)
 			defer cancel()
 
-			fromServerChans := make([]chan protocol.MessageOnTheWire, 10)
-			receivers := make([]protocol.PeerAddress, 10)
+			fromServerChans := make([]chan protocol.MessageOnTheWire, 11)
+			receivers := make([]protocol.PeerAddress, 11)
 			for i := range receivers {
 				receivers[i] = testutil.NewSimpleTCPPeerAddress(fmt.Sprintf("receiver_%d", i), "127.0.0.1", fmt.Sprintf("%d", 47326+i))
 				fromServerChans[i] = make(chan protocol.MessageOnTheWire, 100000)
 				go initServer(ctx, fromServerChans[i], nil, 47326+i)
 			}
-
 			codec := testutil.NewSimpleTCPPeerAddressCodec()
-			toClientChans := make([]chan protocol.MessageOnTheWire, 10)
-			clients := make([]protocol.PeerAddress, 10)
-			for i := range clients {
-				sender := testutil.NewSimpleTCPPeerAddress(fmt.Sprintf("sender_%d", i), "127.0.0.1", fmt.Sprintf("%d", 47325-i))
-				dht, err := dht.New(sender, codec, kv.NewTable(kv.NewMemDB(kv.JSONCodec), "dht"), receivers...)
+			toClientChans := make([]chan protocol.MessageOnTheWire, 11)
+			for i := range toClientChans {
+				client := testutil.NewSimpleTCPPeerAddress(fmt.Sprintf("sender_%d", i), "127.0.0.1", fmt.Sprintf("%d", 47325-i))
+				dht, err := dht.New(client, codec, kv.NewTable(kv.NewMemDB(kv.JSONCodec), "dht"), receivers...)
 				Expect(err).Should(BeNil())
-				clients[i] = testutil.NewSimpleTCPPeerAddress(fmt.Sprintf("receiver_%d", i), "127.0.0.1", fmt.Sprintf("%d", 47326+i))
 				toClientChans[i] = make(chan protocol.MessageOnTheWire, 100000)
 				go initClient(ctx, toClientChans[i], nil, dht)
 			}
