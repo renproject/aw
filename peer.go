@@ -33,6 +33,7 @@ type PeerOptions struct {
 	// Optional
 	DisablePeerDiscovery bool          `json:"disablePeerDiscovery"` // Defaults to false
 	EventBuffer          int           `json:"eventBuffer"`          // Defaults to 0
+	ConnPoolWorkers      int           `json:"connPoolWorkers"`      // Defaults to 2x the number of CPUs
 	BootstrapWorkers     int           `json:"bootstrapWorkers"`     // Defaults to 2x the number of CPUs
 	BootstrapDuration    time.Duration `json:"bootstrapDuration"`    // Defaults to 1 hour
 
@@ -77,6 +78,7 @@ func New(options PeerOptions, receiver MessageReceiver, dht dht.DHT, pingponger 
 		options.BootstrapDuration = time.Hour
 	}
 	if options.BootstrapWorkers <= 0 {
+		fmt.Println(2 * runtime.NumCPU())
 		options.BootstrapWorkers = 2 * runtime.NumCPU()
 	}
 
@@ -257,6 +259,10 @@ func NewTCPPeer(options PeerOptions, events EventSender, cap, port int) Peer {
 		options.BroadcasterStore = kv.NewTable(kv.NewMemDB(kv.GobCodec), "broadcaster")
 	}
 
+	if options.ConnPoolWorkers == 0 {
+		options.ConnPoolWorkers = 2 * runtime.NumCPU()
+	}
+
 	serverMessages := make(chan protocol.MessageOnTheWire, cap)
 	clientMessages := make(chan protocol.MessageOnTheWire, cap)
 
@@ -271,12 +277,15 @@ func NewTCPPeer(options PeerOptions, events EventSender, cap, port int) Peer {
 			Timeout:    time.Minute,
 			Handshaker: handshaker,
 			Port:       port,
-		}, serverMessages),
-		tcp.NewClient(tcp.ClientOptions{
-			Logger:         options.Logger,
-			Handshaker:     handshaker,
-		}, tcp.NewConnPool(tcp.ConnPoolOptions{}), dht, clientMessages),
-	)
+		}, serverMessages))
+
+	for i := 0; i < options.ConnPoolWorkers; i++ {
+		options.Runners = append(options.Runners,
+			tcp.NewClient(tcp.ClientOptions{
+				Logger:     options.Logger,
+				Handshaker: handshaker,
+			}, tcp.NewConnPool(tcp.ConnPoolOptions{}), dht, clientMessages))
+	}
 
 	return New(
 		options,

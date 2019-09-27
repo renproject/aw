@@ -43,14 +43,15 @@ var _ = Describe("airwaves peer", func() {
 		co.ParForAll(peerAddresses, func(i int) {
 			events := make(chan protocol.Event, cap)
 			options := PeerOptions{
-				Logger: logger.WithField("bootstrap", i),
-				Codec:  codec,
+				Logger:          logger.WithField("bootstrap", i),
+				Codec:           codec,
+				ConnPoolWorkers: 1,
 
 				Me:                 peerAddresses[i],
 				BootstrapAddresses: testutil.Remove(peerAddresses, i),
 			}
 			if signVerifiers != nil && len(signVerifiers) == len(peerAddresses) {
-				options.SignVerifier = signVerifiers[i]
+				// options.SignVerifier = signVerifiers[i]
 			}
 			peers[i] = NewTCPPeer(options, events, CAPACITY, 46532+i)
 			go peers[i].Run(ctx)
@@ -104,6 +105,7 @@ var _ = Describe("airwaves peer", func() {
 				defer cancel()
 				bootstraps, bootstrapAddrs, err := startNodes(ctx, logger, bootstrapSignVerifiers, nodeCount.TotalBootstrap, numMessageSpams*len(SignVerifiers)*(len(SignVerifiers)-1))
 				Expect(err).Should(BeNil())
+				time.Sleep(10 * time.Second)
 
 				peerAddresses := make([]PeerAddress, nodeCount.NewNodes)
 				for i := range peerAddresses {
@@ -114,15 +116,21 @@ var _ = Describe("airwaves peer", func() {
 				for i, peerAddr := range peerAddresses {
 					events := make(chan protocol.Event, numMessageSpams*len(SignVerifiers)*(len(SignVerifiers)-1))
 					peer := NewTCPPeer(PeerOptions{
-						Logger: logger.WithField("test_node", i),
-						Codec:  codec,
+						Logger:          logger.WithField("test_node", i),
+						Codec:           codec,
+						ConnPoolWorkers: 1,
 
-						SignVerifier:       nodeSignVerifiers[i],
+						//	SignVerifier:       nodeSignVerifiers[i],
 						Me:                 peerAddr,
 						BootstrapAddresses: bootstrapAddrs,
 					}, events, CAPACITY, 5000+i)
 					go peer.Run(ctx)
 					peers[i] = peer
+					go func(events protocol.EventReceiver) {
+						for event := range events {
+							fmt.Printf("New event of type : %T", event)
+						}
+					}(events)
 				}
 
 				// wait for the nodes to bootstrap
@@ -144,7 +152,7 @@ var _ = Describe("airwaves peer", func() {
 
 					phi.ParForAll(allNodes, func(index int) {
 						time.Sleep(time.Duration(rand.Intn(10)+300) * time.Millisecond)
-						msg := randomBytes(1000)
+						msg := randomBytes(10)
 						err := allNodes[index].Multicast(broadcastCtx, msg)
 						Expect(err).ShouldNot(HaveOccurred())
 					})
