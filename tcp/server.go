@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/renproject/aw/handshake"
@@ -25,11 +26,17 @@ type ServerOptions struct {
 	Logger  logrus.FieldLogger
 	Timeout time.Duration
 	Host    string
+	// ReconnRateLimit is the time the darknode waits for before accepting a connection
+	// from the same peer. Default: 1 minute
+	ReconnRateLimit time.Duration
 	// Handshaker handles the handshake process between peers. Default: no handshake
 	Handshaker handshake.Handshaker
 }
 
 type Server struct {
+	mu              *sync.RWMutex
+	lastConnAttempt map[string]time.Time
+
 	options  ServerOptions
 	messages protocol.MessageSender
 }
@@ -49,9 +56,15 @@ func NewServer(options ServerOptions, messages protocol.MessageSender) *Server {
 		options.Timeout = DefaultServerOptions.Timeout
 	}
 
+	if options.ReconnRateLimit == 0 {
+		options.ReconnRateLimit = time.Minute
+	}
+
 	return &Server{
-		options:  options,
-		messages: messages,
+		mu:              new(sync.RWMutex),
+		lastConnAttempt: map[string]time.Time{},
+		options:         options,
+		messages:        messages,
 	}
 }
 
@@ -91,6 +104,14 @@ func (server *Server) Run(ctx context.Context) {
 
 func (server *Server) handle(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
+	server.mu.Lock()
+	if time.Now().Sub(server.lastConnAttempt[conn.RemoteAddr().String()]) < server.options.ReconnRateLimit {
+		server.options.Logger.Info("last attempt from: %s is less than the minimum reconnect delay", conn.RemoteAddr())
+		server.mu.Unlock()
+		return
+	}
+	server.lastConnAttempt[conn.RemoteAddr().String()] = time.Now()
+	server.mu.Unlock()
 
 	var session protocol.Session
 	var err error
