@@ -14,7 +14,7 @@ import (
 // re-uses these connections when sending multiple message to the peer. If a
 // connection to a peer does not exist when a message is sent, then it is
 // established. When there are multiple Clients, they should all use a shared
-// ConnPool.
+// ConnPool, and therefore all implementations must be safe for concurrent use.
 type ConnPool interface {
 	Send(net.Addr, protocol.Message) error
 }
@@ -48,6 +48,8 @@ type connPool struct {
 	conns   map[string]net.Conn
 }
 
+// NewConnPool returns a ConnPool with no existing connections. It is safe for
+// concurrent use.
 func NewConnPool(options ConnPoolOptions) ConnPool {
 	options.setZerosToDefaults()
 	return &connPool{
