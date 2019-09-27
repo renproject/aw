@@ -15,20 +15,24 @@ type ConnPool interface {
 }
 
 type ConnPoolOptions struct {
-	Logger      logrus.FieldLogger
-	TimeoutDial time.Duration
-	TimeoutConn time.Duration
+	Logger         logrus.FieldLogger
+	Timeout        time.Duration // Timeout when dialing new connections.
+	TimeToLive     time.Duration // Time-to-live for connections.
+	MaxConnections int           // Max connections allowed.
 }
 
 func (options *ConnPoolOptions) setZerosToDefaults() {
 	if options.Logger == nil {
 		options.Logger = logrus.New()
 	}
-	if options.TimeoutDial == 0 {
-		options.TimeoutDial = time.Second
+	if options.Timeout == 0 {
+		options.Timeout = 5 * time.Second
 	}
-	if options.TimeoutConn == 0 {
-		options.TimeoutConn = time.Minute
+	if options.TimeToLive == 0 {
+		options.TimeToLive = 5 * time.Minute
+	}
+	if options.MaxConnections == 0 {
+		options.MaxConnections = 512
 	}
 }
 
@@ -51,24 +55,25 @@ func (pool *connPool) Send(to net.Addr, m protocol.Message) (err error) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	conn, ok := pool.conns[to.String()]
+	toStr := to.String()
+	conn, ok := pool.conns[toStr]
 	if !ok {
-		conn, err = net.DialTimeout(to.Network(), to.String(), pool.options.TimeoutDial)
+		conn, err = net.DialTimeout(to.Network(), toStr, pool.options.Timeout)
 		if err != nil {
 			return err
 		}
-		pool.conns[to.String()] = conn
+		pool.conns[toStr] = conn
 
 		go func() {
-			<-time.After(pool.options.TimeoutConn)
+			<-time.After(pool.options.TimeToLive)
 
 			pool.mu.Lock()
 			defer pool.mu.Unlock()
 
-			if err := pool.conns[to.String()].Close(); err != nil {
+			if err := pool.conns[toStr].Close(); err != nil {
 				pool.options.Logger.Errorf("error closing connection to %v: %v", to, err)
 			}
-			delete(pool.conns, to.String())
+			delete(pool.conns, toStr)
 		}()
 	}
 

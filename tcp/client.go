@@ -3,7 +3,6 @@ package tcp
 import (
 	"context"
 	"net"
-	"time"
 
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/handshake"
@@ -17,11 +16,7 @@ import (
 type ClientOptions struct {
 	// Logger is used to log information and errors.
 	Logger logrus.FieldLogger
-	// Timeout after which the Client will stop an attempt to dial a remote
-	// server.
-	Timeout time.Duration
-	// MaxConnections to remote servers that the Client will maintain.
-	MaxConnections int
+	
 	// Handshaker handles the handshake process between peers. Default: no handshake
 	Handshaker handshake.Handshaker
 }
@@ -29,9 +24,6 @@ type ClientOptions struct {
 func (options *ClientOptions) setZerosToDefaults() {
 	if options.Logger == nil {
 		options.Logger = logrus.New()
-	}
-	if options.Timeout == time.Duration(0) {
-		options.Timeout = 5 * time.Second
 	}
 	if options.MaxConnections == 0 {
 		options.MaxConnections = 512
