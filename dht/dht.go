@@ -51,7 +51,7 @@ func New(me protocol.PeerAddress, codec protocol.PeerAddressCodec, store kv.Tabl
 	if count, err := dht.NumPeers(); count == 0 || err != nil {
 		for _, addr := range bootstrapAddrs {
 			if err := dht.addPeerAddressWithoutLock(addr); err != nil {
-				return nil, fmt.Errorf("failed to store bootstrap addresses: %v", err)
+				return nil, fmt.Errorf("error adding bootstrap addresses: %v", err)
 			}
 		}
 	}

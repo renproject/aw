@@ -57,7 +57,7 @@ func (caster *caster) AcceptCast(ctx context.Context, message protocol.Message) 
 	}
 	select {
 	case <-ctx.Done():
-		return newErrAcceptCastingMessage(ctx.Err())
+		return newErrAcceptingCastMessage(ctx.Err())
 	case caster.events <- event:
 		return nil
 	}
@@ -70,22 +70,22 @@ type ErrCastingMessage struct {
 
 func newErrCastingMessage(peerID protocol.PeerID, err error) error {
 	return ErrCastingMessage{
-		error:  fmt.Errorf("error casting to peer=%v: %v", peerID, err),
+		error:  fmt.Errorf("error casting to %v: %v", peerID, err),
 		PeerID: peerID,
 	}
 }
 
-type ErrAcceptCastingMessage struct {
+type ErrAcceptingCastMessage struct {
 	error
 }
 
-func newErrAcceptCastingMessage(err error) error {
-	return ErrAcceptCastingMessage{
-		error: fmt.Errorf("error accept cast message: %v", err),
+func newErrAcceptingCastMessage(err error) error {
+	return ErrAcceptingCastMessage{
+		error: fmt.Errorf("error accepting cast message: %v", err),
 	}
 }
 
-// ErrCastVersionNotSupported is returned when a broadcast message has an
+// ErrCastVersionNotSupported is returned when a cast message has an
 // unsupported version.
 type ErrCastVersionNotSupported struct {
 	error
@@ -93,11 +93,11 @@ type ErrCastVersionNotSupported struct {
 
 func newErrCastVersionNotSupported(version protocol.MessageVersion) error {
 	return ErrCastVersionNotSupported{
-		error: fmt.Errorf("broadcast version=%v not supported", version),
+		error: fmt.Errorf("cast version=%v not supported", version),
 	}
 }
 
-// ErrCastVariantNotSupported is returned when a broadcast message has an
+// ErrCastVariantNotSupported is returned when a cast message has an
 // unsupported variant.
 type ErrCastVariantNotSupported struct {
 	error
@@ -105,6 +105,6 @@ type ErrCastVariantNotSupported struct {
 
 func newErrCastVariantNotSupported(variant protocol.MessageVariant) error {
 	return ErrCastVariantNotSupported{
-		error: fmt.Errorf("broadcast variant=%v not supported", variant),
+		error: fmt.Errorf("cast variant=%v not supported", variant),
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"fmt"
 	"reflect"
 	"testing/quick"
 	"time"
@@ -32,14 +33,13 @@ var _ = Describe("Tcp", func() {
 	}
 
 	initClient := func(ctx context.Context, receiver protocol.MessageReceiver, hs handshake.Handshaker, dht dht.DHT) {
+		defer GinkgoRecover()
 		tcp.NewClient(
-			tcp.NewClientConns(tcp.ClientOptions{
-				Logger:         logrus.StandardLogger(),
-				Timeout:        time.Minute,
-				MaxConnections: 10,
-				Handshaker:     hs,
-			}),
-			dht, receiver,
+			tcp.ClientOptions{
+				Logger:     logrus.StandardLogger(),
+				Handshaker: hs,
+			},
+			tcp.NewConnPool(tcp.ConnPoolOptions{Timeout: 30 * time.Second, Handshaker: hs}), dht, receiver,
 		).Run(ctx)
 	}
 
@@ -256,6 +256,69 @@ var _ = Describe("Tcp", func() {
 					reflect.DeepEqual(messageOtw.Message.Version, protocol.V1) &&
 					reflect.DeepEqual(messageOtw.Message.Variant, variant) &&
 					bytes.Compare(messageOtw.Message.Body, body) == 0)
+			}
+
+			Expect(quick.Check(check, &quick.Config{
+				MaxCount: 100,
+			})).Should(BeNil())
+		})
+
+		It("should successfully send and receive multicast messages", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			// defer time.Sleep(time.Millisecond)
+			defer cancel()
+
+			fromServerChans := make([]chan protocol.MessageOnTheWire, 8)
+			receivers := make([]protocol.PeerAddress, 8)
+			for i := range receivers {
+				receivers[i] = testutil.NewSimpleTCPPeerAddress(fmt.Sprintf("receiver_%d", i), "127.0.0.1", fmt.Sprintf("%d", 47326+i))
+				fromServerChans[i] = make(chan protocol.MessageOnTheWire, 100000)
+				go initServer(ctx, fromServerChans[i], nil, fmt.Sprintf("127.0.0.1:%d", 47326+i))
+			}
+			codec := testutil.NewSimpleTCPPeerAddressCodec()
+			toClientChans := make([]chan protocol.MessageOnTheWire, 8)
+			for i := range toClientChans {
+				client := testutil.NewSimpleTCPPeerAddress(fmt.Sprintf("sender_%d", i), "127.0.0.1", fmt.Sprintf("%d", 47325-i))
+				dht, err := dht.New(client, codec, kv.NewTable(kv.NewMemDB(kv.JSONCodec), "dht"), receivers...)
+				Expect(err).Should(BeNil())
+				toClientChans[i] = make(chan protocol.MessageOnTheWire, 100000)
+				go initClient(ctx, toClientChans[i], nil, dht)
+			}
+
+			check := func(x uint, y uint) bool {
+				// Set variant and body size to an appropriate range
+				// v := int((x % 5) + 1)
+				numBytes := int(y % 1000000) // 0 bytes to 1 megabyte
+
+				// Generate random variant
+				// variant := protocol.MessageVariant(v)
+				body := make([]byte, numBytes)
+				if len(body) > 0 {
+					n, err := rand.Read(body)
+					Expect(n).To(Equal(numBytes))
+					Expect(err).ToNot(HaveOccurred())
+				}
+
+				// Send a message to the server using the client and read from
+				// message received by the server
+				for _, toClient := range toClientChans {
+					toClient <- protocol.MessageOnTheWire{
+						Message: protocol.NewMessage(protocol.V1, protocol.Multicast, body),
+					}
+				}
+				for range toClientChans {
+					for _, fromServer := range fromServerChans {
+						messageOtw := <-fromServer
+						if !(messageOtw.Message.Length == protocol.MessageLength(len(body)+8) &&
+							reflect.DeepEqual(messageOtw.Message.Version, protocol.V1) &&
+							reflect.DeepEqual(messageOtw.Message.Variant, protocol.Multicast) &&
+							bytes.Compare(messageOtw.Message.Body, body) == 0) {
+							return false
+						}
+					}
+				}
+				// Check that the message sent equals the message received
+				return true
 			}
 
 			Expect(quick.Check(check, &quick.Config{

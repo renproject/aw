@@ -1,8 +1,6 @@
 package tcp_test
 
 import (
-	"time"
-
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/handshake/session"
@@ -32,11 +30,10 @@ var _ = Describe("Client", func() {
 
 			toClient := make(chan protocol.MessageOnTheWire)
 			hs := handshake.New(testutil.NewMockSignVerifier(), session.NewNOPSessionCreator())
-			_ = tcp.NewClient(tcp.NewClientConns(tcp.ClientOptions{
+			_ = tcp.NewClient(tcp.ClientOptions{
 				Logger:     logrus.StandardLogger(),
-				Timeout:    time.Second,
 				Handshaker: hs,
-			}), dht, toClient)
+			}, tcp.NewConnPool(tcp.ConnPoolOptions{}), dht, toClient)
 		})
 	})
 

@@ -53,7 +53,7 @@ func (broadcaster *broadcaster) Broadcast(ctx context.Context, body protocol.Mes
 	}
 	select {
 	case <-ctx.Done():
-		return newErrBroadcastCanceled(ctx.Err())
+		return newErrBroadcasting(ctx.Err())
 	case broadcaster.messages <- messageWire:
 	}
 	return nil
@@ -71,9 +71,9 @@ func (broadcaster *broadcaster) AcceptBroadcast(ctx context.Context, message pro
 	}
 
 	messageHash := message.Hash()
-	ok, err := broadcaster.messageHash(messageHash)
+	ok, err := broadcaster.messageHashAlreadySeen(messageHash)
 	if err != nil {
-		return newErrBroadcastInternal(fmt.Errorf("error loading message hash=%v: %v", messageHash, err))
+		return newErrBroadcastInternal(fmt.Errorf("error getting message hash=%v: %v", messageHash, err))
 	}
 	if ok {
 		// Ignore messages that have already been seen
@@ -90,7 +90,7 @@ func (broadcaster *broadcaster) AcceptBroadcast(ctx context.Context, message pro
 	}
 	select {
 	case <-ctx.Done():
-		return newErrBroadcastCanceled(ctx.Err())
+		return newErrAcceptingBroadcast(fmt.Errorf("error receiving: %v", ctx.Err()))
 	case broadcaster.events <- event:
 	}
 
@@ -103,7 +103,7 @@ func (broadcaster *broadcaster) insertMessageHash(hash protocol.MessageHash) err
 	return broadcaster.store.Insert(hash.String(), true)
 }
 
-func (broadcaster *broadcaster) messageHash(hash protocol.MessageHash) (bool, error) {
+func (broadcaster *broadcaster) messageHashAlreadySeen(hash protocol.MessageHash) (bool, error) {
 	var exists bool
 	if err := broadcaster.store.Get(hash.String(), &exists); err != nil && err.Error() != kv.ErrKeyNotFound.Error() {
 		return false, err
@@ -148,14 +148,25 @@ func newErrBroadcastVariantNotSupported(variant protocol.MessageVariant) error {
 	}
 }
 
-// ErrBroadcastCanceled is returned when a broadcast is canceled. This is
-// usually caused by a context being done.
-type ErrBroadcastCanceled struct {
+// ErrBroadcasting is returned when there is an error when broadcasting.
+type ErrBroadcasting struct {
 	error
 }
 
-func newErrBroadcastCanceled(err error) error {
-	return ErrBroadcastCanceled{
-		error: fmt.Errorf("broadcast canceled: %v", err),
+func newErrBroadcasting(err error) error {
+	return ErrBroadcasting{
+		error: fmt.Errorf("error broadcasting: %v", err),
+	}
+}
+
+// ErrAcceptingBroadcast is returned when there is an error when accepting a
+// broadcast.
+type ErrAcceptingBroadcast struct {
+	error
+}
+
+func newErrAcceptingBroadcast(err error) error {
+	return ErrAcceptingBroadcast{
+		error: fmt.Errorf("error accepting broadcast: %v", err),
 	}
 }

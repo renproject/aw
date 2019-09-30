@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"sync"
 	"time"
@@ -15,11 +14,12 @@ import (
 )
 
 var DefaultServerOptions = ServerOptions{
-	Logger:  logrus.StandardLogger(),
-	Timeout: time.Second,
-	Host:    "127.0.0.1:19231",
-
-	Handshaker: nil,
+	Logger:           logrus.StandardLogger(),
+	Timeout:          20 * time.Second,
+	Host:             "127.0.0.1:19231",
+	ReconnRateLimit:  time.Minute,
+	TimeoutKeepAlive: 10 * time.Second,
+	Handshaker:       nil,
 }
 
 type ServerOptions struct {
@@ -28,9 +28,27 @@ type ServerOptions struct {
 	Host    string
 	// ReconnRateLimit is the time the darknode waits for before accepting a connection
 	// from the same peer. Default: 1 minute
-	ReconnRateLimit time.Duration
-	// Handshaker handles the handshake process between peers. Default: no handshake
-	Handshaker handshake.Handshaker
+	ReconnRateLimit  time.Duration
+	TimeoutKeepAlive time.Duration
+	Handshaker       handshake.Handshaker
+}
+
+func (options *ServerOptions) setZerosToDefaults() {
+	if options.Logger == nil {
+		options.Logger = DefaultServerOptions.Logger
+	}
+	if options.Timeout == 0 {
+		options.Timeout = DefaultServerOptions.Timeout
+	}
+	if options.TimeoutKeepAlive == 0 {
+		options.TimeoutKeepAlive = DefaultServerOptions.TimeoutKeepAlive
+	}
+	if options.Host == "" {
+		options.Host = DefaultServerOptions.Host
+	}
+	if options.ReconnRateLimit == 0 {
+		options.ReconnRateLimit = DefaultServerOptions.ReconnRateLimit
+	}
 }
 
 type Server struct {
@@ -42,24 +60,7 @@ type Server struct {
 }
 
 func NewServer(options ServerOptions, messages protocol.MessageSender) *Server {
-	if options.Host == "" {
-		options.Host = DefaultServerOptions.Host
-	}
-
-	if options.Logger == nil {
-		logger := logrus.New()
-		logger.SetOutput(ioutil.Discard)
-		options.Logger = logger
-	}
-
-	if options.Timeout == time.Duration(0) {
-		options.Timeout = DefaultServerOptions.Timeout
-	}
-
-	if options.ReconnRateLimit == 0 {
-		options.ReconnRateLimit = time.Minute
-	}
-
+	options.setZerosToDefaults()
 	return &Server{
 		mu:              new(sync.RWMutex),
 		lastConnAttempt: map[string]time.Time{},
@@ -78,7 +79,7 @@ func (server *Server) Run(ctx context.Context) {
 	go func() {
 		<-ctx.Done()
 		if err := listener.Close(); err != nil {
-			server.options.Logger.Errorf("error closing tcp listener: %v", err)
+			server.options.Logger.Errorf("error closing listener: %v", err)
 		}
 	}()
 
@@ -92,7 +93,7 @@ func (server *Server) Run(ctx context.Context) {
 			default:
 			}
 
-			server.options.Logger.Errorf("error accepting tcp connection: %v", err)
+			server.options.Logger.Errorf("error accepting connection: %v", err)
 			continue
 		}
 
@@ -124,14 +125,6 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 			return
 		}
 	}
-
-	// Accepted connections are not written to, so we prevent write timeouts by
-	// setting the write deadline to zero
-	conn.SetWriteDeadline(time.Time{})
-
-	// We do not know when the client will send us messages, so we prevent rea
-	// timeouts by setting the read deadline to zero
-	conn.SetReadDeadline(time.Time{})
 
 	for {
 		messageOtw := protocol.MessageOnTheWire{}
