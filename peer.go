@@ -10,6 +10,7 @@ import (
 	"github.com/renproject/aw/cast"
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/handshake"
+	"github.com/renproject/aw/handshake/session"
 	"github.com/renproject/aw/multicast"
 	"github.com/renproject/aw/pingpong"
 	"github.com/renproject/aw/protocol"
@@ -37,10 +38,11 @@ type PeerOptions struct {
 	BootstrapWorkers     int           `json:"bootstrapWorkers"`     // Defaults to 2x the number of CPUs
 	BootstrapDuration    time.Duration `json:"bootstrapDuration"`    // Defaults to 1 hour
 
-	DHTStore         kv.Table              // Defaults to using in memory store
-	BroadcasterStore kv.Table              // Defaults to using in memory store
-	SignVerifier     protocol.SignVerifier // Defaults to nil
-	Runners          []Runner              // Defaults to nil
+	DHTStore         kv.Table                // Defaults to using in memory store
+	BroadcasterStore kv.Table                // Defaults to using in memory store
+	SignVerifier     protocol.SignVerifier   // Defaults to nil
+	SessionCreator   protocol.SessionCreator // Defaults to NOPSessionCreator
+	Runners          []Runner                // Defaults to nil
 }
 
 type Peer interface {
@@ -244,10 +246,14 @@ func newErrInvalidPeerOptions(err error) error {
 	return fmt.Errorf("invalid peer options: %v", err)
 }
 
-func NewTCPPeer(options PeerOptions, events EventSender, cap, port int) Peer {
+func NewTCPPeer(options PeerOptions, events EventSender, cap int, host string) Peer {
 	var handshaker handshake.Handshaker
+	if options.SessionCreator == nil {
+		options.SessionCreator = session.NewNOPSessionCreator()
+	}
+
 	if options.SignVerifier != nil {
-		handshaker = handshake.New(options.SignVerifier)
+		handshaker = handshake.New(options.SignVerifier, options.SessionCreator)
 	}
 
 	if options.DHTStore == nil {
@@ -275,7 +281,7 @@ func NewTCPPeer(options PeerOptions, events EventSender, cap, port int) Peer {
 			Logger:     options.Logger,
 			Timeout:    time.Minute,
 			Handshaker: handshaker,
-			Port:       port,
+			Host:       host,
 		}, serverMessages))
 
 	for i := 0; i < options.ConnPoolWorkers; i++ {

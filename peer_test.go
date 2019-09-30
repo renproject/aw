@@ -51,9 +51,9 @@ var _ = Describe("airwaves peer", func() {
 				BootstrapAddresses: testutil.Remove(peerAddresses, i),
 			}
 			if signVerifiers != nil && len(signVerifiers) == len(peerAddresses) {
-				// options.SignVerifier = signVerifiers[i]
+				options.SignVerifier = signVerifiers[i]
 			}
-			peers[i] = NewTCPPeer(options, events, CAPACITY, 46532+i)
+			peers[i] = NewTCPPeer(options, events, CAPACITY, peerAddresses[i].NetworkAddress().String())
 			go peers[i].Run(ctx)
 		})
 		return peers, peerAddresses, nil
@@ -120,15 +120,14 @@ var _ = Describe("airwaves peer", func() {
 						Codec:           codec,
 						ConnPoolWorkers: 1,
 
-						//	SignVerifier:       nodeSignVerifiers[i],
+						SignVerifier:       nodeSignVerifiers[i],
 						Me:                 peerAddr,
 						BootstrapAddresses: bootstrapAddrs,
-					}, events, CAPACITY, 5000+i)
+					}, events, CAPACITY, peerAddr.NetworkAddress().String())
 					go peer.Run(ctx)
 					peers[i] = peer
 					go func(events protocol.EventReceiver) {
-						for event := range events {
-							fmt.Printf("New event of type : %T", event)
+						for range events {
 						}
 					}(events)
 				}
