@@ -12,7 +12,7 @@ import (
 
 // A Broadcaster is used to send messages to all peers in the network. This is
 // done using a decentralised gossip algorithm to ensure that a small number of
-// malicioius peers cannot stop the message from saturating non-malicious peers.
+// malicious peers cannot stop the message from saturating non-malicious peers.
 //
 // In V1, when a Broadcaster accepts a message it will hash it and check to see
 // if it has seen this hash before. If the hash has been seen, nothing happens.

@@ -100,12 +100,11 @@ func (hs *handshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) (pr
 	}
 
 	// Create a challenge
-	challengeLen := 32
-	if hs.sessionCreator != nil {
-		challengeLen = hs.sessionCreator.SecretLength()
-	}
+	challengeLen := hs.sessionCreator.SecretLength()
 	challenge := make([]byte, challengeLen)
-	rand.Read(challenge)
+	if n, err := rand.Read(challenge); n != challengeLen || err != nil {
+		return nil, fmt.Errorf("failed to generate challenge: [%d != %d]: %v", n, challengeLen, err)
+	}
 
 	// Write challenge and responder's public key and challenge
 	if err := writeChallenge(buf, challenge, &initiatorPubKey); err != nil {

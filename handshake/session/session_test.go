@@ -8,13 +8,14 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	. "github.com/renproject/aw/handshake/session"
+
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/aw/testutil"
 )
 
 var _ = Describe("Session", func() {
 	Context("when both parties are honest", func() {
-		It("should sucessfully cipher and decipher", func() {
+		It("should successfully cipher and decipher", func() {
 			secret := [32]byte{}
 			rand.Read(secret[:])
 			client := testutil.SimplePeerID("client")
@@ -39,7 +40,7 @@ var _ = Describe("Session", func() {
 			Expect(quick.Check(check, nil)).Should(BeNil())
 		})
 
-		It("should sucessfully cipher and decipher", func() {
+		It("should successfully cipher and decipher", func() {
 			secret := [32]byte{}
 			rand.Read(secret[:])
 			client := testutil.SimplePeerID("client")

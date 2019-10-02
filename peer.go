@@ -175,6 +175,7 @@ func (peer *peer) bootstrap(ctx context.Context) {
 	// Spawn multiple goroutine workers to process the peer addresses in the
 	// queue one-by-one
 	phi.ForAll(peer.options.BootstrapWorkers, func(_ int) {
+		// Fixme : for loop
 		peerAddr, ok := <-peerAddrsQ
 		if !ok {
 			return

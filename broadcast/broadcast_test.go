@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	. "github.com/renproject/aw/broadcast"
+
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/aw/testutil"
 	"github.com/renproject/kv"

@@ -10,6 +10,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	. "github.com/renproject/aw/cast"
+
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/aw/testutil"
 	"github.com/sirupsen/logrus"

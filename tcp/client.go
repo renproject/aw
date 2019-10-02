@@ -6,7 +6,6 @@ import (
 
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/handshake"
-
 	"github.com/renproject/aw/protocol"
 	"github.com/sirupsen/logrus"
 )
@@ -14,6 +13,7 @@ import (
 // ClientOptions define how the Client manages its connections with remote
 // servers. It also defines some other simple behaviours, such as logging.
 type ClientOptions struct {
+
 	// Logger is used to log information and errors.
 	Logger logrus.FieldLogger
 	// DefaultNumBroadcastPeers to send a broadcast message to

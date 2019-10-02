@@ -154,9 +154,13 @@ func (dht *dht) addPeerAddressWithoutLock(peerAddr protocol.PeerAddress) error {
 func (dht *dht) fillInMemCache() error {
 	iter := dht.store.Iterator()
 	for iter.Next() {
-		var peerAddr protocol.PeerAddress
-		if err := iter.Value(&peerAddr); err != nil {
+		var data []byte
+		if err := iter.Value(&data); err != nil {
 			return fmt.Errorf("error scanning dht iterator: %v", err)
+		}
+		peerAddr, err := dht.codec.Decode(data)
+		if err != nil {
+			return fmt.Errorf("error decoding peerAddress: %v", err)
 		}
 		dht.inMemCache[peerAddr.PeerID().String()] = peerAddr
 	}

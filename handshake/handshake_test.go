@@ -7,8 +7,8 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	. "github.com/renproject/aw/handshake"
-	"github.com/renproject/aw/handshake/session"
 
+	"github.com/renproject/aw/handshake/session"
 	"github.com/renproject/aw/testutil"
 	"github.com/renproject/phi"
 )

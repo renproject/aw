@@ -72,7 +72,7 @@ func (pp *pingPonger) AcceptPing(ctx context.Context, message protocol.Message) 
 	}
 
 	// if the peer address contains this peer's address do not add it to the DHT,
-	// and stop propogating the message to other nodes.
+	// and stop propagating the message to other nodes.
 	if peerAddr.PeerID().Equal(pp.dht.Me().PeerID()) {
 		return nil
 	}

@@ -61,7 +61,11 @@ func (session *gcmSession) ReadMessage(reader io.Reader) (protocol.MessageOnTheW
 	}
 	motw.Message = msg
 	nonce := make([]byte, session.gcm.NonceSize())
-	session.rand.Read(nonce)
+
+	_, err = session.rand.Read(nonce)
+	if err != nil {
+		return motw, err
+	}
 	motw.Message.Body, err = session.gcm.Open(nil, nonce, motw.Message.Body, nil)
 	if err != nil {
 		return motw, err
