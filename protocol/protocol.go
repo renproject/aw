@@ -1,23 +1,22 @@
 package protocol
 
 import (
-	"context"
-
-	"github.com/renproject/phi"
+	"io"
 )
 
-type Runner interface {
-	Run(ctx context.Context)
+type SignVerifier interface {
+	Sign(digest []byte) ([]byte, error)
+	Verify(digest, sig []byte) (PeerID, error)
+	Hash(data []byte) []byte
+	SigLength() uint64
 }
 
-type Runners []Runner
-
-func (runners Runners) Run(ctx context.Context) {
-	phi.ParForAll(runners, func(i int) {
-		runners[i].Run(ctx)
-	})
+type Session interface {
+	ReadMessage(io.Reader) (MessageOnTheWire, error)
+	WriteMessage(Message, io.Writer) error
 }
 
-func NewRunners(runners ...Runner) Runner {
-	return Runners(runners)
+type SessionCreator interface {
+	Create(PeerID, []byte) Session
+	SecretLength() int
 }
