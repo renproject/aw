@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/renproject/aw/protocol"
+	"github.com/renproject/id"
 	"github.com/renproject/kv"
 	"github.com/sirupsen/logrus"
 )
@@ -99,11 +100,11 @@ func (broadcaster *broadcaster) AcceptBroadcast(ctx context.Context, message pro
 	return broadcaster.Broadcast(ctx, message.Body)
 }
 
-func (broadcaster *broadcaster) insertMessageHash(hash protocol.MessageHash) error {
+func (broadcaster *broadcaster) insertMessageHash(hash id.Hash) error {
 	return broadcaster.store.Insert(hash.String(), true)
 }
 
-func (broadcaster *broadcaster) messageHashAlreadySeen(hash protocol.MessageHash) (bool, error) {
+func (broadcaster *broadcaster) messageHashAlreadySeen(hash id.Hash) (bool, error) {
 	var exists bool
 	if err := broadcaster.store.Get(hash.String(), &exists); err != nil && err.Error() != kv.ErrKeyNotFound.Error() {
 		return false, err
