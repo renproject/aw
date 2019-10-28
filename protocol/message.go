@@ -134,7 +134,6 @@ func NewMessage(version MessageVersion, variant MessageVariant, body MessageBody
 	if body == nil {
 		body = make(MessageBody, 0)
 	}
-
 	return Message{
 		Length:  MessageLength(8 + len(body)),
 		Version: version,
