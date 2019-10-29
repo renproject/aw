@@ -109,7 +109,7 @@ func (pool *connPool) Send(to net.Addr, m protocol.Message) (err error) {
 	}
 
 	if c.session != nil {
-		return c.session.WriteMessage(m, c.conn)
+		return c.session.WriteMessage(c.conn, m)
 	}
 	data, err := m.MarshalBinary()
 	if err != nil {
