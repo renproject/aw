@@ -34,7 +34,7 @@ func (multicaster *multicaster) Multicast(ctx context.Context, body protocol.Mes
 	}
 	select {
 	case <-ctx.Done():
-		return newErrMulticastingMessage(ctx.Err())
+		return newErrMulticasting(ctx.Err())
 	case multicaster.messages <- messageWire:
 	}
 	return nil
@@ -62,12 +62,12 @@ func (multicaster *multicaster) AcceptMulticast(ctx context.Context, message pro
 	}
 }
 
-type ErrMulticastingMessage struct {
+type ErrMulticasting struct {
 	error
 }
 
-func newErrMulticastingMessage(err error) error {
-	return ErrMulticastingMessage{
+func newErrMulticasting(err error) error {
+	return ErrMulticasting{
 		error: fmt.Errorf("error multicasting: %v", err),
 	}
 }
