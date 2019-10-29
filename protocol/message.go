@@ -3,9 +3,7 @@ package protocol
 import (
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/binary"
 	"fmt"
-	"io"
 
 	"github.com/renproject/id"
 )
@@ -146,43 +144,7 @@ func NewMessage(version MessageVersion, variant MessageVariant, body MessageBody
 func (message Message) Hash() id.Hash {
 	data, err := message.MarshalBinary()
 	if err != nil {
-		panic(fmt.Errorf("invariant violation: sha3 hash of bad message: %v", err))
+		panic(fmt.Errorf("invariant violation: malformed message: %v", err))
 	}
 	return sha256.Sum256(data)
-}
-
-// ReadMessage reads bytes from a io.Reader and unmarshals it to a message.
-func ReadMessage(reader io.Reader) (Message, error) {
-	var message Message
-
-	// Read the message length
-	if err := binary.Read(reader, binary.LittleEndian, &message.Length); err != nil {
-		return message, fmt.Errorf("error unmarshaling message length: %v", err)
-	}
-	if message.Length < 8 {
-		return message, NewErrMessageLengthIsTooLow(message.Length)
-	}
-
-	// Read the message version
-	if err := binary.Read(reader, binary.LittleEndian, &message.Version); err != nil {
-		return message, fmt.Errorf("error unmarshaling message version: %v", err)
-	}
-	if err := ValidateMessageVersion(message.Version); err != nil {
-		return message, err
-	}
-
-	// Read the message variant
-	if err := binary.Read(reader, binary.LittleEndian, &message.Variant); err != nil {
-		return message, fmt.Errorf("error unmarshaling message variant: %v", err)
-	}
-	if err := ValidateMessageVariant(message.Variant); err != nil {
-		return message, err
-	}
-
-	// Read the message body.
-	message.Body = make(MessageBody, message.Length-8)
-	if err := binary.Read(reader, binary.LittleEndian, message.Body); err != nil {
-		return message, fmt.Errorf("error unmarshaling message body: %v", err)
-	}
-	return message, nil
 }
