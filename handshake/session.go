@@ -78,7 +78,7 @@ func (gcmSessionManager) NewSessionKey() []byte {
 	if n != 32 {
 		panic(fmt.Errorf("invariant violation: cannot generate session key: expected n=32, got n=%v", n))
 	}
-	if n != 32 {
+	if err != nil {
 		panic(fmt.Errorf("invariant violation: cannot generate session key: %v", err))
 	}
 	return key[:]
