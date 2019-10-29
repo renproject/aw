@@ -17,20 +17,24 @@ var DefaultServerOptions = ServerOptions{
 	Logger:           logrus.StandardLogger(),
 	Timeout:          20 * time.Second,
 	Host:             "127.0.0.1:19231",
-	ReconnRateLimit:  time.Minute,
+	RateLimit:        time.Minute,
 	TimeoutKeepAlive: 10 * time.Second,
 	Handshaker:       nil,
 }
 
 type ServerOptions struct {
-	Logger  logrus.FieldLogger
-	Timeout time.Duration
-	Host    string
-	// ReconnRateLimit is the time the darknode waits for before accepting a connection
-	// from the same peer. Default: 1 minute
-	ReconnRateLimit  time.Duration
+	Logger           logrus.FieldLogger
+	Timeout          time.Duration
+	Host             string
+	RateLimit        time.Duration
 	TimeoutKeepAlive time.Duration
 	Handshaker       handshake.Handshaker
+
+	// TODO: Implement a maximum number of connections to help protect the
+	// server from DoS attacks.
+
+	// TODO: Implement IP blacklisting to help protect the server from DoS
+	// attacks.
 }
 
 func (options *ServerOptions) setZerosToDefaults() {
@@ -46,29 +50,33 @@ func (options *ServerOptions) setZerosToDefaults() {
 	if options.Host == "" {
 		options.Host = DefaultServerOptions.Host
 	}
-	if options.ReconnRateLimit == 0 {
-		options.ReconnRateLimit = DefaultServerOptions.ReconnRateLimit
+	if options.RateLimit == 0 {
+		options.RateLimit = DefaultServerOptions.RateLimit
 	}
 }
 
 type Server struct {
-	mu              *sync.RWMutex
-	lastConnAttempt map[string]time.Time
-
 	options  ServerOptions
 	messages protocol.MessageSender
+
+	lastConnAttemptsMu *sync.RWMutex
+	lastConnAttempts   map[string]time.Time
 }
 
 func NewServer(options ServerOptions, messages protocol.MessageSender) *Server {
 	options.setZerosToDefaults()
 	return &Server{
-		mu:              new(sync.RWMutex),
-		lastConnAttempt: map[string]time.Time{},
-		options:         options,
-		messages:        messages,
+		options:  options,
+		messages: messages,
+
+		lastConnAttemptsMu: new(sync.RWMutex),
+		lastConnAttempts:   map[string]time.Time{},
 	}
 }
 
+// Run the server until the context is done. The server will continuously listen
+// for new connections, spawning each one into a background goroutine so that it
+// can be handled concurrently.
 func (server *Server) Run(ctx context.Context) {
 	listener, err := net.Listen("tcp", server.options.Host)
 	if err != nil {
@@ -77,6 +85,8 @@ func (server *Server) Run(ctx context.Context) {
 	}
 
 	go func() {
+		// When the context is done, explicitly close the listener so that it
+		// does not block on waiting to accept a new connection.
 		<-ctx.Done()
 		if err := listener.Close(); err != nil {
 			server.options.Logger.Errorf("error closing listener: %v", err)
@@ -86,9 +96,10 @@ func (server *Server) Run(ctx context.Context) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			// Check whether or not the context is done
 			select {
 			case <-ctx.Done():
+				// Do not log errors because returning from this canceling a
+				// context is the expected way to terminate the run loop.
 				return
 			default:
 			}
@@ -98,54 +109,50 @@ func (server *Server) Run(ctx context.Context) {
 		}
 
 		// Spawn background goroutine to handle this connection so that it does
-		// not block other connections
+		// not block other connections.
 		go server.handle(ctx, conn)
 	}
 }
 
 func (server *Server) handle(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
-	server.mu.Lock()
-	if time.Now().Sub(server.lastConnAttempt[conn.RemoteAddr().String()]) < server.options.ReconnRateLimit {
-		server.options.Logger.Info("last attempt from: %s is less than the minimum reconnect delay", conn.RemoteAddr())
-		server.mu.Unlock()
+
+	if !server.allowRateLimit(conn) {
+		// Reject connections from IP addresses that have attempted to connect
+		// too recently.
 		return
 	}
-	server.lastConnAttempt[conn.RemoteAddr().String()] = time.Now()
-	server.mu.Unlock()
 
-	var session protocol.Session
-	var err error
-	if server.options.Handshaker != nil {
-		handshakeCtx, handshakeCancel := context.WithTimeout(ctx, server.options.Timeout)
-		defer handshakeCancel()
-		session, err = server.options.Handshaker.AcceptHandshake(handshakeCtx, conn)
-		if err != nil {
-			server.options.Logger.Errorf("bad handshake with %v: %v", conn.RemoteAddr().String(), err)
-			return
-		}
+	// Attempt to establish a session with the client. A `nil` session can be
+	// returned by this method.
+	session, err := server.establishSession(ctx, conn)
+	if err != nil {
+		server.options.Logger.Warn("closing connection: error establishing session: %v", err)
+		return
 	}
 
 	for {
 		messageOtw := protocol.MessageOnTheWire{}
 		if session != nil {
 			var err error
-			messageOtw, err = session.ReadMessage(conn)
+			messageOtw, err = session.ReadMessageOnTheWire(conn)
 			if err != nil {
 				if err != io.EOF {
 					server.options.Logger.Error(newErrReadingIncomingMessage(err))
 				}
+				server.options.Logger.Info("closing connection: EOF")
 				return
 			}
 		} else {
-			msg, err := protocol.ReadMessage(conn)
-			if err != nil {
+			var message protocol.Message
+			if err := message.UnmarshalReader(conn); err != nil {
 				if err != io.EOF {
 					server.options.Logger.Error(newErrReadingIncomingMessage(err))
 				}
+				server.options.Logger.Info("closing connection: EOF")
 				return
 			}
-			messageOtw.Message = msg
+			messageOtw.Message = message
 		}
 
 		select {
@@ -154,6 +161,40 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		case server.messages <- messageOtw:
 		}
 	}
+}
+
+func (server *Server) allowRateLimit(conn net.Conn) bool {
+	server.lastConnAttemptsMu.Lock()
+	defer server.lastConnAttemptsMu.Unlock()
+	defer func() {
+		server.lastConnAttempts[conn.RemoteAddr().String()] = time.Now()
+	}()
+
+	lastConnAttempt, ok := server.lastConnAttempts[conn.RemoteAddr().String()]
+	if !ok {
+		return true
+	}
+
+	if time.Now().Sub(lastConnAttempt) < server.options.RateLimit {
+		server.options.Logger.Warn("%s is rate limited", conn.RemoteAddr())
+		return false
+	}
+	return true
+}
+
+func (server *Server) establishSession(ctx context.Context, conn net.Conn) (protocol.Session, error) {
+	if server.options.Handshaker == nil {
+		return nil, nil
+	}
+
+	handshakeCtx, handshakeCancel := context.WithTimeout(ctx, server.options.Timeout)
+	defer handshakeCancel()
+
+	session, err := server.options.Handshaker.AcceptHandshake(handshakeCtx, conn)
+	if err != nil {
+		return nil, fmt.Errorf("bad handshake with %v: %v", conn.RemoteAddr().String(), err)
+	}
+	return session, nil
 }
 
 type ErrReadingIncomingMessage struct {
