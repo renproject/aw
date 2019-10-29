@@ -12,11 +12,11 @@ type SignVerifier interface {
 }
 
 type Session interface {
-	ReadMessage(io.Reader) (MessageOnTheWire, error)
-	WriteMessage(Message, io.Writer) error
+	ReadMessageOnTheWire(io.Reader) (MessageOnTheWire, error)
+	WriteMessage(io.Writer, Message) error
 }
 
-type SessionCreator interface {
-	Create(PeerID, []byte) Session
-	SecretLength() int
+type SessionManager interface {
+	NewSession(PeerID, []byte) Session
+	NewSessionKey() []byte
 }
