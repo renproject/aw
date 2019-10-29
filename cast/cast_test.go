@@ -18,7 +18,7 @@ import (
 
 var _ = Describe("Caster", func() {
 	Context("when casting", func() {
-		It("should be able send messages", func() {
+		It("should be able to send messages", func() {
 			messages := make(chan protocol.MessageOnTheWire)
 			events := make(chan protocol.Event)
 			caster := NewCaster(messages, events, logrus.StandardLogger())
@@ -101,7 +101,7 @@ var _ = Describe("Caster", func() {
 		})
 
 		Context("when the message has an unsupported version", func() {
-			It("should return ErrCastVersionNotSupported on receiving a message with invalid version", func() {
+			It("should return ErrCastVersionNotSupported", func() {
 				messages := make(chan protocol.MessageOnTheWire)
 				events := make(chan protocol.Event)
 				caster := NewCaster(messages, events, logrus.StandardLogger())
@@ -119,7 +119,7 @@ var _ = Describe("Caster", func() {
 		})
 
 		Context("when the message has an unsupported variant", func() {
-			It("should return ErrCastVariantNotSupported on receiving a message with invalid variant", func() {
+			It("should return ErrCastVariantNotSupported", func() {
 				messages := make(chan protocol.MessageOnTheWire)
 				events := make(chan protocol.Event)
 				caster := NewCaster(messages, events, logrus.StandardLogger())

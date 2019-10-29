@@ -21,7 +21,7 @@ import (
 var _ = Describe("Broadcaster", func() {
 
 	Context("when broadcasting", func() {
-		It("should be able send messages", func() {
+		It("should be able to send messages", func() {
 			table := kv.NewTable(kv.NewMemDB(kv.JSONCodec), "airwave")
 			messages := make(chan protocol.MessageOnTheWire)
 			events := make(chan protocol.Event)
