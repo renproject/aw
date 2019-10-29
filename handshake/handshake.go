@@ -43,7 +43,7 @@ func New(signVerifier protocol.SignVerifier, sessionManager protocol.SessionMana
 func (hs *handshaker) Handshake(ctx context.Context, rw io.ReadWriter) (protocol.Session, error) {
 	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return nil, err
+		panic(fmt.Errorf("invariant violation: cannot generate rsa.PrivateKey"))
 	}
 
 	// Write our RSA public key with our signature.
@@ -53,86 +53,86 @@ func (hs *handshaker) Handshake(ctx context.Context, rw io.ReadWriter) (protocol
 	}
 	pubKeySig, err := hs.signVerifier.Sign(hs.signVerifier.Hash(pubKeyBytes))
 	if err != nil {
-		return nil, err
+		panic(fmt.Errorf("invariant violation: cannot sign rsa.PublicKey: %v", err))
 	}
 	if err := write(rw, pubKeyBytes); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error writing rsa.PublicKey to io.Writer: %v", err)
 	}
 	if err := write(rw, pubKeySig); err != nil {
-		return nil, err
-	}
-
-	// Read the remote RSA public key and verify the signature.
-	remotePubKeyBytes, err := readEncrypted(rw, privKey)
-	if err != nil {
-		return nil, err
-	}
-	remotePubKey, err := pubKeyFromBytes(remotePubKeyBytes)
-	if err != nil {
-		return nil, err
-	}
-	remotePubKeySig, err := readEncrypted(rw, privKey)
-	if err != nil {
-		return nil, err
-	}
-	remotePeerID, err := hs.signVerifier.Verify(hs.signVerifier.Hash(remotePubKeyBytes), remotePubKeySig)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error writing rsa.PublicKey signature to io.Writer: %v", err)
 	}
 
 	// Read the session key and verify the remote signature.
 	remoteSessionKey, err := readEncrypted(rw, privKey)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error reading encrypted session key from io.Reader: %v", err)
 	}
-	remoteSessionKeySig, err := readEncrypted(rw, privKey)
+	localSessionKey := hs.sessionManager.NewSessionKey()
+	if len(localSessionKey) != len(remoteSessionKey) {
+		return nil, fmt.Errorf("error verifying session key: expected session key len=%v, got session key len=%v", len(localSessionKey), len(remoteSessionKey))
+	}
+	remoteSessionKeySig, err := read(rw)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error reading session key signature from io.Reader: %v", err)
 	}
-	remotePeerID2, err := hs.signVerifier.Verify(hs.signVerifier.Hash(remoteSessionKey), remoteSessionKeySig)
+	remotePeerID, err := hs.signVerifier.Verify(hs.signVerifier.Hash(remoteSessionKey), remoteSessionKeySig)
 	if err != nil {
-		return nil, err
-	}
-	if !remotePeerID.Equal(remotePeerID2) {
-		return nil, fmt.Errorf("bad handshake: expected peer=%v, got peer=%v", remotePeerID, remotePeerID2)
+		return nil, fmt.Errorf("error verifying session key: %v", err)
 	}
 
 	// Write the session key with our signature.
 	remoteSessionKeySig, err = hs.signVerifier.Sign(hs.signVerifier.Hash(remoteSessionKey))
 	if err != nil {
-		return nil, err
+		panic(fmt.Errorf("invariant violation: cannot sign session key: %v", err))
 	}
-	if err := writeEncrypted(rw, remoteSessionKeySig, &remotePubKey); err != nil {
-		return nil, err
+	if err := write(rw, remoteSessionKeySig); err != nil {
+		return nil, fmt.Errorf("error writing session key signature to io.Writer: %v", err)
+	}
+
+	// Read the remote RSA public key and verify the signature.
+	remotePubKeyBytes, err := read(rw)
+	if err != nil {
+		return nil, fmt.Errorf("error reading rsa.PublicKey from io.Reader: %v", err)
+	}
+	remotePubKey, err := pubKeyFromBytes(remotePubKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshaling rsa.PublicKey: %v", err)
+	}
+	remotePubKeySig, err := read(rw)
+	if err != nil {
+		return nil, fmt.Errorf("error reading rsa.PublicKey signature from io.Reader: %v", err)
+	}
+	remotePeerID2, err := hs.signVerifier.Verify(hs.signVerifier.Hash(remotePubKeyBytes), remotePubKeySig)
+	if err != nil {
+		return nil, fmt.Errorf("error verifying rsa.PublicKey: %v", err)
+	}
+	if !remotePeerID.Equal(remotePeerID2) {
+		return nil, fmt.Errorf("error verifying session key: expected peer=%v, got peer=%v", remotePeerID, remotePeerID2)
 	}
 
 	// Write our own session key with our signature.
-	localSessionKey := hs.sessionManager.NewSessionKey()
-	if len(localSessionKey) != len(remoteSessionKey) {
-		return nil, fmt.Errorf("bad handshake: expected session key len=%v, got session key len=%v", len(localSessionKey), len(remoteSessionKey))
+	if err := writeEncrypted(rw, localSessionKey, &remotePubKey); err != nil {
+		return nil, fmt.Errorf("error writing session key to io.Writer: %v", err)
 	}
 	localSessionKeySig, err := hs.signVerifier.Sign(hs.signVerifier.Hash(localSessionKey))
 	if err != nil {
-		return nil, err
+		panic(fmt.Errorf("invariant violation: cannot sign session key: %v", err))
 	}
-	if err := writeEncrypted(rw, localSessionKeySig, &remotePubKey); err != nil {
-		return nil, err
-	}
-	if err := writeEncrypted(rw, localSessionKeySig, &remotePubKey); err != nil {
-		return nil, err
+	if err := write(rw, localSessionKeySig); err != nil {
+		return nil, fmt.Errorf("error writing session key signature to io.Writer: %v", err)
 	}
 
 	// Read the remote session key signature.
-	remoteSessionKeySig, err = readEncrypted(rw, privKey)
+	remoteSessionKeySig, err = read(rw)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error reading session key signature from io.Reader: %v", err)
 	}
 	remotePeerID2, err = hs.signVerifier.Verify(hs.signVerifier.Hash(localSessionKey), remoteSessionKeySig)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error verifying session key: %v", err)
 	}
 	if !remotePeerID.Equal(remotePeerID2) {
-		return nil, fmt.Errorf("bad handshake: expected peer=%v, got peer=%v", remotePeerID, remotePeerID2)
+		return nil, fmt.Errorf("error verifying session key: expected peer=%v, got peer=%v", remotePeerID, remotePeerID2)
 	}
 
 	// Build the shared session
@@ -147,56 +147,36 @@ func (hs *handshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) (pr
 	// Read the remote RSA public key and verify the signature.
 	remotePubKeyBytes, err := read(rw)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error reading rsa.PublicKey from io.Reader: %v", err)
 	}
 	remotePubKey, err := pubKeyFromBytes(remotePubKeyBytes)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error unmarshaling rsa.PublicKey: %v", err)
 	}
 	remotePubKeySig, err := read(rw)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error reading rsa.PublicKey signature from io.Reader: %v", err)
 	}
 	remotePeerID, err := hs.signVerifier.Verify(hs.signVerifier.Hash(remotePubKeyBytes), remotePubKeySig)
 	if err != nil {
-		return nil, err
-	}
-
-	// Write our RSA public key with our signature.
-	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, err
-	}
-	pubKeyBytes, err := pubKeyToBytes(&privKey.PublicKey)
-	if err != nil {
-		return nil, err
-	}
-	pubKeySig, err := hs.signVerifier.Sign(hs.signVerifier.Hash(pubKeyBytes))
-	if err != nil {
-		return nil, err
-	}
-	if err := writeEncrypted(rw, pubKeyBytes, &remotePubKey); err != nil {
-		return nil, err
-	}
-	if err := writeEncrypted(rw, pubKeySig, &remotePubKey); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error verifying rsa.PublicKey: %v", err)
 	}
 
 	// Write the session key with our signature.
 	localSessionKey := hs.sessionManager.NewSessionKey()
+	if err := writeEncrypted(rw, localSessionKey, &remotePubKey); err != nil {
+		return nil, fmt.Errorf("error writing session key to io.Writer: %v", err)
+	}
 	localSessionKeySig, err := hs.signVerifier.Sign(hs.signVerifier.Hash(localSessionKey))
 	if err != nil {
-		return nil, err
+		panic(fmt.Errorf("invariant violation: cannot sign session key: %v", err))
 	}
-	if err := writeEncrypted(rw, localSessionKeySig, &remotePubKey); err != nil {
-		return nil, err
-	}
-	if err := writeEncrypted(rw, localSessionKeySig, &remotePubKey); err != nil {
-		return nil, err
+	if err := write(rw, localSessionKeySig); err != nil {
+		return nil, fmt.Errorf("error writing session key signature to io.Writer: %v", err)
 	}
 
 	// Read the remote session key signature.
-	remoteSessionKeySig, err := readEncrypted(rw, privKey)
+	remoteSessionKeySig, err := read(rw)
 	if err != nil {
 		return nil, err
 	}
@@ -208,6 +188,26 @@ func (hs *handshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) (pr
 		return nil, fmt.Errorf("bad handshake: expected peer=%v, got peer=%v", remotePeerID, remotePeerID2)
 	}
 
+	// Write our RSA public key with our signature.
+	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		panic(fmt.Errorf("invariant violation: cannot generate rsa.PrivateKey"))
+	}
+	pubKeyBytes, err := pubKeyToBytes(&privKey.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	pubKeySig, err := hs.signVerifier.Sign(hs.signVerifier.Hash(pubKeyBytes))
+	if err != nil {
+		panic(fmt.Errorf("invariant violation: cannot sign rsa.PublicKey: %v", err))
+	}
+	if err := write(rw, pubKeyBytes); err != nil {
+		return nil, err
+	}
+	if err := write(rw, pubKeySig); err != nil {
+		return nil, err
+	}
+
 	// Read the session key and verify the remote signature.
 	remoteSessionKey, err := readEncrypted(rw, privKey)
 	if err != nil {
@@ -216,7 +216,7 @@ func (hs *handshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) (pr
 	if len(localSessionKey) != len(remoteSessionKey) {
 		return nil, fmt.Errorf("bad handshake: expected session key len=%v, got session key len=%v", len(localSessionKey), len(remoteSessionKey))
 	}
-	remoteSessionKeySig, err = readEncrypted(rw, privKey)
+	remoteSessionKeySig, err = read(rw)
 	if err != nil {
 		return nil, err
 	}
@@ -226,6 +226,13 @@ func (hs *handshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) (pr
 	}
 	if !remotePeerID.Equal(remotePeerID2) {
 		return nil, fmt.Errorf("bad handshake: expected peer=%v, got peer=%v", remotePeerID, remotePeerID2)
+	}
+	remoteSessionKeySig, err = hs.signVerifier.Sign(hs.signVerifier.Hash(localSessionKey))
+	if err != nil {
+		panic(fmt.Errorf("invariant violation: cannot sign session key: %v", err))
+	}
+	if err := write(rw, remoteSessionKeySig); err != nil {
+		return nil, err
 	}
 
 	// Build the shared session
