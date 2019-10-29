@@ -8,14 +8,14 @@ import (
 	"testing/quick"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
-	. "github.com/renproject/aw/broadcast"
-
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/aw/testutil"
 	"github.com/renproject/kv"
 	"github.com/sirupsen/logrus"
+
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+	. "github.com/renproject/aw/broadcast"
 )
 
 var _ = Describe("Broadcaster", func() {

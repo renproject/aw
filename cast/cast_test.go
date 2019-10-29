@@ -7,13 +7,13 @@ import (
 	"math/rand"
 	"testing/quick"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
-	. "github.com/renproject/aw/cast"
-
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/aw/testutil"
 	"github.com/sirupsen/logrus"
+
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+	. "github.com/renproject/aw/cast"
 )
 
 var _ = Describe("Caster", func() {
