@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 )
 
 // MarshalBinary implements `BinaryMarshaler` interface.
@@ -38,30 +39,39 @@ func (message Message) MarshalBinary() ([]byte, error) {
 
 // UnmarshalBinary implements `BinaryUnmarshaler` interface.
 func (message *Message) UnmarshalBinary(data []byte) error {
-	buffer := bytes.NewBuffer(data)
-	if err := binary.Read(buffer, binary.LittleEndian, &message.Length); err != nil {
+	return message.UnmarshalReader(bytes.NewBuffer(data))
+}
+
+// UnmarshalReader reads bytes from an `io.Reader` and unmarshals them into
+// itself.
+func (message *Message) UnmarshalReader(reader io.Reader) error {
+	// Read the message length
+	if err := binary.Read(reader, binary.LittleEndian, &message.Length); err != nil {
 		return fmt.Errorf("error unmarshaling message length: %v", err)
 	}
 	if message.Length < 8 {
 		return NewErrMessageLengthIsTooLow(message.Length)
 	}
 
-	if err := binary.Read(buffer, binary.LittleEndian, &message.Version); err != nil {
+	// Read the message version
+	if err := binary.Read(reader, binary.LittleEndian, &message.Version); err != nil {
 		return fmt.Errorf("error unmarshaling message version: %v", err)
 	}
 	if err := ValidateMessageVersion(message.Version); err != nil {
 		return err
 	}
 
-	if err := binary.Read(buffer, binary.LittleEndian, &message.Variant); err != nil {
+	// Read the message variant
+	if err := binary.Read(reader, binary.LittleEndian, &message.Variant); err != nil {
 		return fmt.Errorf("error unmarshaling message variant: %v", err)
 	}
 	if err := ValidateMessageVariant(message.Variant); err != nil {
 		return err
 	}
 
+	// Read the message body.
 	message.Body = make(MessageBody, message.Length-8)
-	if err := binary.Read(buffer, binary.LittleEndian, message.Body); err != nil {
+	if err := binary.Read(reader, binary.LittleEndian, message.Body); err != nil {
 		return fmt.Errorf("error unmarshaling message body: %v", err)
 	}
 	return nil
