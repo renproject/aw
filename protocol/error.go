@@ -2,7 +2,7 @@ package protocol
 
 import "fmt"
 
-type errMessageLengthIsTooLow struct {
+type ErrMessageLengthIsTooLow struct {
 	error
 	Length MessageLength
 }
@@ -10,13 +10,13 @@ type errMessageLengthIsTooLow struct {
 // NewErrMessageLengthIsTooLow creates a new error which is returned when the
 // message length if lower than required.
 func NewErrMessageLengthIsTooLow(length MessageLength) error {
-	return errMessageLengthIsTooLow{
+	return ErrMessageLengthIsTooLow{
 		error:  fmt.Errorf("message length=%d is too low", length),
 		Length: length,
 	}
 }
 
-type errMessageVersionIsNotSupported struct {
+type ErrMessageVersionIsNotSupported struct {
 	error
 	Version MessageVersion
 }
@@ -24,13 +24,13 @@ type errMessageVersionIsNotSupported struct {
 // NewErrMessageVersionIsNotSupported creates a new error which is returned when
 // the given message version is not supported.
 func NewErrMessageVersionIsNotSupported(version MessageVersion) error {
-	return errMessageVersionIsNotSupported{
+	return ErrMessageVersionIsNotSupported{
 		error:   fmt.Errorf("message version=%d is not supported", version),
 		Version: version,
 	}
 }
 
-type errMessageVariantIsNotSupported struct {
+type ErrMessageVariantIsNotSupported struct {
 	error
 	Variant MessageVariant
 }
@@ -38,7 +38,7 @@ type errMessageVariantIsNotSupported struct {
 // NewErrMessageVariantIsNotSupported creates a new error which is returned when
 // the given message variant is not supported.
 func NewErrMessageVariantIsNotSupported(variant MessageVariant) error {
-	return errMessageVariantIsNotSupported{
+	return ErrMessageVariantIsNotSupported{
 		error:   fmt.Errorf("message variant=%d is not supported", variant),
 		Variant: variant,
 	}

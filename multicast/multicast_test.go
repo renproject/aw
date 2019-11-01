@@ -3,12 +3,14 @@ package multicast_test
 import (
 	"bytes"
 	"context"
+	"math"
 	"math/rand"
 	"testing/quick"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	. "github.com/renproject/aw/multicast"
+
 	"github.com/renproject/aw/protocol"
 	"github.com/sirupsen/logrus"
 )
@@ -16,7 +18,7 @@ import (
 var _ = Describe("Multicaster", func() {
 	Context("when multicasting", func() {
 		It("should be able to send messages", func() {
-			messages := make(chan protocol.MessageOnTheWire)
+			messages := make(chan protocol.MessageOnTheWire, 16)
 			events := make(chan protocol.Event)
 			multicaster := NewMulticaster(messages, events, logrus.StandardLogger())
 
@@ -24,13 +26,15 @@ var _ = Describe("Multicaster", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				messageBody := protocol.MessageBody(x[:])
-				go func() {
-					defer GinkgoRecover()
-					err := multicaster.Multicast(ctx, messageBody)
-					Expect(err).ToNot(HaveOccurred())
-				}()
+				err := multicaster.Multicast(ctx, messageBody)
+				Expect(err).ToNot(HaveOccurred())
+
 				message := <-messages
-				return (message.To == nil) && bytes.Equal(message.Message.Body, x[:]) && (message.Message.Variant == protocol.Multicast)
+				Expect(message.To).Should(BeNil())
+				Expect(message.Message.Version).Should(Equal(protocol.V1))
+				Expect(message.Message.Variant).Should(Equal(protocol.Multicast))
+				Expect(bytes.Equal(message.Message.Body, x[:])).Should(BeTrue())
+				return true
 			}
 
 			Expect(quick.Check(check, &quick.Config{
@@ -56,19 +60,18 @@ var _ = Describe("Multicaster", func() {
 	Context("when accepting multicasts", func() {
 		It("should be able to receive messages", func() {
 			messages := make(chan protocol.MessageOnTheWire)
-			events := make(chan protocol.Event)
+			events := make(chan protocol.Event,16)
 			multicaster := NewMulticaster(messages, events, logrus.StandardLogger())
 
 			check := func(x [32]byte) bool {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				messageBody := protocol.MessageBody(x[:])
-				go func() {
-					defer GinkgoRecover()
-					err := multicaster.AcceptMulticast(ctx, protocol.NewMessage(protocol.V1, protocol.Multicast, messageBody))
-					Expect(err).ToNot(HaveOccurred())
-				}()
-				event := (<-events).(protocol.EventMessageReceived)
+				message := protocol.NewMessage(protocol.V1, protocol.Multicast, messageBody)
+				Expect(multicaster.AcceptMulticast(ctx, message)).ToNot(HaveOccurred())
+
+				event, ok := (<-events).(protocol.EventMessageReceived)
+				Expect(ok).Should(BeTrue())
 				return bytes.Equal(event.Message, x[:])
 			}
 
@@ -86,7 +89,8 @@ var _ = Describe("Multicaster", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				cancel()
 
-				err := multicaster.AcceptMulticast(ctx, protocol.NewMessage(protocol.V1, protocol.Multicast, protocol.MessageBody{}))
+				message := protocol.NewMessage(protocol.V1, protocol.Multicast, protocol.MessageBody{})
+				err := multicaster.AcceptMulticast(ctx, message)
 				Expect(err.(ErrAcceptingMulticast)).To(HaveOccurred())
 			})
 		})
@@ -102,10 +106,10 @@ var _ = Describe("Multicaster", func() {
 
 				message := protocol.NewMessage(protocol.V1, protocol.Multicast, protocol.MessageBody{})
 				for message.Version == protocol.V1 {
-					message.Version = protocol.MessageVersion(rand.Intn(65535))
+					message.Version = protocol.MessageVersion(rand.Intn(math.MaxUint16))
 				}
 				err := multicaster.AcceptMulticast(ctx, message)
-				Expect(err.(ErrMulticastVersionNotSupported)).To(HaveOccurred())
+				Expect(err.(protocol.ErrMessageVersionIsNotSupported)).To(HaveOccurred())
 			})
 		})
 
@@ -120,10 +124,10 @@ var _ = Describe("Multicaster", func() {
 
 				message := protocol.NewMessage(protocol.V1, protocol.Multicast, protocol.MessageBody{})
 				for message.Variant == protocol.Multicast {
-					message.Variant = protocol.MessageVariant(rand.Intn(65535))
+					message.Variant = protocol.MessageVariant(rand.Intn(math.MaxUint16))
 				}
 				err := multicaster.AcceptMulticast(ctx, message)
-				Expect(err.(ErrMulticastVariantNotSupported)).To(HaveOccurred())
+				Expect(err.(protocol.ErrMessageVariantIsNotSupported)).To(HaveOccurred())
 			})
 		})
 	})
