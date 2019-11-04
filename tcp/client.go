@@ -24,6 +24,8 @@ type ClientOptions struct {
 	Timeout time.Duration
 	// MaxConnections to remote servers that the Client will maintain.
 	MaxConnections int
+	// MaxRetries if the message cannot be sent.
+	MaxRetries int
 	// Handshaker handles the handshake process between peers. Default: no handshake
 	Handshaker handshake.Handshaker
 }
@@ -60,8 +62,11 @@ func NewClientConns(options ClientOptions) *ClientConns {
 	if options.Timeout == 0 {
 		options.Timeout = 10 * time.Second
 	}
-	if options.MaxConnections == 256 {
+	if options.MaxConnections == 0 {
 		options.MaxConnections = 256
+	}
+	if options.MaxRetries == 0 {
+		options.MaxRetries = 60
 	}
 
 	return &ClientConns{
@@ -297,7 +302,7 @@ func (client *Client) sendMessageOnTheWire(ctx context.Context, to net.Addr, mes
 	go func() {
 		begin := time.Now()
 		delay := time.Duration(1000)
-		for i := 0; i < 60; i++ {
+		for i := 0; i < client.conns.options.MaxRetries; i++ {
 			// Dial
 			client.conns.options.Logger.Warnf("retrying write to tcp connection to %v with delay of %.4f second(s)", to.String(), time.Now().Sub(begin).Seconds())
 			err := client.conns.Write(ctx, to, message)
