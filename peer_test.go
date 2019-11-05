@@ -2,6 +2,7 @@ package aw_test
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"time"
 
@@ -145,7 +146,7 @@ var _ = Describe("airwaves peer", func() {
 			updatedPeer2Address.Nonce = 1
 
 			peer1 := NewTCPPeer(PeerOptions{
-				Logger:             logger,
+				Logger:             logger.WithField("peer", 1),
 				Me:                 peer1Address,
 				BootstrapAddresses: PeerAddresses{peer2Address},
 				Codec:              codec,
@@ -157,7 +158,7 @@ var _ = Describe("airwaves peer", func() {
 			}, peer1Events, 65535, 8080)
 
 			peer2 := NewTCPPeer(PeerOptions{
-				Logger:             logger,
+				Logger:             logger.WithField("peer", 2),
 				Me:                 peer2Address,
 				BootstrapAddresses: PeerAddresses{peer1Address},
 				Codec:              codec,
@@ -169,7 +170,7 @@ var _ = Describe("airwaves peer", func() {
 			}, peer2Events, 65535, 8081)
 
 			updatedPeer2 := NewTCPPeer(PeerOptions{
-				Logger:             logger,
+				Logger:             logger.WithField("updated peer", 2),
 				Me:                 updatedPeer2Address,
 				BootstrapAddresses: PeerAddresses{peer1Address},
 				Codec:              codec,
@@ -186,14 +187,16 @@ var _ = Describe("airwaves peer", func() {
 				cancel()
 			}()
 
+			newCtx, newCancel := context.WithCancel(context.Background())
+
 			co.ParBegin(
 				func() {
-					peer1.Run(context.Background())
+					peer1.Run(newCtx)
 				},
 				func() {
 					peer2.Run(ctx)
 					fmt.Println("peer 2 restarted")
-					updatedPeer2.Run(context.Background())
+					updatedPeer2.Run(newCtx)
 				},
 				func() {
 					<-ctx.Done()
@@ -202,19 +205,29 @@ var _ = Describe("airwaves peer", func() {
 						<-ctx2.Done()
 						cancel()
 					}()
-					if err := peer1.Cast(ctx2, testutil.SimplePeerID("peer_2"), []byte("hello")); err != nil {
+					// After peer 2 receives this message, its server should
+					// shut down as the context has expired.
+					if err := peer1.Cast(ctx2, peer2Address.PeerID(), []byte("hello")); err != nil {
+						panic(err)
+					}
+					time.Sleep(time.Second)
+					if err := peer1.Cast(ctx2, peer2Address.PeerID(), []byte("hello")); err != nil {
 						panic(err)
 					}
 				},
 				func() {
-					for event := range peer1Events {
-						fmt.Println(event)
-					}
+					event := <-peer1Events
+					_, ok := event.(protocol.EventPeerChanged)
+					Expect(ok).To(BeTrue())
 				},
 				func() {
-					for event := range updatedPeer2Events {
-						fmt.Println(event)
-					}
+					event := <-updatedPeer2Events
+					msg, ok := event.(protocol.EventMessageReceived)
+					Expect(ok).To(BeTrue())
+					msgBytes, err := base64.StdEncoding.DecodeString(msg.Message.String())
+					Expect(err).ToNot(HaveOccurred())
+					Expect(msgBytes).To(Equal([]byte("hello")))
+					newCancel()
 				},
 			)
 		})
