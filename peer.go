@@ -40,6 +40,9 @@ type PeerOptions struct {
 	BroadcasterStore kv.Table              // Defaults to using in memory store
 	SignVerifier     protocol.SignVerifier // Defaults to nil
 	Runners          []Runner              // Defaults to nil
+
+	ServerOptions tcp.ServerOptions
+	ClientOptions tcp.ClientOptions
 }
 
 type Peer interface {
@@ -244,17 +247,32 @@ func newErrInvalidPeerOptions(err error) error {
 }
 
 func NewTCPPeer(options PeerOptions, events EventSender, cap, port int) Peer {
-	var handshaker handshake.Handshaker
-	if options.SignVerifier != nil {
-		handshaker = handshake.New(options.SignVerifier)
-	}
-
 	if options.DHTStore == nil {
 		options.DHTStore = kv.NewTable(kv.NewMemDB(kv.GobCodec), "dht")
 	}
 
 	if options.BroadcasterStore == nil {
 		options.BroadcasterStore = kv.NewTable(kv.NewMemDB(kv.GobCodec), "broadcaster")
+	}
+
+	if options.ServerOptions.Logger == nil {
+		options.ServerOptions.Logger = options.Logger
+	}
+
+	if options.ServerOptions.Port == 0 {
+		options.ServerOptions.Port = port
+	}
+
+	if options.ServerOptions.Handshaker == nil && options.SignVerifier != nil {
+		options.ServerOptions.Handshaker = handshake.New(options.SignVerifier)
+	}
+
+	if options.ClientOptions.Logger == nil {
+		options.ClientOptions.Logger = options.Logger
+	}
+
+	if options.ClientOptions.Handshaker == nil && options.SignVerifier != nil {
+		options.ClientOptions.Handshaker = handshake.New(options.SignVerifier)
 	}
 
 	serverMessages := make(chan protocol.MessageOnTheWire, cap)
@@ -266,18 +284,8 @@ func NewTCPPeer(options PeerOptions, events EventSender, cap, port int) Peer {
 	}
 
 	options.Runners = append(options.Runners,
-		tcp.NewServer(tcp.ServerOptions{
-			Logger:     options.Logger,
-			Timeout:    time.Minute,
-			Handshaker: handshaker,
-			Port:       port,
-		}, serverMessages),
-		tcp.NewClient(tcp.NewClientConns(tcp.ClientOptions{
-			Logger:         options.Logger,
-			Timeout:        10 * time.Second,
-			Handshaker:     handshaker,
-			MaxConnections: 200,
-		}), dht, clientMessages),
+		tcp.NewServer(options.ServerOptions, serverMessages),
+		tcp.NewClient(tcp.NewClientConns(options.ClientOptions), dht, clientMessages),
 	)
 
 	return New(

@@ -28,6 +28,13 @@ type Server struct {
 }
 
 func NewServer(options ServerOptions, messages protocol.MessageSender) *Server {
+	if options.Logger == nil {
+		panic("pre-condition violation: logger is nil")
+	}
+	if options.Timeout == 0 {
+		options.Timeout = time.Minute
+	}
+
 	return &Server{
 		options:  options,
 		messages: messages,
