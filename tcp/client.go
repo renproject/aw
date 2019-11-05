@@ -24,6 +24,8 @@ type ClientOptions struct {
 	Timeout time.Duration
 	// MaxConnections to remote servers that the Client will maintain.
 	MaxConnections int
+	// MaxRetries if the message cannot be sent.
+	MaxRetries int
 	// Handshaker handles the handshake process between peers. Default: no handshake
 	Handshaker handshake.Handshaker
 }
@@ -60,7 +62,7 @@ func NewClientConns(options ClientOptions) *ClientConns {
 	if options.Timeout == 0 {
 		options.Timeout = 10 * time.Second
 	}
-	if options.MaxConnections == 256 {
+	if options.MaxConnections == 0 {
 		options.MaxConnections = 256
 	}
 
@@ -87,7 +89,11 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 	clientConns.connsMu.RLock()
 	conn := clientConns.conns[addr.String()]
 	clientConns.connsMu.RUnlock()
+
+	clientConns.connsMu.RLock()
 	if conn != nil && conn.conn != nil {
+		clientConns.connsMu.RUnlock()
+
 		// Mutex on the conn
 		conn.mu.Lock()
 		defer conn.mu.Unlock()
@@ -101,6 +107,7 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 		}
 		return nil
 	}
+	clientConns.connsMu.RUnlock()
 
 	// Protect the cache from concurrent writes and establish a connection that
 	// can be dialed
@@ -128,7 +135,11 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 	if err != nil {
 		return err
 	}
+
+	clientConns.connsMu.RLock()
 	if conn.conn != nil {
+		clientConns.connsMu.RUnlock()
+
 		// Mutex on the conn
 		conn.mu.Lock()
 		defer conn.mu.Unlock()
@@ -142,10 +153,14 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 		}
 		return nil
 	}
+	clientConns.connsMu.RUnlock()
 
 	// Double-check the connection, because while waiting to acquire the write lock
 	// another goroutine may have already dialed the remote server
+	clientConns.connsMu.RLock()
 	if conn.conn != nil {
+		clientConns.connsMu.RUnlock()
+
 		// Mutex on the conn
 		conn.mu.Lock()
 		defer conn.mu.Unlock()
@@ -159,6 +174,7 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 		}
 		return nil
 	}
+	clientConns.connsMu.RUnlock()
 
 	// A new connection needs to be dialed, so we lock the connection to prevent
 	// multiple dials against the same remote server
@@ -166,7 +182,9 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 	defer conn.mu.Unlock()
 
 	// Dial
+	clientConns.connsMu.Lock()
 	conn.conn, err = net.DialTimeout("tcp", addr.String(), clientConns.options.Timeout)
+	clientConns.connsMu.Unlock()
 	if err != nil {
 		return err
 	}
@@ -297,7 +315,7 @@ func (client *Client) sendMessageOnTheWire(ctx context.Context, to net.Addr, mes
 	go func() {
 		begin := time.Now()
 		delay := time.Duration(1000)
-		for i := 0; i < 60; i++ {
+		for i := 0; i < client.conns.options.MaxRetries; i++ {
 			// Dial
 			client.conns.options.Logger.Warnf("retrying write to tcp connection to %v with delay of %.4f second(s)", to.String(), time.Now().Sub(begin).Seconds())
 			err := client.conns.Write(ctx, to, message)
