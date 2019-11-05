@@ -75,7 +75,7 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		handshakeCtx, handshakeCancel := context.WithTimeout(ctx, server.options.Timeout)
 		defer handshakeCancel()
 		if err := server.options.Handshaker.AcceptHandshake(handshakeCtx, conn); err != nil {
-			server.options.Logger.Errorf("bad handshake with %v: %v", conn.RemoteAddr().String(), err)
+			server.options.Logger.Debugf("bad handshake with %v: %v", conn.RemoteAddr().String(), err)
 			return
 		}
 	}
