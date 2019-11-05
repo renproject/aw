@@ -182,7 +182,9 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 	defer conn.mu.Unlock()
 
 	// Dial
+	clientConns.connsMu.Lock()
 	conn.conn, err = net.DialTimeout("tcp", addr.String(), clientConns.options.Timeout)
+	clientConns.connsMu.Unlock()
 	if err != nil {
 		return err
 	}
