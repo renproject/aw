@@ -65,9 +65,6 @@ func NewClientConns(options ClientOptions) *ClientConns {
 	if options.MaxConnections == 0 {
 		options.MaxConnections = 256
 	}
-	if options.MaxRetries == 0 {
-		options.MaxRetries = 60
-	}
 
 	return &ClientConns{
 		options: options,
