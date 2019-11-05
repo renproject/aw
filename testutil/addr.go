@@ -82,7 +82,7 @@ func (address SimpleTCPPeerAddress) IsNewer(peerAddress protocol.PeerAddress) bo
 	if !ok {
 		return false
 	}
-	return peerAddr.Nonce > address.Nonce
+	return address.Nonce > peerAddr.Nonce
 }
 
 func Remove(addrs protocol.PeerAddresses, i int) protocol.PeerAddresses {
