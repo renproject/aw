@@ -89,7 +89,11 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 	clientConns.connsMu.RLock()
 	conn := clientConns.conns[addr.String()]
 	clientConns.connsMu.RUnlock()
+
+	clientConns.connsMu.RLock()
 	if conn != nil && conn.conn != nil {
+		clientConns.connsMu.RUnlock()
+
 		// Mutex on the conn
 		conn.mu.Lock()
 		defer conn.mu.Unlock()
@@ -103,6 +107,7 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 		}
 		return nil
 	}
+	clientConns.connsMu.RUnlock()
 
 	// Protect the cache from concurrent writes and establish a connection that
 	// can be dialed
@@ -130,7 +135,11 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 	if err != nil {
 		return err
 	}
+
+	clientConns.connsMu.RLock()
 	if conn.conn != nil {
+		clientConns.connsMu.RUnlock()
+
 		// Mutex on the conn
 		conn.mu.Lock()
 		defer conn.mu.Unlock()
@@ -144,10 +153,14 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 		}
 		return nil
 	}
+	clientConns.connsMu.RUnlock()
 
 	// Double-check the connection, because while waiting to acquire the write lock
 	// another goroutine may have already dialed the remote server
+	clientConns.connsMu.RLock()
 	if conn.conn != nil {
+		clientConns.connsMu.RUnlock()
+
 		// Mutex on the conn
 		conn.mu.Lock()
 		defer conn.mu.Unlock()
@@ -161,6 +174,7 @@ func (clientConns *ClientConns) Write(ctx context.Context, addr net.Addr, messag
 		}
 		return nil
 	}
+	clientConns.connsMu.RUnlock()
 
 	// A new connection needs to be dialed, so we lock the connection to prevent
 	// multiple dials against the same remote server
