@@ -3,16 +3,22 @@ package testutil
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net"
+	"time"
 
 	"github.com/renproject/aw/protocol"
 )
 
-func NewSimpleTCPPeerAddressCodec() protocol.PeerAddressCodec {
-	return SimpleTCPPeerAddressCodec{}
+func init(){
+	rand.Seed(time.Now().Unix())
 }
 
 type SimpleTCPPeerAddressCodec struct {
+}
+
+func NewSimpleTCPPeerAddressCodec() protocol.PeerAddressCodec {
+	return SimpleTCPPeerAddressCodec{}
 }
 
 func (codec SimpleTCPPeerAddressCodec) Encode(peerAddress protocol.PeerAddress) ([]byte, error) {
@@ -50,16 +56,17 @@ func (codec SimplePeerIDCodec) Decode(data []byte) (protocol.PeerID, error) {
 	return peerID, nil
 }
 
-func NewSimpleTCPPeerAddress(id, address, port string) SimpleTCPPeerAddress {
-	return SimpleTCPPeerAddress{
-		ID:        SimplePeerID(id),
-		Nonce:     0,
-		IPAddress: address,
-		Port:      port,
-	}
-}
-
 type SimplePeerID string
+
+func RandomPeerID() protocol.PeerID{
+	alphabet := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	id := SimplePeerID("")
+	length := rand.Intn(16) + 1
+	for i := 0;i <length; i ++ {
+		id += SimplePeerID(alphabet[rand.Intn(len(alphabet))])
+	}
+	return id
+}
 
 func (peerID SimplePeerID) String() string {
 	return string(peerID)
@@ -74,6 +81,36 @@ type SimpleTCPPeerAddress struct {
 	Nonce     int64        `json:"nonce"`
 	IPAddress string       `json:"ipAddress"`
 	Port      string       `json:"port"`
+}
+
+func NewSimpleTCPPeerAddress(id, address, port string) SimpleTCPPeerAddress {
+	return SimpleTCPPeerAddress{
+		ID:        SimplePeerID(id),
+		Nonce:     0,
+		IPAddress: address,
+		Port:      port,
+	}
+}
+
+func RandomAddress() protocol.PeerAddress{
+	id := RandomPeerID()
+	ip1 := rand.Intn(128)
+	ip2 := rand.Intn(256)
+	ip3 := rand.Intn(256)
+	ip4 := rand.Intn(256)
+	ip := fmt.Sprintf("%v.%v.%v.%v", ip1, ip2, ip3, ip4)
+	port := fmt.Sprintf("%v", rand.Intn(65536))
+	return NewSimpleTCPPeerAddress(id.String(), ip, port)
+}
+
+func RandomAddresses() protocol.PeerAddresses{
+	length := rand.Intn(16)
+	addrs := make(protocol.PeerAddresses, length)
+	ids := map[string]struct{}{}
+	for i := range addrs{
+
+	}
+	return addrs
 }
 
 func (address SimpleTCPPeerAddress) String() string {
