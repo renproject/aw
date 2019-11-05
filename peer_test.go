@@ -10,6 +10,7 @@ import (
 	. "github.com/renproject/aw"
 
 	"github.com/renproject/aw/protocol"
+	"github.com/renproject/aw/tcp"
 	"github.com/renproject/aw/testutil"
 	"github.com/renproject/phi/co"
 	"github.com/sirupsen/logrus"
@@ -130,7 +131,7 @@ var _ = Describe("airwaves peer", func() {
 	})
 
 	Context("when updating peer address", func() {
-		FIt("should be able to send messages to the new address", func() {
+		It("should be able to send messages to the new address", func() {
 			logger := logrus.StandardLogger()
 
 			peer1Events := make(chan protocol.Event, 65535)
@@ -150,6 +151,9 @@ var _ = Describe("airwaves peer", func() {
 				Codec:              codec,
 
 				BootstrapDuration: 3 * time.Second,
+				ClientOptions: tcp.ClientOptions{
+					MaxRetries: 60,
+				},
 			}, peer1Events, 65535, 8080)
 
 			peer2 := NewTCPPeer(PeerOptions{
@@ -159,6 +163,9 @@ var _ = Describe("airwaves peer", func() {
 				Codec:              codec,
 
 				BootstrapDuration: 3 * time.Second,
+				ClientOptions: tcp.ClientOptions{
+					MaxRetries: 60,
+				},
 			}, peer2Events, 65535, 8081)
 
 			updatedPeer2 := NewTCPPeer(PeerOptions{
@@ -168,6 +175,9 @@ var _ = Describe("airwaves peer", func() {
 				Codec:              codec,
 
 				BootstrapDuration: 3 * time.Second,
+				ClientOptions: tcp.ClientOptions{
+					MaxRetries: 60,
+				},
 			}, updatedPeer2Events, 65535, 8082)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
