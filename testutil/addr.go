@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"reflect"
+	"testing/quick"
 	"time"
 
 	"github.com/renproject/aw/protocol"
 )
 
-func init(){
+func init() {
 	rand.Seed(time.Now().Unix())
 }
 
@@ -58,14 +60,33 @@ func (codec SimplePeerIDCodec) Decode(data []byte) (protocol.PeerID, error) {
 
 type SimplePeerID string
 
-func RandomPeerID() protocol.PeerID{
+func RandomPeerID() protocol.PeerID {
 	alphabet := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	id := SimplePeerID("")
 	length := rand.Intn(16) + 1
-	for i := 0;i <length; i ++ {
+	for i := 0; i < length; i++ {
 		id += SimplePeerID(alphabet[rand.Intn(len(alphabet))])
 	}
 	return id
+}
+
+// RandomPeerIDs returns a random number of distinct PeerID
+func RandomPeerIDs() protocol.PeerIDs {
+	length := rand.Intn(16)
+	ids := make(protocol.PeerIDs, length)
+	distinct := map[string]struct{}{}
+	for i := range ids {
+		var id protocol.PeerID
+		for {
+			id = RandomPeerID()
+			if _, ok := distinct[id.String()]; !ok {
+				break
+			}
+		}
+		ids[i] = id
+		distinct[id.String()] = struct{}{}
+	}
+	return ids
 }
 
 func (peerID SimplePeerID) String() string {
@@ -92,7 +113,7 @@ func NewSimpleTCPPeerAddress(id, address, port string) SimpleTCPPeerAddress {
 	}
 }
 
-func RandomAddress() protocol.PeerAddress{
+func RandomAddress() SimpleTCPPeerAddress {
 	id := RandomPeerID()
 	ip1 := rand.Intn(128)
 	ip2 := rand.Intn(256)
@@ -103,12 +124,21 @@ func RandomAddress() protocol.PeerAddress{
 	return NewSimpleTCPPeerAddress(id.String(), ip, port)
 }
 
-func RandomAddresses() protocol.PeerAddresses{
+// RandomAddresses returns a random number of distinct PeerAddresses.
+func RandomAddresses() protocol.PeerAddresses {
 	length := rand.Intn(16)
 	addrs := make(protocol.PeerAddresses, length)
 	ids := map[string]struct{}{}
-	for i := range addrs{
-
+	for i := range addrs {
+		var addr protocol.PeerAddress
+		for {
+			addr = RandomAddress()
+			if _, ok := ids[addr.String()]; !ok {
+				break
+			}
+		}
+		addrs[i] = addr
+		ids[addr.String()] = struct{}{}
 	}
 	return addrs
 }
@@ -138,7 +168,7 @@ func (address SimpleTCPPeerAddress) IsNewer(peerAddress protocol.PeerAddress) bo
 	if !ok {
 		return false
 	}
-	return peerAddr.Nonce > address.Nonce
+	return address.Nonce > peerAddr.Nonce
 }
 
 func Remove(addrs protocol.PeerAddresses, i int) protocol.PeerAddresses {
@@ -152,4 +182,22 @@ func ClonePeerAddresses(addrs protocol.PeerAddresses) protocol.PeerAddresses {
 		clonedAddrs[i] = addrs[i]
 	}
 	return clonedAddrs
+}
+
+func Contains(addrs protocol.PeerAddresses, addr protocol.PeerAddress) bool {
+	for _, address := range addrs {
+		if address.Equal(addr) {
+			return true
+		}
+	}
+	return false
+}
+
+func NewPeerGroupID() protocol.PeerGroupID {
+	stringType := reflect.TypeOf(protocol.PeerGroupID("string"))
+	value, ok := quick.Value(stringType, rand.New(rand.NewSource(time.Now().Unix())))
+	if !ok {
+		panic("unable to construct a random PeerGroupID")
+	}
+	return value.Interface().(protocol.PeerGroupID)
 }

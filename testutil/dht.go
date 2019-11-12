@@ -7,13 +7,16 @@ import (
 )
 
 // NewDHT creates a new DHT with given PeerAddress,
-func NewDHT(address protocol.PeerAddress) dht.DHT{
+func NewDHT(address protocol.PeerAddress, store kv.Table, bootstrapAddresses protocol.PeerAddresses) dht.DHT {
 	codec := NewSimpleTCPPeerAddressCodec()
-	db := kv.NewMemDB(kv.JSONCodec)
-	table := kv.NewTable(db, "dht")
-	dht, err := dht.New(address, codec, table)
+	dht, err := dht.New(address, codec, store, bootstrapAddresses...)
 	if err != nil {
 		panic(err)
 	}
 	return dht
+}
+
+func NewTable(name string) kv.Table {
+	db := kv.NewMemDB(kv.JSONCodec)
+	return kv.NewTable(db, name)
 }

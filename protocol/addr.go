@@ -38,3 +38,6 @@ type PeerIDCodec interface {
 	Encode(PeerID) ([]byte, error)
 	Decode([]byte) (PeerID, error)
 }
+
+// PeerGroupID is the ID of a PeerGroup
+type PeerGroupID string

@@ -60,7 +60,7 @@ var _ = Describe("Multicaster", func() {
 	Context("when accepting multicasts", func() {
 		It("should be able to receive messages", func() {
 			messages := make(chan protocol.MessageOnTheWire)
-			events := make(chan protocol.Event,16)
+			events := make(chan protocol.Event, 16)
 			multicaster := NewMulticaster(messages, events, logrus.StandardLogger())
 
 			check := func(x [32]byte) bool {

@@ -12,20 +12,49 @@ import (
 // DHT is not required to be persistent and will often purge stale peer
 // addresses.
 type DHT interface {
+
+	// Me returns self PeerAddress
 	Me() protocol.PeerAddress
+
+	// NumPeers returns total number of PeerAddresses stored in the DHT.
 	NumPeers() (int, error)
+
+	// PeerAddress returns the resolved protocol.PeerAddress of the given
+	// PeerID. It returns an ErrPeerNotFound if the PeerID cannot be found.
 	PeerAddress(protocol.PeerID) (protocol.PeerAddress, error)
+
+	// PeerAddresses returns all the PeerAddresses stored in the DHT.
 	PeerAddresses() (protocol.PeerAddresses, error)
+
+	// AddPeerAddress adds a PeerAddress into the DHT.
 	AddPeerAddress(protocol.PeerAddress) error
-	AddPeerAddresses(protocol.PeerAddresses) error
-	UpdatePeerAddress(peerAddr protocol.PeerAddress) (bool, error)
+
+	// UpdatePeerAddress tries to update the PeerAddress in the DHT. It returns
+	// true if the given peerAddr is newer than the one we stored.
+	UpdatePeerAddress(protocol.PeerAddress) (bool, error)
+
+	// RemovePeerAddress removes the PeerAddress of given PeerID from the DHT.
+	// It wouldn't return any error if the PeerAddress doesn't exist.
 	RemovePeerAddress(protocol.PeerID) error
+
+	// NewPeerGroup creates a new PeerGroup in the dht with given name and Peers.
+	NewPeerGroup(protocol.PeerGroupID, protocol.PeerIDs)
+
+	// PeerGroup returns the PeerGroup with the given PeerGroupID. It returns an
+	// ErrPeerNotFound if the PeerGroupID cannot be found.
+	PeerGroup(protocol.PeerGroupID) (protocol.PeerAddresses, bool)
+
+	// Remove a PeerGroup with given name from the DHT.
+	RemovePeerGroup(protocol.PeerGroupID)
 }
 
 type dht struct {
 	me    protocol.PeerAddress
 	codec protocol.PeerAddressCodec
 	store kv.Table
+
+	groupsMu *sync.RWMutex
+	groups   map[protocol.PeerGroupID]protocol.PeerIDs
 
 	inMemCacheMu *sync.RWMutex
 	inMemCache   map[string]protocol.PeerAddress
@@ -39,6 +68,9 @@ func New(me protocol.PeerAddress, codec protocol.PeerAddressCodec, store kv.Tabl
 		me:    me,
 		codec: codec,
 		store: store,
+
+		groupsMu: new(sync.RWMutex),
+		groups:   map[protocol.PeerGroupID]protocol.PeerIDs{},
 
 		inMemCacheMu: new(sync.RWMutex),
 		inMemCache:   map[string]protocol.PeerAddress{},
@@ -88,18 +120,6 @@ func (dht *dht) AddPeerAddress(peerAddr protocol.PeerAddress) error {
 	return dht.addPeerAddressWithoutLock(peerAddr)
 }
 
-func (dht *dht) AddPeerAddresses(peerAddrs protocol.PeerAddresses) error {
-	dht.inMemCacheMu.Lock()
-	defer dht.inMemCacheMu.Unlock()
-
-	for _, peerAddr := range peerAddrs {
-		if err := dht.addPeerAddressWithoutLock(peerAddr); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (dht *dht) PeerAddress(id protocol.PeerID) (protocol.PeerAddress, error) {
 	dht.inMemCacheMu.RLock()
 	defer dht.inMemCacheMu.RUnlock()
@@ -120,11 +140,8 @@ func (dht *dht) UpdatePeerAddress(peerAddr protocol.PeerAddress) (bool, error) {
 		return false, nil
 	}
 
-	if err := dht.addPeerAddressWithoutLock(peerAddr); err != nil {
-		return false, err
-	}
-
-	return true, nil
+	err := dht.addPeerAddressWithoutLock(peerAddr)
+	return err == nil, err
 }
 
 func (dht *dht) RemovePeerAddress(id protocol.PeerID) error {
@@ -137,6 +154,45 @@ func (dht *dht) RemovePeerAddress(id protocol.PeerID) error {
 
 	delete(dht.inMemCache, id.String())
 	return nil
+}
+
+func (dht *dht) NewPeerGroup(id protocol.PeerGroupID, ids protocol.PeerIDs) {
+	dht.groupsMu.Lock()
+	defer dht.groupsMu.Unlock()
+
+	dht.groups[id] = ids
+}
+
+func (dht *dht) PeerGroup(id protocol.PeerGroupID) (protocol.PeerAddresses, bool) {
+	peerIDs, ok := dht.groupPeerIDs(id)
+	if !ok {
+		return nil, false
+	}
+
+	dht.inMemCacheMu.RLock()
+	defer dht.inMemCacheMu.RUnlock()
+
+	addrs := make(protocol.PeerAddresses, len(peerIDs))
+	for i, id := range peerIDs {
+		addrs[i] = dht.inMemCache[id.String()]
+	}
+
+	return addrs, true
+}
+
+func (dht *dht) RemovePeerGroup(id protocol.PeerGroupID) {
+	dht.groupsMu.Lock()
+	defer dht.groupsMu.Unlock()
+
+	delete(dht.groups, id)
+}
+
+func (dht *dht) groupPeerIDs(id protocol.PeerGroupID) (protocol.PeerIDs, bool) {
+	dht.groupsMu.RLock()
+	defer dht.groupsMu.RUnlock()
+
+	peerIDs, ok := dht.groups[id]
+	return peerIDs, ok
 }
 
 func (dht *dht) addPeerAddressWithoutLock(peerAddr protocol.PeerAddress) error {
