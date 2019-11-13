@@ -1,10 +1,27 @@
 package testutil
 
 import (
+	"math"
 	"math/rand"
 
 	"github.com/renproject/aw/protocol"
 )
+
+func InvalidMessageVersion() protocol.MessageVersion {
+	version := protocol.V1
+	for version == protocol.V1 {
+		version = protocol.MessageVersion(rand.Intn(math.MaxUint16))
+	}
+	return version
+}
+
+func InvalidMessageVariant() protocol.MessageVariant {
+	variant := protocol.Ping
+	for protocol.ValidateMessageVariant(variant) == nil {
+		variant = protocol.MessageVariant(rand.Intn(math.MaxUint16))
+	}
+	return variant
+}
 
 func RandomBytes(length int) []byte {
 	slice := make([]byte, length)

@@ -61,13 +61,21 @@ func (codec SimplePeerIDCodec) Decode(data []byte) (protocol.PeerID, error) {
 type SimplePeerID string
 
 func RandomPeerID() protocol.PeerID {
+	return SimplePeerID(RandomString())
+}
+
+func RandomPeerGroupID() protocol.PeerGroupID {
+	return protocol.PeerGroupID(RandomString())
+}
+
+func RandomString() string {
 	alphabet := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	id := SimplePeerID("")
 	length := rand.Intn(16) + 1
+	str := make([]byte, length)
 	for i := 0; i < length; i++ {
-		id += SimplePeerID(alphabet[rand.Intn(len(alphabet))])
+		str[i] = alphabet[rand.Intn(len(alphabet))]
 	}
-	return id
+	return string(str)
 }
 
 // RandomPeerIDs returns a random number of distinct PeerID

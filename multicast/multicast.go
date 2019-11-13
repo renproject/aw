@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/protocol"
+	"github.com/renproject/phi"
 	"github.com/sirupsen/logrus"
 )
 
 type Multicaster interface {
-	Multicast(ctx context.Context, body protocol.MessageBody) error
+	Multicast(ctx context.Context, groupID protocol.PeerGroupID, body protocol.MessageBody) error
 	AcceptMulticast(ctx context.Context, message protocol.Message) error
 }
 
@@ -18,25 +20,50 @@ type multicaster struct {
 	logger   logrus.FieldLogger
 	messages protocol.MessageSender
 	events   protocol.EventSender
+	dht      dht.DHT
 }
 
-func NewMulticaster(messages protocol.MessageSender, events protocol.EventSender, logger logrus.FieldLogger) Multicaster {
+func NewMulticaster(logger logrus.FieldLogger, messages protocol.MessageSender, events protocol.EventSender, dht dht.DHT) Multicaster {
 	return &multicaster{
+		logger:   logger,
 		messages: messages,
 		events:   events,
-		logger:   logger,
+		dht:      dht,
 	}
 }
 
-func (multicaster *multicaster) Multicast(ctx context.Context, body protocol.MessageBody) error {
-	messageWire := protocol.MessageOnTheWire{
-		Message: protocol.NewMessage(protocol.V1, protocol.Multicast, body),
+func (multicaster *multicaster) Multicast(ctx context.Context, groupID protocol.PeerGroupID, body protocol.MessageBody) error {
+	addrs, ok := multicaster.dht.PeerGroup(groupID)
+	if !ok {
+		return protocol.ErrUnknownPeerGroupID(groupID)
 	}
+
+	// Check if context is already expired
 	select {
 	case <-ctx.Done():
-		return newErrMulticasting(ctx.Err())
-	case multicaster.messages <- messageWire:
+		return newErrMulticasting(ctx.Err(), groupID)
+	default:
 	}
+
+	phi.ParForAll(addrs, func(i int) {
+		to := addrs[i]
+		if to == nil {
+			multicaster.logger.Debugf("fail to multicast to node in group %v, cannot find PeerAddress from dht.", groupID)
+			return
+		}
+		messageWire := protocol.MessageOnTheWire{
+			Context: ctx,
+			To:      to,
+			From:    multicaster.dht.Me(),
+			Message: protocol.NewMessage(protocol.V1, protocol.Multicast, body),
+		}
+
+		select {
+		case <-ctx.Done():
+			multicaster.logger.Debugf("cannot send message to %v, %v", to.PeerID(), ctx.Err())
+		case multicaster.messages <- messageWire:
+		}
+	})
 	return nil
 }
 
@@ -54,6 +81,14 @@ func (multicaster *multicaster) AcceptMulticast(ctx context.Context, message pro
 		Time:    time.Now(),
 		Message: message.Body,
 	}
+
+	// Check if context is already expired
+	select {
+	case <-ctx.Done():
+		return newErrAcceptingMulticast(ctx.Err())
+	default:
+	}
+
 	select {
 	case <-ctx.Done():
 		return newErrAcceptingMulticast(ctx.Err())
@@ -63,12 +98,14 @@ func (multicaster *multicaster) AcceptMulticast(ctx context.Context, message pro
 }
 
 type ErrMulticasting struct {
+	protocol.PeerGroupID
 	error
 }
 
-func newErrMulticasting(err error) error {
+func newErrMulticasting(err error, groupID protocol.PeerGroupID) error {
 	return ErrMulticasting{
-		error: fmt.Errorf("error multicasting: %v", err),
+		PeerGroupID: groupID,
+		error:       fmt.Errorf("error multicasting to group %v: %v", groupID, err),
 	}
 }
 

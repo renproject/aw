@@ -1,17 +1,20 @@
 package protocol
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"time"
 
 	"github.com/renproject/id"
 )
 
 // Message we trying to send on the wire.
 type MessageOnTheWire struct {
-	To      PeerID
-	From    PeerID
+	Context context.Context
+	To      PeerAddress
+	From    PeerAddress
 	Message Message
 }
 
@@ -147,4 +150,11 @@ func (message Message) Hash() id.Hash {
 		panic(fmt.Errorf("invariant violation: malformed message: %v", err))
 	}
 	return sha256.Sum256(data)
+}
+
+type RetryOptions struct {
+	MaxRetries  uint64
+	Factor      uint64
+	BaseTimeout time.Duration
+	MaxTimeout  time.Duration
 }

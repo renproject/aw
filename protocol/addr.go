@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"fmt"
 	"net"
 )
 
@@ -41,3 +42,7 @@ type PeerIDCodec interface {
 
 // PeerGroupID is the ID of a PeerGroup
 type PeerGroupID string
+
+func ErrUnknownPeerGroupID(id PeerGroupID) error {
+	return fmt.Errorf("peer group id [%v] is unknwon to us")
+}

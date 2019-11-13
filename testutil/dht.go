@@ -20,3 +20,17 @@ func NewTable(name string) kv.Table {
 	db := kv.NewMemDB(kv.JSONCodec)
 	return kv.NewTable(db, name)
 }
+
+func NewGroup(dht dht.DHT) (protocol.PeerGroupID, protocol.PeerAddresses, error) {
+	groupID := RandomPeerGroupID()
+	addrs := RandomAddresses()
+	ids := make([]protocol.PeerID, len(addrs))
+	for i := range addrs {
+		ids[i] = addrs[i].PeerID()
+		if err := dht.AddPeerAddress(addrs[i]); err != nil {
+			return groupID, nil, err
+		}
+	}
+	dht.NewPeerGroup(groupID, ids)
+	return groupID, addrs, nil
+}
