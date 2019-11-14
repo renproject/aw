@@ -40,7 +40,7 @@ func (caster *caster) Cast(ctx context.Context, to protocol.PeerID, body protoco
 		Context: ctx,
 		To:      toAddr,
 		From:    caster.dht.Me(),
-		Message: protocol.NewMessage(protocol.V1, protocol.Cast, body),
+		Message: protocol.NewMessage(protocol.V1, protocol.Cast, protocol.NilPeerGroupID, body),
 	}
 
 	// Check if context is already expired

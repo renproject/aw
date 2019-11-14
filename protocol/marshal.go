@@ -11,8 +11,8 @@ import (
 func (message Message) MarshalBinary() ([]byte, error) {
 
 	// Validate message length, version and variant.
-	if message.Length < 8 {
-		return nil, NewErrMessageLengthIsTooLow(message.Length)
+	if err := ValidateMessageLength(message.Length, message.Variant); err != nil {
+		return nil, err
 	}
 	if err := ValidateMessageVersion(message.Version); err != nil {
 		return nil, err
@@ -30,6 +30,11 @@ func (message Message) MarshalBinary() ([]byte, error) {
 	}
 	if err := binary.Write(buffer, binary.LittleEndian, message.Variant); err != nil {
 		return nil, fmt.Errorf("error marshaling message variant=%v: %v", message.Variant, err)
+	}
+	if message.Variant == Broadcast || message.Variant == Multicast {
+		if err := binary.Write(buffer, binary.LittleEndian, message.GroupID); err != nil {
+			return nil, fmt.Errorf("error marshaling message group id=%v: %v", message.GroupID, err)
+		}
 	}
 	if err := binary.Write(buffer, binary.LittleEndian, message.Body); err != nil {
 		return nil, fmt.Errorf("error marshaling message body: %v", err)
@@ -49,9 +54,6 @@ func (message *Message) UnmarshalReader(reader io.Reader) error {
 	if err := binary.Read(reader, binary.LittleEndian, &message.Length); err != nil {
 		return fmt.Errorf("error unmarshaling message length: %v", err)
 	}
-	if message.Length < 8 {
-		return NewErrMessageLengthIsTooLow(message.Length)
-	}
 
 	// Read the message version
 	if err := binary.Read(reader, binary.LittleEndian, &message.Version); err != nil {
@@ -67,6 +69,18 @@ func (message *Message) UnmarshalReader(reader io.Reader) error {
 	}
 	if err := ValidateMessageVariant(message.Variant); err != nil {
 		return err
+	}
+
+	// Validate the message length
+	if err := ValidateMessageLength(message.Length, message.Variant); err != nil {
+		return err
+	}
+
+	// Read the group ID if the message is a Broadcast or a Multicast
+	if message.Variant == Broadcast || message.Variant == Multicast {
+		if err := binary.Read(reader, binary.LittleEndian, &message.GroupID); err != nil {
+			return fmt.Errorf("error unmarshaling message group id: %v", err)
+		}
 	}
 
 	// Read the message body.

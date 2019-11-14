@@ -31,6 +31,6 @@ func NewGroup(dht dht.DHT) (protocol.PeerGroupID, protocol.PeerAddresses, error)
 			return groupID, nil, err
 		}
 	}
-	dht.NewPeerGroup(groupID, ids)
-	return groupID, addrs, nil
+	err := dht.AddPeerGroup(groupID, ids)
+	return groupID, addrs, err
 }

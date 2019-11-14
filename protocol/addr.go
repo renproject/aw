@@ -1,7 +1,7 @@
 package protocol
 
 import (
-	"fmt"
+	"bytes"
 	"net"
 )
 
@@ -40,9 +40,10 @@ type PeerIDCodec interface {
 	Decode([]byte) (PeerID, error)
 }
 
-// PeerGroupID is the ID of a PeerGroup
-type PeerGroupID string
+type PeerGroupID [32]byte
 
-func ErrUnknownPeerGroupID(id PeerGroupID) error {
-	return fmt.Errorf("peer group id [%v] is unknwon to us")
+func (id PeerGroupID) Equal(another PeerGroupID) bool {
+	return bytes.Equal(id[:], another[:])
 }
+
+var NilPeerGroupID = PeerGroupID{}

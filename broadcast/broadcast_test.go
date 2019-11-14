@@ -3,210 +3,276 @@ package broadcast_test
 import (
 	"bytes"
 	"context"
-	"fmt"
-	"math/rand"
 	"testing/quick"
-	"time"
-
-	"github.com/renproject/aw/protocol"
-	"github.com/renproject/aw/testutil"
-	"github.com/renproject/kv"
-	"github.com/sirupsen/logrus"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	. "github.com/renproject/aw/broadcast"
+	. "github.com/renproject/aw/testutil"
+
+	"github.com/renproject/aw/protocol"
+	"github.com/sirupsen/logrus"
 )
 
 var _ = Describe("Broadcaster", func() {
 
 	Context("when broadcasting", func() {
 		It("should be able to send messages", func() {
-			table := kv.NewTable(kv.NewMemDB(kv.JSONCodec), "airwave")
-			messages := make(chan protocol.MessageOnTheWire)
-			events := make(chan protocol.Event)
-			broadcaster := NewBroadcaster(table, messages, events, logrus.StandardLogger())
+			messages := make(chan protocol.MessageOnTheWire, 128)
+			events := make(chan protocol.Event, 1)
+			dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+			broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
 
-			check := func(x [32]byte) bool {
+			check := func(messageBody []byte) bool {
+				groupID, addrs, err := NewGroup(dht)
+				Expect(err).NotTo(HaveOccurred())
+
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
+				Expect(broadcaster.Broadcast(ctx, groupID, messageBody)).NotTo(HaveOccurred())
 
-				messageBody := protocol.MessageBody(x[:])
-				go func() {
-					defer GinkgoRecover()
-					err := broadcaster.Broadcast(ctx, messageBody)
-					Expect(err).ToNot(HaveOccurred())
-				}()
-				message := <-messages
-				return (message.To == nil) && bytes.Equal(message.Message.Body, x[:]) && (message.Message.Variant == protocol.Broadcast)
+				for i := 0; i < len(addrs); i++ {
+					var message protocol.MessageOnTheWire
+					Eventually(messages).Should(Receive(&message))
+					Expect(addrs).Should(ContainElement(message.To))
+					Expect(message.Message.Version).Should(Equal(protocol.V1))
+					Expect(message.Message.Variant).Should(Equal(protocol.Broadcast))
+					Expect(bytes.Equal(message.Message.Body, messageBody)).Should(BeTrue())
+				}
+				return true
 			}
 
-			Expect(quick.Check(check, &quick.Config{
-				MaxCount: 100,
-			})).Should(BeNil())
+			Expect(quick.Check(check, nil)).Should(BeNil())
+		})
+
+		It("should not broadcast the same message more than once", func() {
+			messages := make(chan protocol.MessageOnTheWire, 128)
+			events := make(chan protocol.Event, 1)
+			dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+			broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+
+			check := func(messageBody []byte) bool {
+				groupID, addrs, err := NewGroup(dht)
+				Expect(err).NotTo(HaveOccurred())
+
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				Expect(broadcaster.Broadcast(ctx, groupID, messageBody)).NotTo(HaveOccurred())
+
+				for i := 0; i < len(addrs); i++ {
+					var message protocol.MessageOnTheWire
+					Eventually(messages).Should(Receive(&message))
+					Expect(addrs).Should(ContainElement(message.To))
+					Expect(message.Message.Version).Should(Equal(protocol.V1))
+					Expect(message.Message.Variant).Should(Equal(protocol.Broadcast))
+					Expect(bytes.Equal(message.Message.Body, messageBody)).Should(BeTrue())
+				}
+
+				Expect(broadcaster.Broadcast(ctx, groupID, messageBody)).NotTo(HaveOccurred())
+				var message protocol.MessageOnTheWire
+				Eventually(messages).ShouldNot(Receive(&message))
+				return true
+			}
+
+			Expect(quick.Check(check, nil)).Should(BeNil())
 		})
 
 		Context("when the context is cancelled", func() {
 			It("should return ErrBroadcasting", func() {
-				table := kv.NewTable(kv.NewMemDB(kv.JSONCodec), "airwave")
-				messages := make(chan protocol.MessageOnTheWire)
-				events := make(chan protocol.Event)
-				broadcaster := NewBroadcaster(table, messages, events, logrus.StandardLogger())
+				messages := make(chan protocol.MessageOnTheWire, 128)
+				events := make(chan protocol.Event, 1)
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
 
-				ctx, cancel := context.WithCancel(context.Background())
-				cancel()
+				check := func(messageBody []byte) bool {
+					groupID, _, err := NewGroup(dht)
+					Expect(err).NotTo(HaveOccurred())
 
-				err := broadcaster.Broadcast(ctx, protocol.MessageBody{})
-				Expect(err.(ErrBroadcasting)).To(HaveOccurred())
+					ctx, cancel := context.WithCancel(context.Background())
+					cancel()
+					Expect(broadcaster.Broadcast(ctx, groupID, messageBody)).To(HaveOccurred())
+					return true
+				}
+
+				Expect(quick.Check(check, nil)).Should(BeNil())
+			})
+		})
+
+		Context("when some of the addresses cannot be found from the store", func() {
+			It("should skip the nodes which we don't have the addresses", func() {
+				messages := make(chan protocol.MessageOnTheWire, 128)
+				events := make(chan protocol.Event, 1)
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+
+				check := func(messageBody []byte) bool {
+					groupID, addrs := RandomPeerGroupID(), RandomAddresses()
+					addrs = append(addrs, RandomAddress())
+					Expect(dht.AddPeerGroup(groupID, FromAddressesToIDs(addrs))).NotTo(HaveOccurred())
+					for i := 0; i < len(addrs)-1; i++ {
+						Expect(dht.AddPeerAddress(addrs[i])).NotTo(HaveOccurred())
+					}
+
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+					Expect(broadcaster.Broadcast(ctx, groupID, messageBody)).NotTo(HaveOccurred())
+
+					for i := 0; i < len(addrs)-1; i++ {
+						var message protocol.MessageOnTheWire
+						Eventually(messages).Should(Receive(&message))
+						Expect(addrs).Should(ContainElement(message.To))
+						Expect(message.Message.Version).Should(Equal(protocol.V1))
+						Expect(message.Message.Variant).Should(Equal(protocol.Broadcast))
+						Expect(bytes.Equal(message.Message.Body, messageBody)).Should(BeTrue())
+					}
+					Eventually(messages).ShouldNot(Receive())
+
+					return true
+				}
+
+				Expect(quick.Check(check, nil)).Should(BeNil())
 			})
 		})
 	})
 
 	Context("when accepting broadcasts", func() {
 		It("should be able to receive messages", func() {
-			table := kv.NewTable(kv.NewMemDB(kv.JSONCodec), "airwave")
-			messages := make(chan protocol.MessageOnTheWire)
-			events := make(chan protocol.Event)
-			broadcaster := NewBroadcaster(table, messages, events, logrus.StandardLogger())
+			messages := make(chan protocol.MessageOnTheWire, 128)
+			events := make(chan protocol.Event, 16)
+			dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+			broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
 
-			check := func(x [32]byte) bool {
+			check := func(messageBody []byte) bool {
+				groupID, addrs := RandomPeerGroupID(), RandomAddresses()
+				for _, addr := range addrs {
+					Expect(dht.AddPeerAddress(addr)).NotTo(HaveOccurred())
+				}
+				Expect(dht.AddPeerGroup(groupID, FromAddressesToIDs(addrs))).NotTo(HaveOccurred())
+
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
+				message := protocol.NewMessage(protocol.V1, protocol.Broadcast, groupID, messageBody)
+				Expect(broadcaster.AcceptBroadcast(ctx, message)).ToNot(HaveOccurred())
 
-				messageBody := protocol.MessageBody(x[:])
-				go func() {
-					defer GinkgoRecover()
-					err := broadcaster.AcceptBroadcast(ctx, protocol.NewMessage(protocol.V1, protocol.Broadcast, messageBody))
-					Expect(err).ToNot(HaveOccurred())
-				}()
-				event := (<-events).(protocol.EventMessageReceived)
-				message := <-messages
-				return (message.To == nil) && bytes.Equal(event.Message, x[:]) && bytes.Equal(message.Message.Body, x[:]) && (message.Message.Variant == protocol.Broadcast)
+				var event protocol.EventMessageReceived
+				Eventually(events).Should(Receive(&event))
+				Expect(bytes.Equal(event.Message, messageBody)).Should(BeTrue())
+
+				for range addrs {
+					var message protocol.MessageOnTheWire
+					Eventually(messages).Should(Receive(&message))
+					Expect(message.Message.Version).Should(Equal(protocol.V1))
+					Expect(message.Message.Variant).Should(Equal(protocol.Broadcast))
+					Expect(bytes.Equal(message.Message.Body, messageBody)).Should(BeTrue())
+					Expect(addrs).Should(ContainElement(message.To))
+				}
+				return true
 			}
 
-			Expect(quick.Check(check, &quick.Config{
-				MaxCount: 100,
-			})).Should(BeNil())
+			Expect(quick.Check(check, nil)).Should(BeNil())
 		})
 
 		Context("when the context is cancelled", func() {
 			It("should return ErrAcceptingBroadcast", func() {
-				table := kv.NewTable(kv.NewMemDB(kv.JSONCodec), "airwave")
-				messages := make(chan protocol.MessageOnTheWire)
-				events := make(chan protocol.Event)
-				broadcaster := NewBroadcaster(table, messages, events, logrus.StandardLogger())
+				messages := make(chan protocol.MessageOnTheWire, 128)
+				events := make(chan protocol.Event, 16)
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
 
-				ctx, cancel := context.WithCancel(context.Background())
-				cancel()
+				check := func(messageBody []byte) bool {
+					ctx, cancel := context.WithCancel(context.Background())
+					cancel()
+					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, RandomPeerGroupID(), messageBody)
+					Expect(broadcaster.AcceptBroadcast(ctx, message)).To(HaveOccurred())
 
-				messageBody := protocol.MessageBody{}
-				err := broadcaster.AcceptBroadcast(ctx, protocol.NewMessage(protocol.V1, protocol.Broadcast, messageBody))
-				Expect(err.(ErrAcceptingBroadcast)).To(HaveOccurred())
+					return true
+				}
+
+				Expect(quick.Check(check, nil)).Should(BeNil())
 			})
 		})
 
 		Context("when the message has an unsupported version", func() {
 			It("should return ErrBroadcastVersionNotSupported", func() {
-				table := kv.NewTable(kv.NewMemDB(kv.JSONCodec), "airwave")
-				messages := make(chan protocol.MessageOnTheWire)
-				events := make(chan protocol.Event)
-				broadcaster := NewBroadcaster(table, messages, events, logrus.StandardLogger())
+				messages := make(chan protocol.MessageOnTheWire, 128)
+				events := make(chan protocol.Event, 16)
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
 
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
+				check := func(messageBody []byte) bool {
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, RandomPeerGroupID(), messageBody)
+					message.Version = InvalidMessageVersion()
+					Expect(broadcaster.AcceptBroadcast(ctx, message)).To(HaveOccurred())
 
-				message := protocol.NewMessage(protocol.V1, protocol.Broadcast, protocol.MessageBody{})
-				for message.Version == protocol.V1 {
-					message.Version = protocol.MessageVersion(rand.Intn(65535))
+					return true
 				}
-				err := broadcaster.AcceptBroadcast(ctx, message)
-				Expect(err.(ErrBroadcastVersionNotSupported)).To(HaveOccurred())
+
+				Expect(quick.Check(check, nil)).Should(BeNil())
 			})
 		})
 
 		Context("when the message has an unsupported variant", func() {
 			It("should return ErrBroadcastVariantNotSupported", func() {
-				table := kv.NewTable(kv.NewMemDB(kv.JSONCodec), "airwave")
-				messages := make(chan protocol.MessageOnTheWire)
-				events := make(chan protocol.Event)
-				broadcaster := NewBroadcaster(table, messages, events, logrus.StandardLogger())
+				messages := make(chan protocol.MessageOnTheWire, 128)
+				events := make(chan protocol.Event, 16)
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
 
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
+				check := func(messageBody []byte) bool {
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, RandomPeerGroupID(), messageBody)
+					message.Variant = InvalidMessageVariant()
+					Expect(broadcaster.AcceptBroadcast(ctx, message)).To(HaveOccurred())
 
-				message := protocol.NewMessage(protocol.V1, protocol.Broadcast, protocol.MessageBody{})
-				for message.Variant == protocol.Broadcast {
-					message.Variant = protocol.MessageVariant(rand.Intn(65535))
+					return true
 				}
-				err := broadcaster.AcceptBroadcast(ctx, message)
-				Expect(err.(ErrBroadcastVariantNotSupported)).To(HaveOccurred())
+
+				Expect(quick.Check(check, nil)).Should(BeNil())
 			})
 		})
 
-		It("should not broadcast the same message more than once", func() {
-			table := kv.NewTable(kv.NewMemDB(kv.JSONCodec), "airwave")
-			messages := make(chan protocol.MessageOnTheWire)
-			events := make(chan protocol.Event)
-			broadcaster := NewBroadcaster(table, messages, events, logrus.StandardLogger())
-			check := func(x [32]byte) bool {
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
+		Context("when receive the same message more than once", func() {
+			It("should only broadcast the same message once", func() {
+				messages := make(chan protocol.MessageOnTheWire, 128)
+				events := make(chan protocol.Event, 16)
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
 
-				messageBody := protocol.MessageBody(x[:])
-				go func() {
-					defer GinkgoRecover()
-					err := broadcaster.AcceptBroadcast(ctx, protocol.NewMessage(protocol.V1, protocol.Broadcast, messageBody))
-					Expect(err).ToNot(HaveOccurred())
-				}()
-				event := (<-events).(protocol.EventMessageReceived)
-				if !bytes.Equal(event.Message, x[:]) {
-					return false
+				check := func(messageBody []byte) bool {
+					// Intentionally not inserting the last peer address to the dht.
+					groupID, addrs := RandomPeerGroupID(), RandomAddresses()
+					for _, addr := range addrs {
+						Expect(dht.AddPeerAddress(addr)).NotTo(HaveOccurred())
+					}
+					Expect(dht.AddPeerGroup(groupID, FromAddressesToIDs(addrs))).NotTo(HaveOccurred())
+
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, groupID, messageBody)
+					Expect(broadcaster.AcceptBroadcast(ctx, message)).ToNot(HaveOccurred())
+
+					var event protocol.EventMessageReceived
+					Eventually(events).Should(Receive(&event))
+					Expect(bytes.Equal(event.Message, messageBody)).Should(BeTrue())
+
+					for range addrs {
+						var message protocol.MessageOnTheWire
+						Eventually(messages).Should(Receive(&message))
+						Expect(message.Message.Version).Should(Equal(protocol.V1))
+						Expect(message.Message.Variant).Should(Equal(protocol.Broadcast))
+						Expect(bytes.Equal(message.Message.Body, messageBody)).Should(BeTrue())
+						Expect(addrs).Should(ContainElement(message.To))
+					}
+
+					Expect(broadcaster.AcceptBroadcast(ctx, message)).ToNot(HaveOccurred())
+					Eventually(events).ShouldNot(Receive())
+					return true
 				}
-				message := <-messages
-				if !((message.To == nil) && bytes.Equal(message.Message.Body, x[:]) && (message.Message.Variant == protocol.Broadcast)) {
-					return false
-				}
 
-				err := broadcaster.AcceptBroadcast(ctx, protocol.NewMessage(protocol.V1, protocol.Broadcast, messageBody))
-				select {
-				case <-time.After(10 * time.Millisecond):
-				case <-events:
-					panic("broadcast the same message more than once")
-				}
-				return err == nil
-			}
-			Expect(quick.Check(check, &quick.Config{
-				MaxCount: 100,
-			})).Should(BeNil())
-		})
-
-		Context("when getting key/value pairs is faulty", func() {
-			It("should return ErrBroadcastInternal when the table's getter is corrupted", func() {
-				table := testutil.NewFaultyTable(fmt.Errorf("interal db error"), nil, nil, nil)
-				messages := make(chan protocol.MessageOnTheWire)
-				events := make(chan protocol.Event)
-				broadcaster := NewBroadcaster(table, messages, events, logrus.StandardLogger())
-
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
-
-				err := broadcaster.AcceptBroadcast(ctx, protocol.NewMessage(protocol.V1, protocol.Broadcast, protocol.MessageBody{}))
-				Expect(err.(ErrBroadcastInternal)).To(HaveOccurred())
-			})
-		})
-
-		Context("when inserting key/value pairs is faulty", func() {
-			It("should return ErrBroadcastInternal", func() {
-				table := testutil.NewFaultyTable(nil, fmt.Errorf("interal db error"), nil, nil)
-				messages := make(chan protocol.MessageOnTheWire)
-				events := make(chan protocol.Event)
-				broadcaster := NewBroadcaster(table, messages, events, logrus.StandardLogger())
-
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
-
-				err := broadcaster.AcceptBroadcast(ctx, protocol.NewMessage(protocol.V1, protocol.Broadcast, protocol.MessageBody{}))
-				Expect(err.(ErrBroadcastInternal)).To(HaveOccurred())
+				Expect(quick.Check(check, nil)).Should(BeNil())
 			})
 		})
 	})

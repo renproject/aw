@@ -33,9 +33,9 @@ func NewMulticaster(logger logrus.FieldLogger, messages protocol.MessageSender, 
 }
 
 func (multicaster *multicaster) Multicast(ctx context.Context, groupID protocol.PeerGroupID, body protocol.MessageBody) error {
-	addrs, ok := multicaster.dht.PeerGroup(groupID)
-	if !ok {
-		return protocol.ErrUnknownPeerGroupID(groupID)
+	ids, addrs, err := multicaster.dht.PeerGroup(groupID)
+	if err != nil {
+		return err
 	}
 
 	// Check if context is already expired
@@ -48,14 +48,14 @@ func (multicaster *multicaster) Multicast(ctx context.Context, groupID protocol.
 	phi.ParForAll(addrs, func(i int) {
 		to := addrs[i]
 		if to == nil {
-			multicaster.logger.Debugf("fail to multicast to node in group %v, cannot find PeerAddress from dht.", groupID)
+			multicaster.logger.Debugf("cannot multicast to node [%v] in group [%v], cannot find PeerAddress from dht.", ids[i], groupID)
 			return
 		}
 		messageWire := protocol.MessageOnTheWire{
 			Context: ctx,
 			To:      to,
 			From:    multicaster.dht.Me(),
-			Message: protocol.NewMessage(protocol.V1, protocol.Multicast, body),
+			Message: protocol.NewMessage(protocol.V1, protocol.Multicast, groupID, body),
 		}
 
 		select {

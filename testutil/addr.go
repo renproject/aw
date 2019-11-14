@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
-	"reflect"
-	"testing/quick"
 	"time"
 
 	"github.com/renproject/aw/protocol"
@@ -65,7 +63,14 @@ func RandomPeerID() protocol.PeerID {
 }
 
 func RandomPeerGroupID() protocol.PeerGroupID {
-	return protocol.PeerGroupID(RandomString())
+	id := protocol.PeerGroupID{}
+	for id.Equal(protocol.NilPeerGroupID) {
+		_, err := rand.Read(id[:])
+		if err != nil {
+			panic(fmt.Sprintf("cannot create random id, err = %v", err))
+		}
+	}
+	return id
 }
 
 func RandomString() string {
@@ -136,19 +141,33 @@ func RandomAddress() SimpleTCPPeerAddress {
 func RandomAddresses() protocol.PeerAddresses {
 	length := rand.Intn(16)
 	addrs := make(protocol.PeerAddresses, length)
-	ids := map[string]struct{}{}
+	seenAddrs := map[string]struct{}{}
+	seenIds := map[string]struct{}{}
 	for i := range addrs {
 		var addr protocol.PeerAddress
 		for {
 			addr = RandomAddress()
-			if _, ok := ids[addr.String()]; !ok {
-				break
+			if _, ok := seenAddrs[addr.String()]; !ok {
+				if _, ok := seenIds[addr.PeerID().String()]; !ok {
+					break
+				}
 			}
 		}
 		addrs[i] = addr
-		ids[addr.String()] = struct{}{}
+		seenAddrs[addr.String()] = struct{}{}
+		seenIds[addr.PeerID().String()] = struct{}{}
 	}
 	return addrs
+}
+
+func FromAddressesToIDs(addrs protocol.PeerAddresses) protocol.PeerIDs {
+	ids := make([]protocol.PeerID, len(addrs))
+	for i := range addrs {
+		if addrs[i] != nil {
+			ids[i] = addrs[i].PeerID()
+		}
+	}
+	return ids
 }
 
 func (address SimpleTCPPeerAddress) String() string {
@@ -190,22 +209,4 @@ func ClonePeerAddresses(addrs protocol.PeerAddresses) protocol.PeerAddresses {
 		clonedAddrs[i] = addrs[i]
 	}
 	return clonedAddrs
-}
-
-func Contains(addrs protocol.PeerAddresses, addr protocol.PeerAddress) bool {
-	for _, address := range addrs {
-		if address.Equal(addr) {
-			return true
-		}
-	}
-	return false
-}
-
-func NewPeerGroupID() protocol.PeerGroupID {
-	stringType := reflect.TypeOf(protocol.PeerGroupID("string"))
-	value, ok := quick.Value(stringType, rand.New(rand.NewSource(time.Now().Unix())))
-	if !ok {
-		panic("unable to construct a random PeerGroupID")
-	}
-	return value.Interface().(protocol.PeerGroupID)
 }

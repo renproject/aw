@@ -1,6 +1,15 @@
 package protocol
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+var (
+	ErrInvalidPeerGroupID = errors.New("invalid peer group id")
+
+	ErrInvalidMessageLength = errors.New("invalid message length")
+)
 
 type ErrMessageLengthIsTooLow struct {
 	error

@@ -37,12 +37,12 @@ type DHT interface {
 	// It wouldn't return any error if the PeerAddress doesn't exist.
 	RemovePeerAddress(protocol.PeerID) error
 
-	// NewPeerGroup creates a new PeerGroup in the dht with given name and Peers.
-	NewPeerGroup(protocol.PeerGroupID, protocol.PeerIDs)
+	// AddPeerGroup creates a new PeerGroup in the dht with given name and PeerIDs.
+	AddPeerGroup(protocol.PeerGroupID, protocol.PeerIDs) error
 
-	// PeerGroup returns the PeerGroup with the given PeerGroupID. It returns an
+	// PeerGroup returns the PeerIDs with the given PeerGroupID. It returns an
 	// ErrPeerNotFound if the PeerGroupID cannot be found.
-	PeerGroup(protocol.PeerGroupID) (protocol.PeerAddresses, bool)
+	PeerGroup(protocol.PeerGroupID) (protocol.PeerIDs, protocol.PeerAddresses, error)
 
 	// Remove a PeerGroup with given name from the DHT.
 	RemovePeerGroup(protocol.PeerGroupID)
@@ -156,17 +156,36 @@ func (dht *dht) RemovePeerAddress(id protocol.PeerID) error {
 	return nil
 }
 
-func (dht *dht) NewPeerGroup(id protocol.PeerGroupID, ids protocol.PeerIDs) {
+func (dht *dht) AddPeerGroup(id protocol.PeerGroupID, ids protocol.PeerIDs) error {
+	if id.Equal(protocol.NilPeerGroupID) {
+		return protocol.ErrInvalidPeerGroupID
+	}
+
 	dht.groupsMu.Lock()
 	defer dht.groupsMu.Unlock()
 
 	dht.groups[id] = ids
+	return nil
 }
 
-func (dht *dht) PeerGroup(id protocol.PeerGroupID) (protocol.PeerAddresses, bool) {
+func (dht *dht) PeerGroup(id protocol.PeerGroupID) (protocol.PeerIDs, protocol.PeerAddresses, error) {
+	// If GroupID is nil in which case we want to get all the peers
+	if id.Equal(protocol.NilPeerGroupID) {
+		addrs, err := dht.PeerAddresses()
+		if err != nil {
+			return nil, nil, err
+		}
+		ids := make([]protocol.PeerID, len(addrs))
+		for i := range ids {
+			ids[i] = addrs[i].PeerID()
+		}
+		return ids, addrs, nil
+	}
+
+	// Fetch Group details from the storage.
 	peerIDs, ok := dht.groupPeerIDs(id)
 	if !ok {
-		return nil, false
+		return nil, nil, NewErrPeerGroupNotFound(id)
 	}
 
 	dht.inMemCacheMu.RLock()
@@ -177,7 +196,7 @@ func (dht *dht) PeerGroup(id protocol.PeerGroupID) (protocol.PeerAddresses, bool
 		addrs[i] = dht.inMemCache[id.String()]
 	}
 
-	return addrs, true
+	return peerIDs, addrs, nil
 }
 
 func (dht *dht) RemovePeerGroup(id protocol.PeerGroupID) {
@@ -232,5 +251,17 @@ func NewErrPeerNotFound(peerID protocol.PeerID) error {
 	return ErrPeerNotFound{
 		error:  fmt.Errorf("peer=%v not found", peerID),
 		PeerID: peerID,
+	}
+}
+
+type ErrPeerGroupNotFound struct {
+	error
+	protocol.PeerGroupID
+}
+
+func NewErrPeerGroupNotFound(groupID protocol.PeerGroupID) error {
+	return ErrPeerGroupNotFound{
+		error:       fmt.Errorf("peer group=%v not found", groupID),
+		PeerGroupID: groupID,
 	}
 }

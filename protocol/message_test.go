@@ -51,21 +51,21 @@ var _ = Describe("Protocol", func() {
 			Expect(n).To(Equal(32))
 			Expect(err).ToNot(HaveOccurred())
 			messageBody := MessageBody(body[:])
-			Expect(NewMessage(V1, Cast, messageBody)).ToNot(BeNil())
-			Expect(NewMessage(V1, Multicast, messageBody)).ToNot(BeNil())
-			Expect(NewMessage(V1, Broadcast, messageBody)).ToNot(BeNil())
-			Expect(NewMessage(V1, Ping, messageBody)).ToNot(BeNil())
-			Expect(NewMessage(V1, Pong, messageBody)).ToNot(BeNil())
+			Expect(NewMessage(V1, Cast, NilPeerGroupID, messageBody)).ToNot(BeNil())
+			Expect(NewMessage(V1, Multicast, NilPeerGroupID, messageBody)).ToNot(BeNil())
+			Expect(NewMessage(V1, Broadcast, NilPeerGroupID, messageBody)).ToNot(BeNil())
+			Expect(NewMessage(V1, Ping, NilPeerGroupID, messageBody)).ToNot(BeNil())
+			Expect(NewMessage(V1, Pong, NilPeerGroupID, messageBody)).ToNot(BeNil())
 		})
 	})
 
 	Context("when creating valid empty messages", func() {
 		It("should not return nil", func() {
-			Expect(NewMessage(V1, Cast, nil)).ToNot(BeNil())
-			Expect(NewMessage(V1, Multicast, nil)).ToNot(BeNil())
-			Expect(NewMessage(V1, Broadcast, nil)).ToNot(BeNil())
-			Expect(NewMessage(V1, Ping, nil)).ToNot(BeNil())
-			Expect(NewMessage(V1, Pong, nil)).ToNot(BeNil())
+			Expect(NewMessage(V1, Cast, NilPeerGroupID, nil)).ToNot(BeNil())
+			Expect(NewMessage(V1, Multicast, NilPeerGroupID, nil)).ToNot(BeNil())
+			Expect(NewMessage(V1, Broadcast, NilPeerGroupID, nil)).ToNot(BeNil())
+			Expect(NewMessage(V1, Ping, NilPeerGroupID, nil)).ToNot(BeNil())
+			Expect(NewMessage(V1, Pong, NilPeerGroupID, nil)).ToNot(BeNil())
 		})
 	})
 
@@ -76,7 +76,7 @@ var _ = Describe("Protocol", func() {
 			Expect(n).To(Equal(32))
 			Expect(err).ToNot(HaveOccurred())
 			messageBody := MessageBody(body[:])
-			Expect(func() { NewMessage(MessageVersion(2), Cast, messageBody) }).To(Panic())
+			Expect(func() { NewMessage(MessageVersion(2), Cast, NilPeerGroupID, messageBody) }).To(Panic())
 		})
 
 		It("should panic for invalid variants", func() {
@@ -85,7 +85,7 @@ var _ = Describe("Protocol", func() {
 			Expect(n).To(Equal(32))
 			Expect(err).ToNot(HaveOccurred())
 			messageBody := MessageBody(body[:])
-			Expect(func() { NewMessage(V1, MessageVariant(6), messageBody) }).To(Panic())
+			Expect(func() { NewMessage(V1, MessageVariant(6), NilPeerGroupID, messageBody) }).To(Panic())
 		})
 
 	})
@@ -97,7 +97,7 @@ var _ = Describe("Protocol", func() {
 			Expect(n).To(Equal(32))
 			Expect(err).ToNot(HaveOccurred())
 			messageBody := MessageBody(body[:])
-			message := NewMessage(V1, Cast, messageBody)
+			message := NewMessage(V1, Cast, NilPeerGroupID, messageBody)
 			Expect(func() { message.Hash() }).ToNot(Panic())
 		})
 	})
@@ -109,7 +109,7 @@ var _ = Describe("Protocol", func() {
 			Expect(n).To(Equal(32))
 			Expect(err).ToNot(HaveOccurred())
 			messageBody := MessageBody(body[:])
-			message := NewMessage(V1, Cast, messageBody)
+			message := NewMessage(V1, Cast, NilPeerGroupID, messageBody)
 			message.Length = 0
 			Expect(func() { message.Hash() }).To(Panic())
 		})

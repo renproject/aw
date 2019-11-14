@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
-	"time"
 
 	"github.com/renproject/id"
 )
@@ -43,6 +42,23 @@ type MessageReceive struct {
 
 // MessageLength indicates the length of the entire message.
 type MessageLength uint32
+
+// ValidateMessageVersion checks if the length is valid.
+func ValidateMessageLength(length MessageLength, variant MessageVariant) error {
+	switch variant {
+	case Cast, Ping, Pong:
+		if length < 8 {
+			return NewErrMessageLengthIsTooLow(length)
+		}
+	case Multicast, Broadcast:
+		if length < 40 {
+			return NewErrMessageLengthIsTooLow(length)
+		}
+	default:
+		return NewErrMessageVariantIsNotSupported(variant)
+	}
+	return nil
+}
 
 // MessageVersion indicates the version of the message.
 type MessageVersion uint16
@@ -121,24 +137,35 @@ type Message struct {
 	Length  MessageLength
 	Version MessageVersion
 	Variant MessageVariant
+	GroupID PeerGroupID
 	Body    MessageBody
 }
 
 // NewMessage returns a new message with given version, variant and body.
-func NewMessage(version MessageVersion, variant MessageVariant, body MessageBody) Message {
+func NewMessage(version MessageVersion, variant MessageVariant, groupID PeerGroupID, body MessageBody) Message {
 	if err := ValidateMessageVersion(version); err != nil {
 		panic(err)
 	}
 	if err := ValidateMessageVariant(variant); err != nil {
 		panic(err)
 	}
+	if err := ValidatePeerGroupID(groupID, variant); err != nil {
+		panic(err)
+	}
 	if body == nil {
 		body = make(MessageBody, 0)
 	}
+
+	length := 8
+	if variant == Broadcast || variant == Multicast {
+		length = 40
+	}
+
 	return Message{
-		Length:  MessageLength(8 + len(body)),
+		Length:  MessageLength(length + len(body)),
 		Version: version,
 		Variant: variant,
+		GroupID: groupID,
 		Body:    body,
 	}
 }
@@ -152,9 +179,34 @@ func (message Message) Hash() id.Hash {
 	return sha256.Sum256(data)
 }
 
-type RetryOptions struct {
-	MaxRetries  uint64
-	Factor      uint64
-	BaseTimeout time.Duration
-	MaxTimeout  time.Duration
+func ValidatePeerGroupID(groupID PeerGroupID, variant MessageVariant) error {
+	if variant != Broadcast && variant != Multicast {
+		if groupID != NilPeerGroupID {
+			return ErrInvalidPeerGroupID
+		}
+	}
+	return nil
+}
+
+// ValidateMessage checks if the given message is valid.
+func ValidateMessage(message Message) error {
+	if err := ValidateMessageVersion(message.Version); err != nil {
+		return err
+	}
+	if err := ValidateMessageVariant(message.Variant); err != nil {
+		return err
+	}
+	if err := ValidatePeerGroupID(message.GroupID, message.Variant); err != nil {
+		return err
+	}
+
+	length := 8
+	if message.Variant != Broadcast && message.Variant != Multicast {
+		length = 40
+	}
+	if int(message.Length) != length+len(message.Body) {
+		return ErrInvalidPeerGroupID
+	}
+
+	return nil
 }

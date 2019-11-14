@@ -7,8 +7,10 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"github.com/renproject/aw/dht"
+	. "github.com/renproject/aw/dht"
+	"github.com/renproject/aw/protocol"
 	. "github.com/renproject/aw/testutil"
+
 	"github.com/renproject/phi"
 )
 
@@ -59,7 +61,7 @@ var _ = Describe("DHT", func() {
 					Expect(err).ToNot(HaveOccurred())
 					Expect(len(addrs)).Should(Equal(len(bootstrapAddress)))
 					for _, addr := range addrs {
-						Expect(Contains(bootstrapAddress, addr)).Should(BeTrue())
+						Expect(bootstrapAddress).Should(ContainElement(addr))
 					}
 					return true
 				}
@@ -86,7 +88,7 @@ var _ = Describe("DHT", func() {
 					Expect(err).ToNot(HaveOccurred())
 					Expect(len(addrs)).Should(Equal(len(bootstrapAddress)))
 					for _, addr := range addrs {
-						Expect(Contains(bootstrapAddress, addr)).Should(BeTrue())
+						Expect(bootstrapAddress).Should(ContainElement(addr))
 					}
 					return true
 				}
@@ -117,7 +119,7 @@ var _ = Describe("DHT", func() {
 
 				addrs, err := dht.PeerAddresses()
 				Expect(err).ToNot(HaveOccurred())
-				Expect(Contains(addrs, newAddr)).Should(BeTrue())
+				Expect(addrs).Should(ContainElement(newAddr))
 
 				// Should be able to delete the ID from dht
 				Expect(dht.RemovePeerAddress(newAddr.PeerID())).NotTo(HaveOccurred())
@@ -128,7 +130,9 @@ var _ = Describe("DHT", func() {
 
 				addrs, err = dht.PeerAddresses()
 				Expect(err).ToNot(HaveOccurred())
-				return !Contains(addrs, newAddr)
+
+				Expect(addrs).ToNot(ContainElement(newAddr))
+				return true
 			}
 
 			Expect(quick.Check(test, nil)).Should(BeNil())
@@ -160,7 +164,7 @@ var _ = Describe("DHT", func() {
 
 		Context("when calling different functions concurrently", func() {
 			It("should be concurrent safe to use", func() {
-				addAndDelete := func(dht dht.DHT) error {
+				addAndDelete := func(dht DHT) error {
 					newAddr := RandomAddress()
 					if err := dht.AddPeerAddress(newAddr); err != nil {
 						return err
@@ -169,7 +173,7 @@ var _ = Describe("DHT", func() {
 					return dht.RemovePeerAddress(newAddr.PeerID())
 				}
 
-				update := func(dht dht.DHT) error {
+				update := func(dht DHT) error {
 					newAddr := RandomAddress()
 					if err := dht.AddPeerAddress(newAddr); err != nil {
 						return err
@@ -208,21 +212,58 @@ var _ = Describe("DHT", func() {
 	Context("when creating, querying and deleting PeerGroups", func() {
 		It("should be able to adding new group and delete a existing group", func() {
 			test := func() bool {
-				me := RandomAddress()
-				dht := NewDHT(me, NewTable("dht"), nil)
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				groupID, peerIDs := RandomPeerGroupID(), RandomPeerIDs()
 
-				groupID, ids := NewPeerGroupID(), RandomPeerIDs()
-				dht.NewPeerGroup(NewPeerGroupID(), ids)
+				ids, addrs, err := dht.PeerGroup(groupID)
+				Expect(err).To(HaveOccurred())
+				Expect(ids).Should(BeNil())
+				Expect(addrs).Should(BeNil())
 
-				addrs, ok := dht.PeerGroup(groupID)
-				Expect(ok).Should(BeTrue())
-				Expect(len(addrs)).Should(Equal(len(ids)))
+				Expect(dht.AddPeerGroup(groupID, peerIDs)).NotTo(HaveOccurred())
+				ids, addrs, err = dht.PeerGroup(groupID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(ids)).Should(Equal(len(peerIDs)))
 
 				dht.RemovePeerGroup(groupID)
+				ids, addrs, err = dht.PeerGroup(groupID)
+				Expect(err).To(HaveOccurred())
+				return true
+			}
 
-				addrs, ok = dht.PeerGroup(groupID)
-				Expect(ok).Should(BeFalse())
-				Expect(addrs).Should(BeNil())
+			Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
+		})
+
+		It("should return an error when trying to add a group with nil id", func() {
+			test := func() bool {
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				Expect(dht.AddPeerGroup(protocol.NilPeerGroupID, RandomPeerIDs())).To(HaveOccurred())
+				return true
+			}
+
+			Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
+		})
+
+		It("should return an error when trying to add a group with nil id", func() {
+			test := func() bool {
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				peerAddrs := RandomAddresses()
+				ids := make(protocol.PeerIDs, len(peerAddrs))
+				for i := range ids {
+					Expect(dht.AddPeerAddress(peerAddrs[i])).NotTo(HaveOccurred())
+					ids[i] = peerAddrs[i].PeerID()
+				}
+
+				ids, addrs, err := dht.PeerGroup(protocol.NilPeerGroupID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(ids)).Should(Equal(len(addrs)))
+				for _, id := range ids {
+					Expect(ids).Should(ContainElement(id))
+				}
+				Expect(len(addrs)).Should(Equal(len(addrs)))
+				for _, addr := range addrs {
+					Expect(peerAddrs).Should(ContainElement(addr))
+				}
 				return true
 			}
 
