@@ -15,9 +15,21 @@ func InvalidMessageVersion() protocol.MessageVersion {
 	return version
 }
 
-func InvalidMessageVariant() protocol.MessageVariant {
-	variant := protocol.Ping
-	for protocol.ValidateMessageVariant(variant) == nil {
+func InvalidMessageVariant(validVariant ...protocol.MessageVariant) protocol.MessageVariant {
+	variant := protocol.MessageVariant(rand.Intn(math.MaxUint16))
+	valid := func(v protocol.MessageVariant) bool {
+		if validVariant == nil {
+			return protocol.ValidateMessageVariant(v) == nil
+		}
+
+		for _, validVariant := range validVariant {
+			if validVariant == v {
+				return true
+			}
+		}
+		return false
+	}
+	for valid(variant) {
 		variant = protocol.MessageVariant(rand.Intn(math.MaxUint16))
 	}
 	return variant

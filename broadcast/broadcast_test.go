@@ -224,7 +224,7 @@ var _ = Describe("Broadcaster", func() {
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
 					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, RandomPeerGroupID(), messageBody)
-					message.Variant = InvalidMessageVariant()
+					message.Variant = InvalidMessageVariant(protocol.Broadcast)
 					Expect(broadcaster.AcceptBroadcast(ctx, message)).To(HaveOccurred())
 
 					return true

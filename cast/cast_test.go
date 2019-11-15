@@ -148,7 +148,7 @@ var _ = Describe("Caster", func() {
 					defer cancel()
 
 					message := protocol.NewMessage(protocol.V1, protocol.Cast, protocol.NilPeerGroupID, messageBody)
-					message.Variant = InvalidMessageVariant()
+					message.Variant = InvalidMessageVariant(protocol.Cast)
 
 					Expect(caster.AcceptCast(ctx, message)).Should(HaveOccurred())
 

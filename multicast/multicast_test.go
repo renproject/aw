@@ -167,7 +167,7 @@ var _ = Describe("Multicaster", func() {
 				defer cancel()
 
 				message := protocol.NewMessage(protocol.V1, protocol.Multicast, RandomPeerGroupID(), protocol.MessageBody{})
-				message.Variant = InvalidMessageVariant()
+				message.Variant = InvalidMessageVariant(protocol.Multicast)
 				Expect(multicaster.AcceptMulticast(ctx, message)).To(HaveOccurred())
 			})
 		})
