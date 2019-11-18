@@ -36,6 +36,9 @@ func InvalidMessageVariant(validVariant ...protocol.MessageVariant) protocol.Mes
 }
 
 func RandomBytes(length int) []byte {
+	if length == 0 {
+		return nil
+	}
 	slice := make([]byte, length)
 	_, err := rand.Read(slice)
 	if err != nil {
@@ -63,11 +66,13 @@ func RandomMessageVariant() protocol.MessageVariant {
 func RandomMessage(version protocol.MessageVersion, variant protocol.MessageVariant) protocol.Message {
 	body := RandomMessageBody()
 	groupID := protocol.NilPeerGroupID
+	length := 8
 	if variant == protocol.Multicast || variant == protocol.Broadcast {
 		groupID = RandomPeerGroupID()
+		length = 40
 	}
 	return protocol.Message{
-		Length:  protocol.MessageLength(8 + len(body)),
+		Length:  protocol.MessageLength(length + len(body)),
 		Version: version,
 		Variant: variant,
 		GroupID: groupID,

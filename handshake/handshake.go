@@ -1,3 +1,25 @@
+//  1.(Client) Generate a new RSA key ClientRSA.
+//  2.(Client) Convert the public key of ClientRSA to bytes and write to server.
+//  3.(Client) Sign the hash of RSA public key bytes and write to server.
+//  4.(Server) Read signature from client and verify the signature.
+//  5.(Server) Generate a new session key ServerSessionKey
+//  6.(Server) Encrypt the ServerSessionKey with ClientRSA and write to client
+//  7.(Server) Sign the hash of ServerSessionKey and write to client.
+//  8.(Client) Read and decrypt ServerSessionKey and verify the signature.
+//  9.(Client) Sign the hash of ServerSessionKey and write to server.
+// 10.(Server) Read signature and verify it to confirm client has received the ServerSessionKey.
+// 11.(Server) Generate a new RSA key ServerRSA.
+// 12.(Server) Convert the public key of ServerRSA to bytes and write to client.
+// 13.(Server) Sign the hash of public key of ServerRSA and write to client.
+// 14.(Client) Read signature from server and verify the signature.
+// 15.(Client) Generate a new session key ClientSessionKey
+// 16.(Client) Encrypt the ClientSessionKey with ServerRSA and write to server
+// 17.(Client) Sign the hash of ClientSessionKey and write to server.
+// 18.(Server) Read and decrypt ClientSessionKey and verify the signature.
+// 19.(Server) Sign the hash of ClientSessionKey and write to client.
+// 20.(Client) Read signature and verify it to confirm server has received the ClientSessionKey.
+// 21.(Client & Server) Xor the ClientSessionKey and ServerSessionKey to get the actual session key
+
 package handshake
 
 import (
@@ -136,10 +158,7 @@ func (hs *handshaker) Handshake(ctx context.Context, rw io.ReadWriter) (protocol
 	}
 
 	// Build the shared session
-	sessionKey := []byte{}
-	for i := 0; i < len(localSessionKey); i++ {
-		sessionKey = append(sessionKey, localSessionKey[i]^remoteSessionKey[i])
-	}
+	sessionKey := xorSessionKeys(localSessionKey, remoteSessionKey)
 	return hs.sessionManager.NewSession(remotePeerID, sessionKey), nil
 }
 
@@ -227,7 +246,7 @@ func (hs *handshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) (pr
 	if !remotePeerID.Equal(remotePeerID2) {
 		return nil, fmt.Errorf("bad handshake: expected peer=%v, got peer=%v", remotePeerID, remotePeerID2)
 	}
-	remoteSessionKeySig, err = hs.signVerifier.Sign(hs.signVerifier.Hash(localSessionKey))
+	remoteSessionKeySig, err = hs.signVerifier.Sign(hs.signVerifier.Hash(remoteSessionKey))
 	if err != nil {
 		panic(fmt.Errorf("invariant violation: cannot sign session key: %v", err))
 	}
@@ -236,10 +255,7 @@ func (hs *handshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) (pr
 	}
 
 	// Build the shared session
-	sessionKey := []byte{}
-	for i := 0; i < len(localSessionKey); i++ {
-		sessionKey = append(sessionKey, localSessionKey[i]^remoteSessionKey[i])
-	}
+	sessionKey := xorSessionKeys(localSessionKey, remoteSessionKey)
 	return hs.sessionManager.NewSession(remotePeerID, sessionKey), nil
 }
 
@@ -328,4 +344,12 @@ func pubKeyFromBytes(data []byte) (rsa.PublicKey, error) {
 	pubKey.N = new(big.Int).SetBytes(pubKeyData)
 
 	return pubKey, nil
+}
+
+func xorSessionKeys(key1, key2 []byte) []byte {
+	sessionKey := []byte{}
+	for i := 0; i < len(key1); i++ {
+		sessionKey = append(sessionKey, key1[i]^key2[i])
+	}
+	return sessionKey
 }

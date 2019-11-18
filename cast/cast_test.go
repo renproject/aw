@@ -36,7 +36,6 @@ var _ = Describe("Caster", func() {
 				Expect(msg.To.Equal(to)).Should(BeTrue())
 				Expect(msg.Message.Version).Should(Equal(protocol.V1))
 				Expect(msg.Message.Variant).Should(Equal(protocol.Cast))
-				Expect(msg.From.Equal(me)).Should(BeTrue())
 				Expect(bytes.Equal(msg.Message.Body, message)).Should(BeTrue())
 
 				return true

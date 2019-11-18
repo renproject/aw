@@ -48,7 +48,6 @@ func (pp *pingPonger) Ping(ctx context.Context, to protocol.PeerID) error {
 	messageWire := protocol.MessageOnTheWire{
 		Context: ctx,
 		To:      peerAddr,
-		From:    pp.dht.Me(),
 		Message: protocol.NewMessage(protocol.V1, protocol.Ping, protocol.NilPeerGroupID, me),
 	}
 
@@ -149,7 +148,6 @@ func (pp *pingPonger) propagatePing(ctx context.Context, sender protocol.PeerID,
 		messageWire := protocol.MessageOnTheWire{
 			Context: ctx,
 			To:      addr,
-			From:    pp.dht.Me(),
 			Message: protocol.NewMessage(protocol.V1, protocol.Ping, protocol.NilPeerGroupID, body),
 		}
 		select {

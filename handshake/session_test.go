@@ -1,41 +1,50 @@
 package handshake_test
 
 import (
+	"bytes"
+	"reflect"
+	"testing/quick"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	. "github.com/renproject/aw/handshake"
+	. "github.com/renproject/aw/testutil"
+
+	"github.com/renproject/aw/protocol"
 )
 
-var _ = Describe("Session", func() {
+var _ = Describe("Insecure session manager", func() {
 	Context("when using an insecure session managers", func() {
 		Context("when generating a session key", func() {
 			It("should generate an empty session key", func() {
-				Expect(true).To(BeFalse())
+				test := func() bool {
+					manager := NewInsecureSessionManager()
+					key := manager.NewSessionKey()
+					return bytes.Equal(key, []byte{})
+				}
+
+				Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
 			})
 		})
 
 		Context("when writing and reading message", func() {
 			It("should be able to write and then read", func() {
-				Expect(true).To(BeFalse())
-			})
-		})
-	})
+				test := func() bool {
+					manager := NewInsecureSessionManager()
+					sender := RandomPeerID()
+					session := manager.NewSession(sender, nil)
 
-	Context("when using a GCM session managers", func() {
-		Context("when generating a session key", func() {
-			It("should generate a random 32 byte session key", func() {
-				Expect(true).To(BeFalse())
-			})
-		})
+					buf := bytes.NewBuffer([]byte{})
+					sentMsg := RandomMessage(protocol.V1, RandomMessageVariant())
+					Expect(session.WriteMessage(buf, sentMsg)).NotTo(HaveOccurred())
 
-		Context("when writing and reading message with the same session keys", func() {
-			It("should be able to write and then read", func() {
-				Expect(true).To(BeFalse())
-			})
-		})
+					receivedMsg, err := session.ReadMessageOnTheWire(buf)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(receivedMsg.From.Equal(sender)).Should(BeTrue())
+					return reflect.DeepEqual(receivedMsg.Message, sentMsg)
+				}
 
-		Context("when writing and reading message with the different session keys", func() {
-			It("should not be able to write and then read", func() {
-				Expect(true).To(BeFalse())
+				Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
 			})
 		})
 	})

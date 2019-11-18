@@ -13,7 +13,7 @@ import (
 type MessageOnTheWire struct {
 	Context context.Context
 	To      PeerAddress
-	From    PeerAddress
+	From    PeerID
 	Message Message
 }
 

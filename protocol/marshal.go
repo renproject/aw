@@ -77,14 +77,16 @@ func (message *Message) UnmarshalReader(reader io.Reader) error {
 	}
 
 	// Read the group ID if the message is a Broadcast or a Multicast
+	length := 8
 	if message.Variant == Broadcast || message.Variant == Multicast {
+		length = 40
 		if err := binary.Read(reader, binary.LittleEndian, &message.GroupID); err != nil {
 			return fmt.Errorf("error unmarshaling message group id: %v", err)
 		}
 	}
 
 	// Read the message body.
-	message.Body = make(MessageBody, message.Length-8)
+	message.Body = make(MessageBody, int(message.Length)-length)
 	if err := binary.Read(reader, binary.LittleEndian, message.Body); err != nil {
 		return fmt.Errorf("error unmarshaling message body: %v", err)
 	}
