@@ -2,14 +2,14 @@ package tcp
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/protocol"
+	"github.com/sirupsen/logrus"
 )
 
 // A ConnPool maintains multiple connections to different remote peers and
@@ -24,10 +24,9 @@ type ConnPool interface {
 // ConnPoolOptions are used to parameterise the behaviour of a ConnPool.
 type ConnPoolOptions struct {
 	Logger         logrus.FieldLogger
-	Timeout        time.Duration        // Timeout when dialing new connections.
-	TimeToLive     time.Duration        // Time-to-live for connections.
-	MaxConnections int                  // Max connections allowed.
-	Handshaker     handshake.Handshaker // Handshaker to use while making connections
+	Timeout        time.Duration // Timeout when dialing new connections.
+	TimeToLive     time.Duration // Time-to-live for connections.
+	MaxConnections int           // Max connections allowed.
 }
 
 func (options *ConnPoolOptions) setZerosToDefaults() {
@@ -46,9 +45,11 @@ func (options *ConnPoolOptions) setZerosToDefaults() {
 }
 
 type connPool struct {
-	options ConnPoolOptions
-	mu      *sync.Mutex
-	conns   map[string]conn
+	options    ConnPoolOptions
+	handshaker handshake.Handshaker // Handshaker to use while making connections
+
+	mu    *sync.Mutex
+	conns map[string]conn
 }
 
 type conn struct {
@@ -58,12 +59,17 @@ type conn struct {
 
 // NewConnPool returns a ConnPool with no existing connections. It is safe for
 // concurrent use.
-func NewConnPool(options ConnPoolOptions) ConnPool {
+func NewConnPool(options ConnPoolOptions, handshaker handshake.Handshaker) ConnPool {
 	options.setZerosToDefaults()
+	if handshaker == nil {
+		panic("ConnPool cannot have a nil handshaker")
+	}
 	return &connPool{
-		options: options,
-		mu:      new(sync.Mutex),
-		conns:   map[string]conn{},
+		mu:    new(sync.Mutex),
+		conns: map[string]conn{},
+
+		options:    options,
+		handshaker: handshaker,
 	}
 }
 
@@ -74,47 +80,48 @@ func (pool *connPool) Send(to net.Addr, m protocol.Message) (err error) {
 	toStr := to.String()
 	c, ok := pool.conns[toStr]
 	if !ok {
-		ctx, cancel := context.WithTimeout(context.Background(), pool.options.Timeout)
-		defer cancel()
-		netConn, err := net.DialTimeout(to.Network(), toStr, pool.options.Timeout)
+		var err error
+		c, err = pool.connect(to)
 		if err != nil {
 			return err
 		}
 
-		var session protocol.Session
-		if pool.options.Handshaker != nil {
-			session, err = pool.options.Handshaker.Handshake(ctx, netConn)
-			if err != nil {
-				return err
-			}
-		}
-
-		c = conn{
-			conn:    netConn,
-			session: session,
-		}
 		pool.conns[toStr] = c
-
-		go func() {
-			<-time.After(pool.options.TimeToLive)
-
-			pool.mu.Lock()
-			defer pool.mu.Unlock()
-
-			if err := pool.conns[toStr].conn.Close(); err != nil {
-				pool.options.Logger.Errorf("error closing connection to %v: %v", to, err)
-			}
-			delete(pool.conns, toStr)
-		}()
+		defer pool.closeConn(toStr)
 	}
 
-	if c.session != nil {
-		return c.session.WriteMessage(c.conn, m)
-	}
-	data, err := m.MarshalBinary()
+	return c.session.WriteMessage(c.conn, m)
+}
+
+func (pool *connPool) connect(to net.Addr) (conn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), pool.options.Timeout)
+	defer cancel()
+
+	netConn, err := net.DialTimeout(to.Network(), to.String(), pool.options.Timeout)
 	if err != nil {
-		return err
+		return conn{}, err
 	}
-	_, err = c.conn.Write(data)
-	return err
+	session, err := pool.handshaker.Handshake(ctx, netConn)
+	if err != nil {
+		return conn{}, err
+	}
+	if session == nil {
+		return conn{}, fmt.Errorf("nil session [addr = %v] returned by handshaker", to)
+	}
+
+	return conn{
+		conn:    netConn,
+		session: session,
+	}, nil
+}
+
+func (pool *connPool) closeConn(to string) {
+	<-time.After(pool.options.TimeToLive)
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	if err := pool.conns[to].conn.Close(); err != nil {
+		pool.options.Logger.Errorf("error closing connection to %v: %v", to, err)
+	}
+	delete(pool.conns, to)
 }

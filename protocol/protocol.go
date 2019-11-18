@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"context"
 	"io"
 )
 
@@ -19,4 +20,12 @@ type Session interface {
 type SessionManager interface {
 	NewSession(PeerID, []byte) Session
 	NewSessionKey() []byte
+}
+
+type Client interface {
+	Run(context.Context, MessageReceiver)
+}
+
+type Server interface {
+	Run(context.Context, MessageSender)
 }

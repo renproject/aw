@@ -19,7 +19,6 @@ var DefaultServerOptions = ServerOptions{
 	Host:             "127.0.0.1:19231",
 	RateLimit:        time.Minute,
 	TimeoutKeepAlive: 10 * time.Second,
-	Handshaker:       nil,
 }
 
 type ServerOptions struct {
@@ -28,10 +27,9 @@ type ServerOptions struct {
 	Host             string
 	RateLimit        time.Duration
 	TimeoutKeepAlive time.Duration
-	Handshaker       handshake.Handshaker
 
 	// TODO: Implement a maximum number of connections to help protect the
-	// server from DoS attacks.
+	MaxConnections int // Max connections allowed.
 
 	// TODO: Implement IP blacklisting to help protect the server from DoS
 	// attacks.
@@ -56,18 +54,23 @@ func (options *ServerOptions) setZerosToDefaults() {
 }
 
 type Server struct {
-	options  ServerOptions
-	messages protocol.MessageSender
+	options    ServerOptions
+	messages   protocol.MessageSender
+	handshaker handshake.Handshaker
 
 	lastConnAttemptsMu *sync.RWMutex
 	lastConnAttempts   map[string]time.Time
 }
 
-func NewServer(options ServerOptions, messages protocol.MessageSender) *Server {
+func NewServer(options ServerOptions, handshaker handshake.Handshaker, messages protocol.MessageSender) *Server {
 	options.setZerosToDefaults()
+	if handshaker == nil {
+		panic("handshaker cannot be nil")
+	}
 	return &Server{
-		options:  options,
-		messages: messages,
+		options:    options,
+		messages:   messages,
+		handshaker: handshaker,
 
 		lastConnAttemptsMu: new(sync.RWMutex),
 		lastConnAttempts:   map[string]time.Time{},
@@ -80,7 +83,7 @@ func NewServer(options ServerOptions, messages protocol.MessageSender) *Server {
 func (server *Server) Run(ctx context.Context) {
 	listener, err := net.Listen("tcp", server.options.Host)
 	if err != nil {
-		server.options.Logger.Errorf("failed to listen on %s: %v", server.options.Host, err)
+		server.options.Logger.Fatalf("failed to listen on %s: %v", server.options.Host, err)
 		return
 	}
 
@@ -123,36 +126,25 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	// Attempt to establish a session with the client. A `nil` session can be
-	// returned by this method.
+	// Attempt to establish a session with the client.
 	session, err := server.establishSession(ctx, conn)
 	if err != nil {
-		server.options.Logger.Warn("closing connection: error establishing session: %v", err)
+		server.options.Logger.Errorf("closing connection: error establishing session: %v", err)
+		return
+	}
+	if session == nil {
+		server.options.Logger.Errorf("cannot establish session with %v", conn.RemoteAddr().String())
 		return
 	}
 
 	for {
-		messageOtw := protocol.MessageOnTheWire{}
-		if session != nil {
-			var err error
-			messageOtw, err = session.ReadMessageOnTheWire(conn)
-			if err != nil {
-				if err != io.EOF {
-					server.options.Logger.Error(newErrReadingIncomingMessage(err))
-				}
-				server.options.Logger.Info("closing connection: EOF")
-				return
+		messageOtw, err := session.ReadMessageOnTheWire(conn)
+		if err != nil {
+			if err != io.EOF {
+				server.options.Logger.Error(newErrReadingIncomingMessage(err))
 			}
-		} else {
-			var message protocol.Message
-			if err := message.UnmarshalReader(conn); err != nil {
-				if err != io.EOF {
-					server.options.Logger.Error(newErrReadingIncomingMessage(err))
-				}
-				server.options.Logger.Info("closing connection: EOF")
-				return
-			}
-			messageOtw.Message = message
+			server.options.Logger.Info("closing connection: EOF")
+			return
 		}
 
 		select {
@@ -183,14 +175,10 @@ func (server *Server) allowRateLimit(conn net.Conn) bool {
 }
 
 func (server *Server) establishSession(ctx context.Context, conn net.Conn) (protocol.Session, error) {
-	if server.options.Handshaker == nil {
-		return nil, nil
-	}
-
 	handshakeCtx, handshakeCancel := context.WithTimeout(ctx, server.options.Timeout)
 	defer handshakeCancel()
 
-	session, err := server.options.Handshaker.AcceptHandshake(handshakeCtx, conn)
+	session, err := server.handshaker.AcceptHandshake(handshakeCtx, conn)
 	if err != nil {
 		return nil, fmt.Errorf("bad handshake with %v: %v", conn.RemoteAddr().String(), err)
 	}
