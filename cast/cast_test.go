@@ -17,13 +17,13 @@ import (
 var _ = Describe("Caster", func() {
 	Context("when casting", func() {
 		It("should be able to send messages", func() {
-			messages := make(chan protocol.MessageOnTheWire, 1)
-			events := make(chan protocol.Event, 1)
-			me := RandomAddress()
-			dht := NewDHT(me, NewTable("dht"), nil)
-			caster := NewCaster(logrus.New(), messages, events, dht)
-
 			check := func(message []byte) bool {
+				messages := make(chan protocol.MessageOnTheWire, 1)
+				events := make(chan protocol.Event, 1)
+				me := RandomAddress()
+				dht := NewDHT(me, NewTable("dht"), nil)
+				caster := NewCaster(logrus.New(), messages, events, dht)
+
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
@@ -46,13 +46,13 @@ var _ = Describe("Caster", func() {
 
 		Context("when the context is cancelled", func() {
 			It("should return ErrCasting", func() {
-				messages := make(chan protocol.MessageOnTheWire, 1)
-				events := make(chan protocol.Event, 1)
-				me := RandomAddress()
-				dht := NewDHT(me, NewTable("dht"), nil)
-				caster := NewCaster(logrus.New(), messages, events, dht)
-
 				check := func(message []byte) bool {
+					messages := make(chan protocol.MessageOnTheWire, 1)
+					events := make(chan protocol.Event, 1)
+					me := RandomAddress()
+					dht := NewDHT(me, NewTable("dht"), nil)
+					caster := NewCaster(logrus.New(), messages, events, dht)
+
 					ctx, cancel := context.WithCancel(context.Background())
 					cancel()
 
@@ -69,13 +69,13 @@ var _ = Describe("Caster", func() {
 
 	Context("when accepting casts", func() {
 		It("should be able to receive messages", func() {
-			messages := make(chan protocol.MessageOnTheWire, 1)
-			events := make(chan protocol.Event, 1)
-			me := RandomAddress()
-			dht := NewDHT(me, NewTable("dht"), nil)
-			caster := NewCaster(logrus.New(), messages, events, dht)
-
 			check := func(messageBody []byte) bool {
+				messages := make(chan protocol.MessageOnTheWire, 1)
+				events := make(chan protocol.Event, 1)
+				me := RandomAddress()
+				dht := NewDHT(me, NewTable("dht"), nil)
+				caster := NewCaster(logrus.New(), messages, events, dht)
+
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
@@ -93,13 +93,13 @@ var _ = Describe("Caster", func() {
 
 		Context("when the context is cancelled", func() {
 			It("should return ErrAcceptingCast", func() {
-				messages := make(chan protocol.MessageOnTheWire, 1)
-				events := make(chan protocol.Event, 1)
-				me := RandomAddress()
-				dht := NewDHT(me, NewTable("dht"), nil)
-				caster := NewCaster(logrus.New(), messages, events, dht)
-
 				check := func(messageBody []byte) bool {
+					messages := make(chan protocol.MessageOnTheWire, 1)
+					events := make(chan protocol.Event, 1)
+					me := RandomAddress()
+					dht := NewDHT(me, NewTable("dht"), nil)
+					caster := NewCaster(logrus.New(), messages, events, dht)
+
 					ctx, cancel := context.WithCancel(context.Background())
 					cancel()
 
@@ -115,12 +115,12 @@ var _ = Describe("Caster", func() {
 
 		Context("when the message has an unsupported version", func() {
 			It("should return ErrCastVersionNotSupported", func() {
-				messages := make(chan protocol.MessageOnTheWire, 1)
-				events := make(chan protocol.Event, 1)
-				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				caster := NewCaster(logrus.New(), messages, events, dht)
-
 				check := func(messageBody []byte) bool {
+					messages := make(chan protocol.MessageOnTheWire, 1)
+					events := make(chan protocol.Event, 1)
+					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+					caster := NewCaster(logrus.New(), messages, events, dht)
+
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
 
@@ -137,12 +137,12 @@ var _ = Describe("Caster", func() {
 
 		Context("when the message has an unsupported variant", func() {
 			It("should return ErrCastVariantNotSupported", func() {
-				messages := make(chan protocol.MessageOnTheWire, 1)
-				events := make(chan protocol.Event, 1)
-				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				caster := NewCaster(logrus.New(), messages, events, dht)
-
 				check := func(messageBody []byte) bool {
+					messages := make(chan protocol.MessageOnTheWire, 1)
+					events := make(chan protocol.Event, 1)
+					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+					caster := NewCaster(logrus.New(), messages, events, dht)
+
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
 

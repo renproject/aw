@@ -18,12 +18,12 @@ var _ = Describe("Broadcaster", func() {
 
 	Context("when broadcasting", func() {
 		It("should be able to send messages", func() {
-			messages := make(chan protocol.MessageOnTheWire, 128)
-			events := make(chan protocol.Event, 1)
-			dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-			broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
-
 			check := func(messageBody []byte) bool {
+				messages := make(chan protocol.MessageOnTheWire, 128)
+				events := make(chan protocol.Event, 1)
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+
 				groupID, addrs, err := NewGroup(dht)
 				Expect(err).NotTo(HaveOccurred())
 
@@ -46,12 +46,12 @@ var _ = Describe("Broadcaster", func() {
 		})
 
 		It("should not broadcast the same message more than once", func() {
-			messages := make(chan protocol.MessageOnTheWire, 128)
-			events := make(chan protocol.Event, 1)
-			dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-			broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
-
 			check := func(messageBody []byte) bool {
+				messages := make(chan protocol.MessageOnTheWire, 128)
+				events := make(chan protocol.Event, 1)
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+
 				groupID, addrs, err := NewGroup(dht)
 				Expect(err).NotTo(HaveOccurred())
 
@@ -79,12 +79,12 @@ var _ = Describe("Broadcaster", func() {
 
 		Context("when the context is cancelled", func() {
 			It("should return ErrBroadcasting", func() {
-				messages := make(chan protocol.MessageOnTheWire, 128)
-				events := make(chan protocol.Event, 1)
-				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
-
 				check := func(messageBody []byte) bool {
+					messages := make(chan protocol.MessageOnTheWire, 128)
+					events := make(chan protocol.Event, 1)
+					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+					broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+
 					groupID, _, err := NewGroup(dht)
 					Expect(err).NotTo(HaveOccurred())
 
@@ -100,14 +100,15 @@ var _ = Describe("Broadcaster", func() {
 
 		Context("when some of the addresses cannot be found from the store", func() {
 			It("should skip the nodes which we don't have the addresses", func() {
-				messages := make(chan protocol.MessageOnTheWire, 128)
-				events := make(chan protocol.Event, 1)
-				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
-
 				check := func(messageBody []byte) bool {
+					messages := make(chan protocol.MessageOnTheWire, 128)
+					events := make(chan protocol.Event, 1)
+					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+					broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+
 					groupID, addrs := RandomPeerGroupID(), RandomAddresses()
-					addrs = append(addrs, RandomAddress())
+					last := RandomAddress()
+					addrs = append(addrs, last)
 					Expect(dht.AddPeerGroup(groupID, FromAddressesToIDs(addrs))).NotTo(HaveOccurred())
 					for i := 0; i < len(addrs)-1; i++ {
 						Expect(dht.AddPeerAddress(addrs[i])).NotTo(HaveOccurred())
@@ -137,12 +138,12 @@ var _ = Describe("Broadcaster", func() {
 
 	Context("when accepting broadcasts", func() {
 		It("should be able to receive messages", func() {
-			messages := make(chan protocol.MessageOnTheWire, 128)
-			events := make(chan protocol.Event, 16)
-			dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-			broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
-
 			check := func(messageBody []byte) bool {
+				messages := make(chan protocol.MessageOnTheWire, 128)
+				events := make(chan protocol.Event, 16)
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+
 				groupID, addrs := RandomPeerGroupID(), RandomAddresses()
 				for _, addr := range addrs {
 					Expect(dht.AddPeerAddress(addr)).NotTo(HaveOccurred())
@@ -174,12 +175,12 @@ var _ = Describe("Broadcaster", func() {
 
 		Context("when the context is cancelled", func() {
 			It("should return ErrAcceptingBroadcast", func() {
-				messages := make(chan protocol.MessageOnTheWire, 128)
-				events := make(chan protocol.Event, 16)
-				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
-
 				check := func(messageBody []byte) bool {
+					messages := make(chan protocol.MessageOnTheWire, 128)
+					events := make(chan protocol.Event, 16)
+					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+					broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+
 					ctx, cancel := context.WithCancel(context.Background())
 					cancel()
 					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, RandomPeerGroupID(), messageBody)
@@ -194,12 +195,12 @@ var _ = Describe("Broadcaster", func() {
 
 		Context("when the message has an unsupported version", func() {
 			It("should return ErrBroadcastVersionNotSupported", func() {
-				messages := make(chan protocol.MessageOnTheWire, 128)
-				events := make(chan protocol.Event, 16)
-				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
-
 				check := func(messageBody []byte) bool {
+					messages := make(chan protocol.MessageOnTheWire, 128)
+					events := make(chan protocol.Event, 16)
+					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+					broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
 					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, RandomPeerGroupID(), messageBody)
@@ -215,12 +216,12 @@ var _ = Describe("Broadcaster", func() {
 
 		Context("when the message has an unsupported variant", func() {
 			It("should return ErrBroadcastVariantNotSupported", func() {
-				messages := make(chan protocol.MessageOnTheWire, 128)
-				events := make(chan protocol.Event, 16)
-				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
-
 				check := func(messageBody []byte) bool {
+					messages := make(chan protocol.MessageOnTheWire, 128)
+					events := make(chan protocol.Event, 16)
+					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+					broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
 					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, RandomPeerGroupID(), messageBody)
@@ -236,12 +237,12 @@ var _ = Describe("Broadcaster", func() {
 
 		Context("when receive the same message more than once", func() {
 			It("should only broadcast the same message once", func() {
-				messages := make(chan protocol.MessageOnTheWire, 128)
-				events := make(chan protocol.Event, 16)
-				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
-
 				check := func(messageBody []byte) bool {
+					messages := make(chan protocol.MessageOnTheWire, 128)
+					events := make(chan protocol.Event, 16)
+					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+					broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+
 					// Intentionally not inserting the last peer address to the dht.
 					groupID, addrs := RandomPeerGroupID(), RandomAddresses()
 					for _, addr := range addrs {

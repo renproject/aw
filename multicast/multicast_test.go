@@ -17,12 +17,12 @@ import (
 var _ = Describe("Multicaster", func() {
 	Context("when multicasting", func() {
 		It("should be able to send messages", func() {
-			messages := make(chan protocol.MessageOnTheWire, 128)
-			events := make(chan protocol.Event, 1)
-			dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-			multicaster := NewMulticaster(logrus.New(), messages, events, dht)
-
 			check := func(messageBody []byte) bool {
+				messages := make(chan protocol.MessageOnTheWire, 128)
+				events := make(chan protocol.Event, 1)
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				multicaster := NewMulticaster(logrus.New(), messages, events, dht)
+
 				groupID, addrs, err := NewGroup(dht)
 				Expect(err).NotTo(HaveOccurred())
 
@@ -46,12 +46,12 @@ var _ = Describe("Multicaster", func() {
 
 		Context("when the context is cancelled", func() {
 			It("should return ErrMulticasting", func() {
-				messages := make(chan protocol.MessageOnTheWire, 128)
-				events := make(chan protocol.Event, 1)
-				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				multicaster := NewMulticaster(logrus.New(), messages, events, dht)
-
 				check := func(messageBody []byte) bool {
+					messages := make(chan protocol.MessageOnTheWire, 128)
+					events := make(chan protocol.Event, 1)
+					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+					multicaster := NewMulticaster(logrus.New(), messages, events, dht)
+
 					groupID, _, err := NewGroup(dht)
 					Expect(err).NotTo(HaveOccurred())
 
@@ -67,12 +67,12 @@ var _ = Describe("Multicaster", func() {
 
 		Context("when the groupID doesn't exist in dht", func() {
 			It("should return an error", func() {
-				messages := make(chan protocol.MessageOnTheWire, 128)
-				events := make(chan protocol.Event, 1)
-				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				multicaster := NewMulticaster(logrus.New(), messages, events, dht)
-
 				check := func(messageBody []byte) bool {
+					messages := make(chan protocol.MessageOnTheWire, 128)
+					events := make(chan protocol.Event, 1)
+					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+					multicaster := NewMulticaster(logrus.New(), messages, events, dht)
+
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
 					Expect(multicaster.Multicast(ctx, RandomPeerGroupID(), messageBody)).Should(HaveOccurred())
@@ -85,12 +85,12 @@ var _ = Describe("Multicaster", func() {
 
 		Context("when we don't have some addresses in the group in dht", func() {
 			It("should send to all known addresses in the group and print error to warn user", func() {
-				messages := make(chan protocol.MessageOnTheWire, 128)
-				events := make(chan protocol.Event, 1)
-				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				multicaster := NewMulticaster(logrus.New(), messages, events, dht)
-
 				check := func(messageBody []byte) bool {
+					messages := make(chan protocol.MessageOnTheWire, 128)
+					events := make(chan protocol.Event, 1)
+					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+					multicaster := NewMulticaster(logrus.New(), messages, events, dht)
+
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
 					groupID := RandomPeerGroupID()
@@ -106,12 +106,12 @@ var _ = Describe("Multicaster", func() {
 
 	Context("when accepting multicasts", func() {
 		It("should be able to receive messages", func() {
-			messages := make(chan protocol.MessageOnTheWire)
-			events := make(chan protocol.Event, 16)
-			dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-			multicaster := NewMulticaster(logrus.New(), messages, events, dht)
-
 			check := func(messageBody []byte) bool {
+				messages := make(chan protocol.MessageOnTheWire)
+				events := make(chan protocol.Event, 16)
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				multicaster := NewMulticaster(logrus.New(), messages, events, dht)
+
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				message := protocol.NewMessage(protocol.V1, protocol.Multicast, RandomPeerGroupID(), messageBody)

@@ -17,13 +17,13 @@ import (
 var _ = Describe("Pingpong", func() {
 	Context("when trying to ping another peer", func() {
 		It("should send a ping message through the message sender", func() {
-			me := RandomAddress()
-			messages := make(chan protocol.MessageOnTheWire, 128)
-			events := make(chan protocol.Event, 1)
-			dht := NewDHT(me, NewTable("dht"), nil)
-			pingpong := NewPingPonger(logrus.New(), dht, messages, events, SimpleTCPPeerAddressCodec{})
-
 			test := func() bool {
+				me := RandomAddress()
+				messages := make(chan protocol.MessageOnTheWire, 128)
+				events := make(chan protocol.Event, 1)
+				dht := NewDHT(me, NewTable("dht"), nil)
+				pingpong := NewPingPonger(logrus.New(), dht, messages, events, SimpleTCPPeerAddressCodec{})
+
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
