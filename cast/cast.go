@@ -37,7 +37,6 @@ func (caster *caster) Cast(ctx context.Context, to protocol.PeerID, body protoco
 		return err
 	}
 	message := protocol.MessageOnTheWire{
-		Context: ctx,
 		To:      toAddr,
 		Message: protocol.NewMessage(protocol.V1, protocol.Cast, protocol.NilPeerGroupID, body),
 	}

@@ -85,7 +85,6 @@ func (broadcaster *broadcaster) Broadcast(ctx context.Context, groupID protocol.
 			return
 		}
 		messageWire := protocol.MessageOnTheWire{
-			Context: ctx,
 			To:      to,
 			Message: message,
 		}

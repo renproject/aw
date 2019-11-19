@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 
 // Message we trying to send on the wire.
 type MessageOnTheWire struct {
-	Context context.Context
 	To      PeerAddress
 	From    PeerID
 	Message Message

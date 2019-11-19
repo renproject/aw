@@ -52,7 +52,6 @@ func (multicaster *multicaster) Multicast(ctx context.Context, groupID protocol.
 			return
 		}
 		messageWire := protocol.MessageOnTheWire{
-			Context: ctx,
 			To:      to,
 			Message: protocol.NewMessage(protocol.V1, protocol.Multicast, groupID, body),
 		}
