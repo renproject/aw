@@ -74,7 +74,7 @@ var _ = Describe("Pingpong", func() {
 		})
 
 		Context("when the address is newer than before", func() {
-			FIt("should update its dht and propagate the message", func() {
+			It("should update its dht and propagate the message", func() {
 				test := func() bool {
 					messages := make(chan protocol.MessageOnTheWire, 128)
 					events := make(chan protocol.Event, 1)
