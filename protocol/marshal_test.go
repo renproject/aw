@@ -4,13 +4,15 @@ import (
 	"encoding/binary"
 	"math"
 	"math/rand"
-	"reflect"
 	"testing/quick"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	. "github.com/renproject/aw/protocol"
 	. "github.com/renproject/aw/testutil"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
 var _ = Describe("marshaling and unmarshaling", func() {
@@ -25,7 +27,7 @@ var _ = Describe("marshaling and unmarshaling", func() {
 				var newMessage Message
 				Expect(newMessage.UnmarshalBinary(data)).Should(Succeed())
 
-				return reflect.DeepEqual(message, newMessage)
+				return cmp.Equal(message, newMessage, cmpopts.EquateEmpty())
 			}
 
 			Expect(quick.Check(test, nil)).Should(Succeed())

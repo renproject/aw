@@ -36,9 +36,6 @@ func InvalidMessageVariant(validVariant ...protocol.MessageVariant) protocol.Mes
 }
 
 func RandomBytes(length int) []byte {
-	if length == 0 {
-		return nil
-	}
 	slice := make([]byte, length)
 	_, err := rand.Read(slice)
 	if err != nil {

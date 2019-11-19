@@ -9,6 +9,7 @@ require (
 	github.com/golang/groupcache v0.0.0-20191027212112-611e8accdfc9 // indirect
 	github.com/golang/protobuf v1.3.2 // indirect
 	github.com/golang/snappy v0.0.1 // indirect
+	github.com/google/go-cmp v0.3.1
 	github.com/onsi/ginkgo v1.9.0
 	github.com/onsi/gomega v1.7.0
 	github.com/renproject/id v0.1.1

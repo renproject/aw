@@ -2,7 +2,6 @@ package tcp_test
 
 import (
 	"context"
-	"reflect"
 	"testing/quick"
 	"time"
 
@@ -11,6 +10,8 @@ import (
 	. "github.com/renproject/aw/tcp"
 	. "github.com/renproject/aw/testutil"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/renproject/aw/protocol"
 )
 
@@ -45,7 +46,7 @@ var _ = Describe("TCP client and server", func() {
 				message := sendRandomMessage(messageSender, serverAddr)
 				var received protocol.MessageOnTheWire
 				Eventually(messageReceiver, 3*time.Second).Should(Receive(&received))
-				return reflect.DeepEqual(message, received.Message)
+				return cmp.Equal(message, received.Message, cmpopts.EquateEmpty())
 			}
 
 			Expect(quick.Check(test, nil)).NotTo(HaveOccurred())

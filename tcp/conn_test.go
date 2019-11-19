@@ -3,7 +3,6 @@ package tcp_test
 import (
 	"context"
 	"net"
-	"reflect"
 	"testing/quick"
 	"time"
 
@@ -12,6 +11,8 @@ import (
 	. "github.com/renproject/aw/tcp"
 	. "github.com/renproject/aw/testutil"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/protocol"
 )
@@ -54,7 +55,7 @@ var _ = Describe("Connection pool", func() {
 					Expect(pool.Send(serverAddr, message)).NotTo(HaveOccurred())
 					var received protocol.MessageOnTheWire
 					Eventually(messages, 3*time.Second).Should(Receive(&received))
-					return reflect.DeepEqual(message, received.Message)
+					return cmp.Equal(message, received.Message, cmpopts.EquateEmpty())
 				}
 
 				Expect(quick.Check(test, &quick.Config{MaxCount: 10})).NotTo(HaveOccurred())
@@ -114,7 +115,7 @@ var _ = Describe("Connection pool", func() {
 					Expect(pool.Send(serverAddr, message1)).NotTo(HaveOccurred())
 					var received1 protocol.MessageOnTheWire
 					Eventually(messages, 3*time.Second).Should(Receive(&received1))
-					Expect(reflect.DeepEqual(message1, received1.Message)).Should(BeTrue())
+					Expect(cmp.Equal(message1, received1.Message, cmpopts.EquateEmpty()))
 
 					time.Sleep(time.Second)
 
@@ -123,13 +124,12 @@ var _ = Describe("Connection pool", func() {
 					Expect(pool.Send(serverAddr, message2)).NotTo(HaveOccurred())
 					var received2 protocol.MessageOnTheWire
 					Eventually(messages, 3*time.Second).Should(Receive(&received2))
-					Expect(reflect.DeepEqual(message2, received2.Message)).Should(BeTrue())
+					Expect(cmp.Equal(message2, received2.Message, cmpopts.EquateEmpty()))
 
 					return true
 				}
 
 				Expect(quick.Check(test, &quick.Config{MaxCount: 10})).NotTo(HaveOccurred())
-
 			})
 		})
 	})

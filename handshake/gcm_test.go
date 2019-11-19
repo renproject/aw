@@ -2,7 +2,6 @@ package handshake_test
 
 import (
 	"bytes"
-	"reflect"
 	"testing/quick"
 
 	. "github.com/onsi/ginkgo"
@@ -10,6 +9,8 @@ import (
 	. "github.com/renproject/aw/handshake"
 	. "github.com/renproject/aw/testutil"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/renproject/aw/protocol"
 )
 
@@ -46,7 +47,7 @@ var _ = Describe("GCM session manager", func() {
 					receivedMsg, err := receiverSession.ReadMessageOnTheWire(buf)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(receivedMsg.From.Equal(sender)).Should(BeTrue())
-					return reflect.DeepEqual(receivedMsg.Message, sentMsg)
+					return cmp.Equal(receivedMsg.Message, sentMsg, cmpopts.EquateEmpty())
 				}
 
 				Expect(quick.Check(test, nil)).NotTo(HaveOccurred())

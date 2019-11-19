@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"net"
-	"reflect"
 	"testing/quick"
 	"time"
 
@@ -13,6 +12,8 @@ import (
 	. "github.com/renproject/aw/handshake"
 	. "github.com/renproject/aw/testutil"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/phi"
 )
@@ -70,7 +71,7 @@ var _ = Describe("Handshaker", func() {
 
 					Expect(clientErr).NotTo(HaveOccurred())
 					Expect(serverError).NotTo(HaveOccurred())
-					return reflect.DeepEqual(readMessage.Message, message)
+					return cmp.Equal(readMessage.Message, message, cmpopts.EquateEmpty())
 				}
 
 				Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
