@@ -74,7 +74,7 @@ var _ = Describe("Pingpong", func() {
 		})
 
 		Context("when the address is newer than before", func() {
-			It("should update its dht and propogate the message", func() {
+			FIt("should update its dht and propagate the message", func() {
 				test := func() bool {
 					messages := make(chan protocol.MessageOnTheWire, 128)
 					events := make(chan protocol.Event, 1)
@@ -87,7 +87,11 @@ var _ = Describe("Pingpong", func() {
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
 
+					// Generate a sender address which is not a bootstrap address nor the pingponger address.
 					sender := RandomAddress()
+					for ContainAddress(append(bootstrapAddress, me), sender) {
+						sender = RandomAddress()
+					}
 					data, err := codec.Encode(sender)
 					Expect(err).NotTo(HaveOccurred())
 

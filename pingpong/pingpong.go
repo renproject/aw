@@ -3,6 +3,7 @@ package pingpong
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"time"
 
@@ -135,7 +136,7 @@ func (pp *pingPonger) propagatePing(ctx context.Context, sender protocol.PeerID,
 		return newStorageErr(err)
 	}
 	if len(peerAddrs) == 0 {
-		return fmt.Errorf("dht has zero address.")
+		return errors.New("dht has zero address.")
 	}
 
 	// Using the messaging sending channel protects the pinger/ponger from

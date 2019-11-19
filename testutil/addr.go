@@ -210,3 +210,12 @@ func ClonePeerAddresses(addrs protocol.PeerAddresses) protocol.PeerAddresses {
 	}
 	return clonedAddrs
 }
+
+func ContainAddress(addrs protocol.PeerAddresses, addr protocol.PeerAddress) bool {
+	for i := range addrs {
+		if addrs[i].PeerID().Equal(addr.PeerID()) {
+			return true
+		}
+	}
+	return false
+}
