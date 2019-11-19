@@ -52,7 +52,7 @@ func (message *Message) UnmarshalBinary(data []byte) error {
 func (message *Message) UnmarshalReader(reader io.Reader) error {
 	// Read the message length
 	if err := binary.Read(reader, binary.LittleEndian, &message.Length); err != nil {
-		return fmt.Errorf("error unmarshaling message length: %v", err)
+		return err
 	}
 
 	// Read the message version

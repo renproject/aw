@@ -12,6 +12,8 @@ import (
 	"github.com/renproject/aw/multicast"
 	"github.com/renproject/aw/pingpong"
 	"github.com/renproject/aw/protocol"
+	"github.com/renproject/aw/tcp"
+	"github.com/renproject/kv"
 	"github.com/renproject/phi"
 )
 
@@ -191,4 +193,20 @@ func (peer *peer) receiveMessageOnTheWire(ctx context.Context, messageOtw protoc
 	default:
 		return protocol.NewErrMessageVariantIsNotSupported(messageOtw.Message.Variant)
 	}
+}
+
+func NewTCP(options Options, events protocol.EventSender, signVerifier protocol.SignVerifier, poolOptions tcp.ConnPoolOptions, serverOptions tcp.ServerOptions) Peer {
+	if err := options.SetZeroToDefault(); err != nil {
+		panic(fmt.Errorf("pre-condition violation: invalid peer option, err = %v", err))
+	}
+	store := kv.NewTable(kv.NewMemDB(kv.JSONCodec), "dht")
+	dht, err := dht.New(options.Me, options.Codec, store, options.BootstrapAddresses...)
+	if err != nil {
+		panic(fmt.Errorf("pre-condition violation: fail to initialize dht, err = %v", err))
+	}
+	handshaker := handshake.New(signVerifier, handshake.NewGCMSessionManager())
+	connPool := tcp.NewConnPool(poolOptions, handshaker)
+	client := tcp.NewClient(options.Logger, connPool)
+	server := tcp.NewServer(serverOptions, handshaker)
+	return New(options, dht, handshaker, client, server, events)
 }

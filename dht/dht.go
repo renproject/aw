@@ -64,6 +64,7 @@ type dht struct {
 // addresses in memory for fast access. It is safe for concurrent use,
 // regardless of the underlying store.
 func New(me protocol.PeerAddress, codec protocol.PeerAddressCodec, store kv.Table, bootstrapAddrs ...protocol.PeerAddress) (DHT, error) {
+	// fixme : check parameters are not nil
 	dht := &dht{
 		me:    me,
 		codec: codec,

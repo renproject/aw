@@ -83,6 +83,39 @@ func RandomString() string {
 	return string(str)
 }
 
+// RandomAddresses returns a random number of distinct PeerAddresses.
+func RandomAddresses() protocol.PeerAddresses {
+	length := rand.Intn(16)
+	addrs := make(protocol.PeerAddresses, length)
+	seenAddrs := map[string]struct{}{}
+	seenIds := map[string]struct{}{}
+	for i := range addrs {
+		var addr protocol.PeerAddress
+		for {
+			addr = RandomAddress()
+			if _, ok := seenAddrs[addr.String()]; !ok {
+				if _, ok := seenIds[addr.PeerID().String()]; !ok {
+					break
+				}
+			}
+		}
+		addrs[i] = addr
+		seenAddrs[addr.String()] = struct{}{}
+		seenIds[addr.PeerID().String()] = struct{}{}
+	}
+	return addrs
+}
+
+func FromAddressesToIDs(addrs protocol.PeerAddresses) protocol.PeerIDs {
+	ids := make([]protocol.PeerID, len(addrs))
+	for i := range addrs {
+		if addrs[i] != nil {
+			ids[i] = addrs[i].PeerID()
+		}
+	}
+	return ids
+}
+
 // RandomPeerIDs returns a random number of distinct PeerID
 func RandomPeerIDs() protocol.PeerIDs {
 	length := rand.Intn(16)
@@ -135,39 +168,6 @@ func RandomAddress() SimpleTCPPeerAddress {
 	ip := fmt.Sprintf("%v.%v.%v.%v", ip1, ip2, ip3, ip4)
 	port := fmt.Sprintf("%v", rand.Intn(65536))
 	return NewSimpleTCPPeerAddress(id.String(), ip, port)
-}
-
-// RandomAddresses returns a random number of distinct PeerAddresses.
-func RandomAddresses() protocol.PeerAddresses {
-	length := rand.Intn(16)
-	addrs := make(protocol.PeerAddresses, length)
-	seenAddrs := map[string]struct{}{}
-	seenIds := map[string]struct{}{}
-	for i := range addrs {
-		var addr protocol.PeerAddress
-		for {
-			addr = RandomAddress()
-			if _, ok := seenAddrs[addr.String()]; !ok {
-				if _, ok := seenIds[addr.PeerID().String()]; !ok {
-					break
-				}
-			}
-		}
-		addrs[i] = addr
-		seenAddrs[addr.String()] = struct{}{}
-		seenIds[addr.PeerID().String()] = struct{}{}
-	}
-	return addrs
-}
-
-func FromAddressesToIDs(addrs protocol.PeerAddresses) protocol.PeerIDs {
-	ids := make([]protocol.PeerID, len(addrs))
-	for i := range addrs {
-		if addrs[i] != nil {
-			ids[i] = addrs[i].PeerID()
-		}
-	}
-	return ids
 }
 
 func (address SimpleTCPPeerAddress) String() string {

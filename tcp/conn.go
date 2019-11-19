@@ -2,6 +2,7 @@ package tcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -11,6 +12,9 @@ import (
 	"github.com/renproject/aw/protocol"
 	"github.com/sirupsen/logrus"
 )
+
+// ErrTooManyConnections is returned the current number of connections exceeds the limit.
+var ErrTooManyConnections = errors.New("too many connections")
 
 // A ConnPool maintains multiple connections to different remote peers and
 // re-uses these connections when sending multiple message to the peer. If a
@@ -73,13 +77,16 @@ func NewConnPool(options ConnPoolOptions, handshaker handshake.Handshaker) ConnP
 	}
 }
 
-func (pool *connPool) Send(to net.Addr, m protocol.Message) (err error) {
+func (pool *connPool) Send(to net.Addr, m protocol.Message) error {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
 	toStr := to.String()
 	c, ok := pool.conns[toStr]
 	if !ok {
+		if len(pool.conns) >= pool.options.MaxConnections {
+			return ErrTooManyConnections
+		}
 		var err error
 		c, err = pool.connect(to)
 		if err != nil {
@@ -87,7 +94,8 @@ func (pool *connPool) Send(to net.Addr, m protocol.Message) (err error) {
 		}
 
 		pool.conns[toStr] = c
-		defer pool.closeConn(toStr)
+		// Fixme : lock can potentially required twice
+		go pool.closeConn(toStr)
 	}
 
 	return c.session.WriteMessage(c.conn, m)
