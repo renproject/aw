@@ -30,7 +30,7 @@ jobs:
               broadcast/coverprofile.out      \
               pingpong/coverprofile.out       \
               handshake/coverprofile.out      \
-              peer/coverprofile.out
+              peer/coverprofile.out           \
               tcp/coverprofile.out > coverprofile.out
             sed -i '/marshal.go/d' coverprofile.out
             goveralls -coverprofile=coverprofile.out -service=circleci -repotoken $COVERALLS_REPO_TOKEN
