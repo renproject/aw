@@ -25,7 +25,7 @@ type Options struct {
 	BootstrapDuration    time.Duration `json:"bootstrapDuration"`    // Defaults to 1 hour
 }
 
-func (options Options) SetZeroToDefault() error {
+func (options *Options) SetZeroToDefault() error {
 	if options.Logger == nil {
 		return fmt.Errorf("nil logger")
 	}

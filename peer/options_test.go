@@ -1,9 +1,14 @@
 package peer_test
 
 import (
+	"runtime"
+	"time"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	. "github.com/renproject/aw/peer"
+	. "github.com/renproject/aw/testutil"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -21,12 +26,25 @@ var _ = Describe("options", func() {
 			Expect(option.SetZeroToDefault()).To(HaveOccurred())
 		})
 
+		It("should return an error if not providing a PeerAddressCodec", func() {
+			option := Options{
+				Logger: logrus.StandardLogger(),
+				Me:    RandomAddress() ,
+			}
+			Expect(option.SetZeroToDefault()).To(HaveOccurred())
+		})
+
 		It("should set unset filed to default value", func() {
 			option := Options{
 				Logger: logrus.StandardLogger(),
-				Me:     random,
+				Me:    RandomAddress(),
+				Codec: SimpleTCPPeerAddressCodec{},
 			}
-			Expect(option.SetZeroToDefault()).To(HaveOccurred())
+			Expect(option.SetZeroToDefault()).NotTo(HaveOccurred())
+			Expect(option.Capacity).Should(Equal(1024))
+			Expect(option.ConnPoolWorkers).Should(Equal(2 * runtime.NumCPU()))
+			Expect(option.BootstrapWorkers).Should(Equal(2 * runtime.NumCPU()))
+			Expect(option.BootstrapDuration).Should(Equal(time.Hour))
 		})
 	})
 })
