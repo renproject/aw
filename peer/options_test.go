@@ -29,7 +29,7 @@ var _ = Describe("options", func() {
 		It("should return an error if not providing a PeerAddressCodec", func() {
 			option := Options{
 				Logger: logrus.StandardLogger(),
-				Me:    RandomAddress() ,
+				Me:     RandomAddress(),
 			}
 			Expect(option.SetZeroToDefault()).To(HaveOccurred())
 		})
@@ -37,8 +37,8 @@ var _ = Describe("options", func() {
 		It("should set unset filed to default value", func() {
 			option := Options{
 				Logger: logrus.StandardLogger(),
-				Me:    RandomAddress(),
-				Codec: SimpleTCPPeerAddressCodec{},
+				Me:     RandomAddress(),
+				Codec:  SimpleTCPPeerAddressCodec{},
 			}
 			Expect(option.SetZeroToDefault()).NotTo(HaveOccurred())
 			Expect(option.Capacity).Should(Equal(1024))

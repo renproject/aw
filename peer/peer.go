@@ -18,6 +18,8 @@ import (
 )
 
 type Peer interface {
+	dht.DHT
+
 	Run(context.Context)
 
 	Cast(context.Context, protocol.PeerID, protocol.MessageBody) error
@@ -79,11 +81,9 @@ func New(options Options, dht dht.DHT, handshaker handshake.Handshaker, client p
 }
 
 func (peer *peer) Run(ctx context.Context) {
-
+	// Start both the client and server before bootstrapping
 	go peer.client.Run(ctx, peer.clientMessages)
 	go peer.server.Run(ctx, peer.serverMessages)
-
-	// Start receiving message before bootstrapping
 	go peer.handleMessage(ctx)
 
 	// Start bootstrapping
@@ -100,6 +100,46 @@ func (peer *peer) Run(ctx context.Context) {
 			peer.bootstrap(ctx)
 		}
 	}
+}
+
+func (peer *peer) Me() protocol.PeerAddress {
+	return peer.dht.Me()
+}
+
+func (peer *peer) NumPeers() (int, error) {
+	return peer.dht.NumPeers()
+}
+
+func (peer *peer) PeerAddress(id protocol.PeerID) (protocol.PeerAddress, error) {
+	return peer.dht.PeerAddress(id)
+}
+
+func (peer *peer) PeerAddresses() (protocol.PeerAddresses, error) {
+	return peer.dht.PeerAddresses()
+}
+
+func (peer *peer) AddPeerAddress(addrs protocol.PeerAddress) error {
+	return peer.dht.AddPeerAddress(addrs)
+}
+
+func (peer *peer) UpdatePeerAddress(addr protocol.PeerAddress) (bool, error) {
+	return peer.dht.UpdatePeerAddress(addr)
+}
+
+func (peer *peer) RemovePeerAddress(id protocol.PeerID) error {
+	return peer.dht.RemovePeerAddress(id)
+}
+
+func (peer *peer) AddPeerGroup(groupID protocol.PeerGroupID, ids protocol.PeerIDs) error {
+	return peer.dht.AddPeerGroup(groupID, ids)
+}
+
+func (peer *peer) PeerGroup(groupID protocol.PeerGroupID) (protocol.PeerIDs, protocol.PeerAddresses, error) {
+	return peer.dht.PeerGroup(groupID)
+}
+
+func (peer *peer) RemovePeerGroup(groupID protocol.PeerGroupID) {
+	peer.dht.RemovePeerGroup(groupID)
 }
 
 func (peer *peer) Cast(ctx context.Context, to protocol.PeerID, data protocol.MessageBody) error {
@@ -154,18 +194,19 @@ func (peer *peer) bootstrap(ctx context.Context) {
 				pingTimeout = time.Second
 			}
 
-			pingCtx, pingCancel := context.WithTimeout(ctx, pingTimeout)
-			defer pingCancel()
-
-			if err := peer.pingPonger.Ping(pingCtx, peerAddr.PeerID()); err != nil {
-				peer.options.Logger.Errorf("error bootstrapping: error ping/ponging peer address=%v: %v", peerAddr, err)
-				return
-			}
+			func() {
+				pingCtx, pingCancel := context.WithTimeout(ctx, pingTimeout)
+				defer pingCancel()
+				if err := peer.pingPonger.Ping(pingCtx, peerAddr.PeerID()); err != nil {
+					peer.options.Logger.Errorf("error bootstrapping: error ping/ponging peer address=%v: %v", peerAddr, err)
+					return
+				}
+			}()
 		}
 	})
 }
 
-func (peer *peer) handleMessage(ctx context.Context) error {
+func (peer *peer) handleMessage(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -174,6 +215,7 @@ func (peer *peer) handleMessage(ctx context.Context) error {
 			if err := peer.receiveMessageOnTheWire(ctx, messageOtw); err != nil {
 				peer.options.Logger.Error(err)
 			}
+
 		}
 	}
 }
@@ -185,11 +227,11 @@ func (peer *peer) receiveMessageOnTheWire(ctx context.Context, messageOtw protoc
 	case protocol.Pong:
 		return peer.pingPonger.AcceptPong(ctx, messageOtw.Message)
 	case protocol.Broadcast:
-		return peer.broadcaster.AcceptBroadcast(ctx, messageOtw.Message)
+		return peer.broadcaster.AcceptBroadcast(ctx, messageOtw.From, messageOtw.Message)
 	case protocol.Multicast:
-		return peer.multicaster.AcceptMulticast(ctx, messageOtw.Message)
+		return peer.multicaster.AcceptMulticast(ctx, messageOtw.From, messageOtw.Message)
 	case protocol.Cast:
-		return peer.caster.AcceptCast(ctx, messageOtw.Message)
+		return peer.caster.AcceptCast(ctx, messageOtw.From, messageOtw.Message)
 	default:
 		return protocol.NewErrMessageVariantIsNotSupported(messageOtw.Message.Variant)
 	}

@@ -19,7 +19,6 @@ type Options struct {
 	// Optional
 	DisablePeerDiscovery bool          `json:"disablePeerDiscovery"` // Defaults to false
 	Capacity             int           `json:"capacity"`             // capacity of internal channel
-	EventBuffer          int           `json:"eventBuffer"`          // Defaults to 0
 	ConnPoolWorkers      int           `json:"connPoolWorkers"`      // Defaults to 2x the number of CPUs
 	BootstrapWorkers     int           `json:"bootstrapWorkers"`     // Defaults to 2x the number of CPUs
 	BootstrapDuration    time.Duration `json:"bootstrapDuration"`    // Defaults to 1 hour

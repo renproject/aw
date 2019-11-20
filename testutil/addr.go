@@ -87,20 +87,16 @@ func RandomString() string {
 func RandomAddresses() protocol.PeerAddresses {
 	length := rand.Intn(16)
 	addrs := make(protocol.PeerAddresses, length)
-	seenAddrs := map[string]struct{}{}
 	seenIds := map[string]struct{}{}
 	for i := range addrs {
 		var addr protocol.PeerAddress
 		for {
 			addr = RandomAddress()
-			if _, ok := seenAddrs[addr.String()]; !ok {
-				if _, ok := seenIds[addr.PeerID().String()]; !ok {
-					break
-				}
+			if _, ok := seenIds[addr.PeerID().String()]; !ok {
+				break
 			}
 		}
 		addrs[i] = addr
-		seenAddrs[addr.String()] = struct{}{}
 		seenIds[addr.PeerID().String()] = struct{}{}
 	}
 	return addrs

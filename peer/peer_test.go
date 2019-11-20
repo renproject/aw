@@ -1,192 +1,144 @@
 package peer_test
 
-//
-// import (
-// 	"context"
-// 	"fmt"
-// 	"math/rand"
-// 	"time"
-//
-// 	. "github.com/onsi/ginkgo"
-// 	. "github.com/onsi/gomega"
-// 	. "github.com/renproject/aw"
-//
-// 	"github.com/renproject/aw/protocol"
-// 	"github.com/renproject/aw/testutil"
-// 	"github.com/renproject/phi"
-// 	"github.com/renproject/phi/co"
-// 	"github.com/sirupsen/logrus"
-// )
-//
-// const CAPACITY = 0
-//
-// var _ = Describe("airwaves peer", func() {
-// 	initSignVerifiers := func(nodeCount int) []testutil.MockSignVerifier {
-// 		SignVerifiers := make([]testutil.MockSignVerifier, nodeCount)
-// 		for i := range SignVerifiers {
-// 			SignVerifiers[i] = testutil.NewMockSignVerifier()
-// 		}
-// 		for i := range SignVerifiers {
-// 			for j := range SignVerifiers {
-// 				SignVerifiers[i].Whitelist(SignVerifiers[j].ID())
-// 			}
-// 		}
-// 		return SignVerifiers
-// 	}
-//
-// 	startNodes := func(ctx context.Context, logger logrus.FieldLogger, signVerifiers []testutil.MockSignVerifier, nodeCount int, cap int) ([]Peer, PeerAddresses, error) {
-// 		codec := testutil.NewSimpleTCPPeerAddressCodec()
-// 		peerAddresses := make([]PeerAddress, nodeCount)
-// 		peers := make([]Peer, nodeCount)
-// 		for i := range peerAddresses {
-// 			peerAddresses[i] = testutil.NewSimpleTCPPeerAddress(fmt.Sprintf("bootstrap_%d", i), "127.0.0.1", fmt.Sprintf("%d", 46532+i))
-// 		}
-// 		co.ParForAll(peerAddresses, func(i int) {
-// 			events := make(chan protocol.Event, cap)
-// 			options := PeerOptions{
-// 				Logger:          logger.WithField("bootstrap", i),
-// 				Codec:           codec,
-// 				ConnPoolWorkers: 1,
-//
-// 				Me:                 peerAddresses[i],
-// 				BootstrapAddresses: testutil.Remove(peerAddresses, i),
-// 			}
-// 			if signVerifiers != nil && len(signVerifiers) == len(peerAddresses) {
-// 				options.SignVerifier = signVerifiers[i]
-// 			}
-// 			peers[i] = NewTCPPeer(options, events, CAPACITY, peerAddresses[i].NetworkAddress().String())
-// 			go peers[i].Run(ctx)
-// 		})
-// 		return peers, peerAddresses, nil
-// 	}
-//
-// 	tableNodeCount := []struct {
-// 		TotalBootstrap int
-// 		KnownBootstrap int
-//
-// 		NewNodes int
-// 	}{
-// 		// When all the nodes are known
-// 		// {4, 4, 4},
-// 		{30, 30, 30},
-// 		// {20, 20, 10},
-// 		// {40, 40, 40},
-//
-// 		// When half of nodes are known
-// 		// {4, 2, 4},
-// 		// {10, 5, 10},
-// 		// {20, 10, 20},
-// 		// {40, 20, 40},
-//
-// 		// When one node is known
-// 		// {4, 1, 4},
-// 		// {10, 1, 10},
-// 		// {20, 1, 20},
-// 		// {40, 1, 40},
-// 	}
-//
-// 	Context("when bootstrapping", func() {
-// 		for _, nodeCount := range tableNodeCount {
-// 			nodeCount := nodeCount
-// 			FIt(fmt.Sprintf(
-// 				"should connect to %d nodes when %d nodes are known, when new nodes join sequentially",
-// 				nodeCount.TotalBootstrap+nodeCount.NewNodes-1, nodeCount.KnownBootstrap), func() {
-//
-// 				rand.Seed(time.Now().UnixNano())
-//
-// 				numMessageSpams := 1
-// 				logger := logrus.StandardLogger()
-// 				SignVerifiers := initSignVerifiers(nodeCount.TotalBootstrap + nodeCount.NewNodes)
-// 				bootstrapSignVerifiers := make([]testutil.MockSignVerifier, nodeCount.TotalBootstrap)
-// 				nodeSignVerifiers := make([]testutil.MockSignVerifier, nodeCount.NewNodes)
-// 				copy(bootstrapSignVerifiers, SignVerifiers[:nodeCount.TotalBootstrap])
-// 				copy(nodeSignVerifiers, SignVerifiers[nodeCount.TotalBootstrap:])
-//
-// 				ctx, cancel := context.WithCancel(context.Background())
-// 				defer cancel()
-// 				bootstraps, bootstrapAddrs, err := startNodes(ctx, logger, bootstrapSignVerifiers, nodeCount.TotalBootstrap, numMessageSpams*len(SignVerifiers)*(len(SignVerifiers)-1))
-// 				Expect(err).Should(BeNil())
-// 				time.Sleep(10 * time.Second)
-//
-// 				peerAddresses := make([]PeerAddress, nodeCount.NewNodes)
-// 				for i := range peerAddresses {
-// 					peerAddresses[i] = testutil.NewSimpleTCPPeerAddress(fmt.Sprintf("test_node_%d", i), "127.0.0.1", fmt.Sprintf("%d", 5000+i))
-// 				}
-// 				codec := testutil.NewSimpleTCPPeerAddressCodec()
-// 				peers := make([]Peer, nodeCount.NewNodes)
-// 				for i, peerAddr := range peerAddresses {
-// 					events := make(chan protocol.Event, numMessageSpams*len(SignVerifiers)*(len(SignVerifiers)-1))
-// 					peer := NewTCPPeer(PeerOptions{
-// 						Logger:          logger.WithField("test_node", i),
-// 						Codec:           codec,
-// 						ConnPoolWorkers: 1,
-//
-// 						SignVerifier:       nodeSignVerifiers[i],
-// 						Me:                 peerAddr,
-// 						BootstrapAddresses: bootstrapAddrs,
-// 					}, events, CAPACITY, peerAddr.NetworkAddress().String())
-// 					go peer.Run(ctx)
-// 					peers[i] = peer
-// 					go func(events protocol.EventReceiver) {
-// 						for range events {
-// 						}
-// 					}(events)
-// 				}
-//
-// 				// wait for the nodes to bootstrap
-// 				time.Sleep(time.Minute)
-//
-// 				for _, peer := range peers {
-// 					val, err := peer.NumPeers(ctx)
-// 					Expect(err).Should(BeNil())
-// 					Expect(val).Should(Equal(nodeCount.TotalBootstrap + nodeCount.NewNodes - 1))
-// 				}
-//
-// 				allNodes := append(bootstraps, peers...)
-// 				spam := func(done chan<- struct{}) {
-// 					broadcastCtx, broadcastCancel := context.WithTimeout(context.Background(), 10*time.Second)
-// 					defer func() {
-// 						broadcastCancel()
-// 						close(done)
-// 					}()
-//
-// 					phi.ParForAll(allNodes, func(index int) {
-// 						time.Sleep(time.Duration(rand.Intn(10)+300) * time.Millisecond)
-// 						msg := randomBytes(10)
-// 						err := allNodes[index].Multicast(broadcastCtx, msg)
-// 						Expect(err).ShouldNot(HaveOccurred())
-// 					})
-// 				}
-//
-// 				dones := make([]chan struct{}, numMessageSpams)
-// 				for i := 0; i < numMessageSpams; i++ {
-// 					dones[i] = make(chan struct{})
-// 					go spam(dones[i])
-// 				}
-// 				finished := numMessageSpams
-// 				for finished > 0 {
-// 					for i := 0; i < numMessageSpams; i++ {
-// 						select {
-// 						case <-dones[i]:
-// 							finished--
-// 						default:
-// 						}
-// 					}
-// 				}
-//
-// 				time.Sleep(time.Minute)
-//
-// 			})
-// 		}
-// 	})
-// })
-//
-// func randomBytes(n int) []byte {
-// 	b := make([]byte, n)
-// 	_, err := rand.Read(b)
-// 	if err != nil {
-// 		panic(err)
-// 	}
-//
-// 	return b
-// }
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"math/rand"
+	"testing/quick"
+	"time"
+
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+	. "github.com/renproject/aw/testutil"
+
+	"github.com/renproject/aw/peer"
+	"github.com/renproject/aw/protocol"
+	"github.com/renproject/phi"
+	"github.com/sirupsen/logrus"
+)
+
+var _ = Describe("Peer", func() {
+
+	castTest := func(ctx context.Context, peers []peer.Peer, events []chan protocol.Event) {
+		castCtx, castCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer castCancel()
+
+		sender, receiver := RandomSenderAndReceiver(len(peers))
+		messageBody := RandomMessageBody()
+		Expect(peers[sender].Cast(castCtx, peers[receiver].Me().PeerID(), messageBody)).NotTo(HaveOccurred())
+
+		message, ok := ReadChannel(castCtx, events[receiver])
+		Expect(ok).Should(BeTrue())
+		Expect(message.From.Equal(peers[sender].Me().PeerID())).Should(BeTrue())
+		Expect(bytes.Equal(message.Message, messageBody)).Should(BeTrue())
+	}
+
+	multicastTest := func(ctx context.Context, peers []peer.Peer, events []chan protocol.Event) {
+		multicastCtx, multicastCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer multicastCancel()
+
+		sender := rand.Intn(len(peers))
+		messageBody := RandomMessageBody()
+		Expect(peers[sender].Multicast(multicastCtx, protocol.NilPeerGroupID, messageBody)).NotTo(HaveOccurred())
+
+		for i, event := range events {
+			if i == sender {
+				continue
+			}
+			message, ok := ReadChannel(multicastCtx, event)
+			Expect(ok).Should(BeTrue())
+			Expect(message.From.Equal(peers[sender].Me().PeerID())).Should(BeTrue())
+			Expect(bytes.Equal(message.Message, messageBody)).Should(BeTrue())
+		}
+	}
+
+	broadcastTest := func(ctx context.Context, peers []peer.Peer, events []chan protocol.Event) bool {
+		broadcastCtx, broadcastCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer broadcastCancel()
+
+		sender := rand.Intn(len(peers))
+		messageBody := RandomMessageBody()
+		Expect(peers[sender].Broadcast(broadcastCtx, protocol.NilPeerGroupID, messageBody)).NotTo(HaveOccurred())
+
+		for i, event := range events {
+			if i == sender {
+				continue
+			}
+			message, ok := ReadChannel(broadcastCtx, event)
+			Expect(ok).Should(BeTrue())
+			Expect(bytes.Equal(message.Message, messageBody)).Should(BeTrue())
+		}
+		return true
+	}
+
+	Context("single group network", func() {
+		networkOption := []struct {
+			B int // num of bootstrap nodes
+			N int // total num of nodes(including bootstrap nodes )
+		}{
+			{4, 12},
+		}
+
+		for _, option := range networkOption {
+			b, n := option.B, option.N
+
+			Context(fmt.Sprintf("when network have %v peers and %v of them are bootstrap nodes", n, b), func() {
+				It("should connect to all other nodes in the network", func() {
+					ctx, cancel := context.WithCancel(context.Background())
+					defer func() {
+						cancel()
+						time.Sleep(2 * time.Second)
+					}()
+
+					// Start all bootstrap nodes and all other nodes 3 seconds later.
+					peers, events := NewFullyConnectedPeers(b, n)
+					go phi.ParForAll(peers, func(i int) {
+						if i >= b {
+							time.Sleep(3 * time.Second)
+						}
+						peers[i].Run(ctx)
+					})
+
+					// Expect they all connect to each other
+					Eventually(func() bool {
+						for _, peer := range peers {
+							numPeers, err := peer.NumPeers()
+							if err != nil {
+								return false
+							}
+							if numPeers < n-1 {
+								return false
+							}
+						}
+						return true
+					}, 2*time.Minute, 3*time.Second).Should(BeTrue())
+					logrus.Print("All nodes are connected to each other.")
+
+					// Expect cast is working as expected.
+					logrus.Print("Testing cast messages...")
+					cast := func() bool {
+						castTest(ctx, peers, events)
+						return true
+					}
+					Expect(quick.Check(cast, nil)).NotTo(HaveOccurred())
+
+					// Expect multicast is working as expected
+					logrus.Print("Testing multicast messages...")
+					multicast := func() bool {
+						multicastTest(ctx, peers, events)
+						return true
+					}
+					Expect(quick.Check(multicast, nil)).NotTo(HaveOccurred())
+
+					// Expect multicast is working as expected
+					logrus.Print("Testing broadcast messages...")
+					broadcast := func() bool {
+						return broadcastTest(ctx, peers, events)
+					}
+					Expect(quick.Check(broadcast, nil)).NotTo(HaveOccurred())
+				})
+			})
+		}
+	})
+})
