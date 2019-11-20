@@ -45,7 +45,7 @@ func RandomBytes(length int) []byte {
 }
 
 func RandomMessageBody() []byte {
-	length := rand.Intn(256)
+	length := rand.Intn(512)
 	return RandomBytes(length)
 }
 

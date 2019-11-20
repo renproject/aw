@@ -53,12 +53,11 @@ var _ = Describe("Peer", func() {
 		}
 	}
 
-	broadcastTest := func(ctx context.Context, peers []peer.Peer, events []chan protocol.Event) bool {
+	broadcastTest := func(ctx context.Context, peers []peer.Peer, events []chan protocol.Event, messageBody []byte) bool {
 		broadcastCtx, broadcastCancel := context.WithTimeout(ctx, 10*time.Second)
 		defer broadcastCancel()
 
 		sender := rand.Intn(len(peers))
-		messageBody := RandomMessageBody()
 		Expect(peers[sender].Broadcast(broadcastCtx, protocol.NilPeerGroupID, messageBody)).NotTo(HaveOccurred())
 
 		for i, event := range events {
@@ -133,8 +132,17 @@ var _ = Describe("Peer", func() {
 
 					// Expect multicast is working as expected
 					logrus.Print("Testing broadcast messages...")
+					messages := map[string]struct{}{}
 					broadcast := func() bool {
-						return broadcastTest(ctx, peers, events)
+						message := RandomMessageBody()
+						for {
+							if _, ok := messages[string(message)]; !ok {
+								break
+							}
+							message = RandomMessageBody()
+						}
+						messages[string(message)] = struct{}{}
+						return broadcastTest(ctx, peers, events, message)
 					}
 					Expect(quick.Check(broadcast, nil)).NotTo(HaveOccurred())
 				})
