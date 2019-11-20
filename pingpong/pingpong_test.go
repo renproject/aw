@@ -16,31 +16,74 @@ import (
 
 var _ = Describe("Pingpong", func() {
 	Context("when trying to ping another peer", func() {
-		It("should send a ping message through the message sender", func() {
-			test := func() bool {
-				me := RandomAddress()
-				messages := make(chan protocol.MessageOnTheWire, 128)
-				events := make(chan protocol.Event, 1)
-				dht := NewDHT(me, NewTable("dht"), nil)
-				pingpong := NewPingPonger(logrus.New(), dht, messages, events, SimpleTCPPeerAddressCodec{})
+		Context("when dht has the target PeerAddress", func() {
+			It("should send a ping message through the message sender", func() {
+				test := func() bool {
+					me := RandomAddress()
+					messages := make(chan protocol.MessageOnTheWire, 128)
+					events := make(chan protocol.Event, 1)
+					dht := NewDHT(me, NewTable("dht"), nil)
+					pingpong := NewPingPonger(logrus.New(), dht, messages, events, SimpleTCPPeerAddressCodec{})
 
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
 
-				to := RandomAddress()
-				Expect(dht.AddPeerAddress(to)).NotTo(HaveOccurred())
-				Expect(pingpong.Ping(ctx, to.ID)).NotTo(HaveOccurred())
+					to := RandomAddress()
+					Expect(dht.AddPeerAddress(to)).NotTo(HaveOccurred())
+					Expect(pingpong.Ping(ctx, to.ID)).NotTo(HaveOccurred())
 
-				var message protocol.MessageOnTheWire
-				Eventually(messages).Should(Receive(&message))
-				Expect(to.Equal(message.To)).Should(BeTrue())
-				Expect(message.Message.Version).Should(Equal(protocol.V1))
-				Expect(message.Message.Variant).Should(Equal(protocol.Ping))
+					var message protocol.MessageOnTheWire
+					Eventually(messages).Should(Receive(&message))
+					Expect(to.Equal(message.To)).Should(BeTrue())
+					Expect(message.Message.Version).Should(Equal(protocol.V1))
+					Expect(message.Message.Variant).Should(Equal(protocol.Ping))
 
-				return true
-			}
+					return true
+				}
 
-			Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
+				Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
+			})
+		})
+
+		Context("when dht doesn't have the target PeerAddress", func() {
+			It("should return an error", func() {
+				test := func() bool {
+					messages := make(chan protocol.MessageOnTheWire, 128)
+					events := make(chan protocol.Event, 1)
+					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+					pingpong := NewPingPonger(logrus.New(), dht, messages, events, SimpleTCPPeerAddressCodec{})
+
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+
+					to := RandomAddress()
+					Expect(pingpong.Ping(ctx, to.ID)).To(HaveOccurred())
+					return true
+				}
+
+				Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
+			})
+		})
+
+		Context("when context expired when trying to ping", func() {
+			It("should return an error", func() {
+				test := func() bool {
+					messages := make(chan protocol.MessageOnTheWire)
+					events := make(chan protocol.Event)
+					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+					pingpong := NewPingPonger(logrus.New(), dht, messages, events, SimpleTCPPeerAddressCodec{})
+
+					ctx, cancel := context.WithCancel(context.Background())
+					cancel()
+
+					to := RandomAddress()
+					Expect(dht.AddPeerAddress(to)).NotTo(HaveOccurred())
+					Expect(pingpong.Ping(ctx, to.ID)).To(HaveOccurred())
+					return true
+				}
+
+				Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
+			})
 		})
 	})
 
@@ -158,6 +201,30 @@ var _ = Describe("Pingpong", func() {
 					ping = protocol.NewMessage(protocol.V1, protocol.Ping, protocol.NilPeerGroupID, data)
 					ping.Version = InvalidMessageVersion()
 					Expect(pingpong.AcceptPing(ctx, ping)).To(HaveOccurred())
+					return true
+				}
+
+				Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
+			})
+		})
+
+		Context("when the ping comes from self", func() {
+			It("should ignore the ping and not return any error", func() {
+				test := func() bool {
+					messages := make(chan protocol.MessageOnTheWire, 128)
+					events := make(chan protocol.Event, 1)
+					me := RandomAddress()
+					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+					codec := SimpleTCPPeerAddressCodec{}
+					pingpong := NewPingPonger(logrus.New(), dht, messages, events, codec)
+
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+					data, err := codec.Encode(me)
+					Expect(err).NotTo(HaveOccurred())
+
+					ping := protocol.NewMessage(protocol.V1, protocol.Ping, protocol.NilPeerGroupID, data)
+					Expect(pingpong.AcceptPing(ctx, ping)).NotTo(HaveOccurred())
 					return true
 				}
 

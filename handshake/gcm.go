@@ -105,8 +105,5 @@ func (session *gcmSession) WriteMessage(w io.Writer, message protocol.Message) e
 	if n != len(data) {
 		return fmt.Errorf("error writing message: expected n=%v, got n=%v", len(data), n)
 	}
-	if err != nil {
-		return fmt.Errorf("error writing message: %v", err)
-	}
-	return nil
+	return err
 }

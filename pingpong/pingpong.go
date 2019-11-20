@@ -3,7 +3,6 @@ package pingpong
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"time"
 
@@ -107,10 +106,8 @@ func (pp *pingPonger) AcceptPong(ctx context.Context, message protocol.Message) 
 	if err != nil {
 		return newErrDecodingMessage(err, protocol.Pong, message.Body)
 	}
-	if _, err := pp.updatePeerAddress(ctx, peerAddr); err != nil {
-		return newStorageErr(err)
-	}
-	return nil
+	_, err = pp.updatePeerAddress(ctx, peerAddr)
+	return err
 }
 
 func (pp *pingPonger) pong(ctx context.Context, to protocol.PeerAddress) error {
@@ -133,10 +130,7 @@ func (pp *pingPonger) pong(ctx context.Context, to protocol.PeerAddress) error {
 func (pp *pingPonger) propagatePing(ctx context.Context, sender protocol.PeerID, body protocol.MessageBody) error {
 	peerAddrs, err := pp.dht.PeerAddresses()
 	if err != nil {
-		return newStorageErr(err)
-	}
-	if len(peerAddrs) == 0 {
-		return errors.New("dht has zero address")
+		return err
 	}
 
 	// Using the messaging sending channel protects the pinger/ponger from
@@ -180,8 +174,4 @@ func (pp *pingPonger) updatePeerAddress(ctx context.Context, peerAddr protocol.P
 
 func newErrDecodingMessage(err error, variant protocol.MessageVariant, message []byte) error {
 	return fmt.Errorf("cannot decode %v message [%v], err = %v", variant, base64.RawStdEncoding.EncodeToString(message), err)
-}
-
-func newStorageErr(err error) error {
-	return fmt.Errorf("error in pingponger storager : err = %v", err)
 }

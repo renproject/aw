@@ -41,6 +41,20 @@ var _ = Describe("Handshaker", func() {
 		return clientSession, serverSession
 	}
 
+	Context("when initializing handshake", func() {
+		It("should panic if providing a nil SignVerifier", func() {
+			Expect(func() {
+				_ = New(NewMockSignVerifier(), nil)
+			}).Should(Panic())
+		})
+
+		It("should panic if providing a nil sessionManager", func() {
+			Expect(func() {
+				_ = New(nil, NewGCMSessionManager())
+			}).Should(Panic())
+		})
+	})
+
 	Context("when both client and server are honest", func() {
 		Context("when handshaking", func() {
 			It("should authenticate the client and server", func() {
