@@ -7,6 +7,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	. "github.com/renproject/aw/protocol"
+	. "github.com/renproject/aw/testutil"
 )
 
 var _ = Describe("Protocol", func() {
@@ -31,6 +32,18 @@ var _ = Describe("Protocol", func() {
 
 		It("should panic for invalid variants", func() {
 			Expect(func() { _ = MessageVariant(6).String() }).To(Panic())
+		})
+	})
+
+	Context("when checking message GroupID", func() {
+		It("should be nil for Ping, Pong and Cast message", func() {
+			Expect(ValidatePeerGroupID(NilPeerGroupID,Ping)).To(BeNil())
+			Expect(ValidatePeerGroupID(NilPeerGroupID,Pong)).To(BeNil())
+			Expect(ValidatePeerGroupID(NilPeerGroupID,Cast)).To(BeNil())
+
+			Expect(ValidatePeerGroupID(RandomPeerGroupID(),Ping)).NotTo(BeNil())
+			Expect(ValidatePeerGroupID(RandomPeerGroupID(),Pong)).NotTo(BeNil())
+			Expect(ValidatePeerGroupID(RandomPeerGroupID(),Cast)).NotTo(BeNil())
 		})
 	})
 
@@ -71,23 +84,21 @@ var _ = Describe("Protocol", func() {
 
 	Context("when creating invalid messages", func() {
 		It("should panic for invalid versions", func() {
-			body := [32]byte{}
-			n, err := rand.Read(body[:])
-			Expect(n).To(Equal(32))
-			Expect(err).ToNot(HaveOccurred())
-			messageBody := MessageBody(body[:])
+			messageBody := RandomMessageBody()
 			Expect(func() { NewMessage(MessageVersion(2), Cast, NilPeerGroupID, messageBody) }).To(Panic())
 		})
 
 		It("should panic for invalid variants", func() {
-			body := [32]byte{}
-			n, err := rand.Read(body[:])
-			Expect(n).To(Equal(32))
-			Expect(err).ToNot(HaveOccurred())
-			messageBody := MessageBody(body[:])
+			messageBody := RandomMessageBody()
 			Expect(func() { NewMessage(V1, MessageVariant(6), NilPeerGroupID, messageBody) }).To(Panic())
 		})
 
+		It("should panic for invalid groupID", func() {
+			messageBody := RandomMessageBody()
+			Expect(func() { NewMessage(V1, Ping, RandomPeerGroupID(), messageBody) }).To(Panic())
+			Expect(func() { NewMessage(V1, Pong, RandomPeerGroupID(), messageBody) }).To(Panic())
+			Expect(func() { NewMessage(V1, Ping, RandomPeerGroupID(), messageBody) }).To(Panic())
+		})
 	})
 
 	Context("when hashing a valid message", func() {

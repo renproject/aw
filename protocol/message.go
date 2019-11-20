@@ -185,26 +185,3 @@ func ValidatePeerGroupID(groupID PeerGroupID, variant MessageVariant) error {
 	}
 	return nil
 }
-
-// ValidateMessage checks if the given message is valid.
-func ValidateMessage(message Message) error {
-	if err := ValidateMessageVersion(message.Version); err != nil {
-		return err
-	}
-	if err := ValidateMessageVariant(message.Variant); err != nil {
-		return err
-	}
-	if err := ValidatePeerGroupID(message.GroupID, message.Variant); err != nil {
-		return err
-	}
-
-	length := 8
-	if message.Variant != Broadcast && message.Variant != Multicast {
-		length = 40
-	}
-	if int(message.Length) != length+len(message.Body) {
-		return ErrInvalidPeerGroupID
-	}
-
-	return nil
-}
