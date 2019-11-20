@@ -13,7 +13,7 @@ import (
 
 type Multicaster interface {
 	Multicast(ctx context.Context, groupID protocol.PeerGroupID, body protocol.MessageBody) error
-	AcceptMulticast(ctx context.Context, message protocol.Message) error
+	AcceptMulticast(ctx context.Context, from protocol.PeerID, message protocol.Message) error
 }
 
 type multicaster struct {
@@ -65,7 +65,7 @@ func (multicaster *multicaster) Multicast(ctx context.Context, groupID protocol.
 	return nil
 }
 
-func (multicaster *multicaster) AcceptMulticast(ctx context.Context, message protocol.Message) error {
+func (multicaster *multicaster) AcceptMulticast(ctx context.Context, from protocol.PeerID, message protocol.Message) error {
 	// TODO: Multicasting will always emit an event for a received message, even
 	// if the message has been seen before. Should this be changed?
 	if message.Version != protocol.V1 {
@@ -78,6 +78,7 @@ func (multicaster *multicaster) AcceptMulticast(ctx context.Context, message pro
 	event := protocol.EventMessageReceived{
 		Time:    time.Now(),
 		Message: message.Body,
+		From:    from,
 	}
 
 	// Check if context is already expired

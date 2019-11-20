@@ -153,7 +153,7 @@ var _ = Describe("Broadcaster", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				message := protocol.NewMessage(protocol.V1, protocol.Broadcast, groupID, messageBody)
-				Expect(broadcaster.AcceptBroadcast(ctx, message)).ToNot(HaveOccurred())
+				Expect(broadcaster.AcceptBroadcast(ctx, RandomPeerID(), message)).ToNot(HaveOccurred())
 
 				var event protocol.EventMessageReceived
 				Eventually(events).Should(Receive(&event))
@@ -184,7 +184,7 @@ var _ = Describe("Broadcaster", func() {
 					ctx, cancel := context.WithCancel(context.Background())
 					cancel()
 					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, RandomPeerGroupID(), messageBody)
-					Expect(broadcaster.AcceptBroadcast(ctx, message)).To(HaveOccurred())
+					Expect(broadcaster.AcceptBroadcast(ctx, RandomPeerID(), message)).To(HaveOccurred())
 
 					return true
 				}
@@ -205,7 +205,7 @@ var _ = Describe("Broadcaster", func() {
 					defer cancel()
 					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, RandomPeerGroupID(), messageBody)
 					message.Version = InvalidMessageVersion()
-					Expect(broadcaster.AcceptBroadcast(ctx, message)).To(HaveOccurred())
+					Expect(broadcaster.AcceptBroadcast(ctx, RandomPeerID(), message)).To(HaveOccurred())
 
 					return true
 				}
@@ -226,7 +226,7 @@ var _ = Describe("Broadcaster", func() {
 					defer cancel()
 					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, RandomPeerGroupID(), messageBody)
 					message.Variant = InvalidMessageVariant(protocol.Broadcast)
-					Expect(broadcaster.AcceptBroadcast(ctx, message)).To(HaveOccurred())
+					Expect(broadcaster.AcceptBroadcast(ctx, RandomPeerID(), message)).To(HaveOccurred())
 
 					return true
 				}
@@ -253,7 +253,7 @@ var _ = Describe("Broadcaster", func() {
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
 					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, groupID, messageBody)
-					Expect(broadcaster.AcceptBroadcast(ctx, message)).ToNot(HaveOccurred())
+					Expect(broadcaster.AcceptBroadcast(ctx, RandomPeerID(), message)).ToNot(HaveOccurred())
 
 					var event protocol.EventMessageReceived
 					Eventually(events).Should(Receive(&event))
@@ -268,7 +268,7 @@ var _ = Describe("Broadcaster", func() {
 						Expect(addrs).Should(ContainElement(message.To))
 					}
 
-					Expect(broadcaster.AcceptBroadcast(ctx, message)).ToNot(HaveOccurred())
+					Expect(broadcaster.AcceptBroadcast(ctx, RandomPeerID(), message)).ToNot(HaveOccurred())
 					Eventually(events).ShouldNot(Receive())
 					return true
 				}

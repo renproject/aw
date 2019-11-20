@@ -12,7 +12,7 @@ import (
 
 type Caster interface {
 	Cast(ctx context.Context, to protocol.PeerID, body protocol.MessageBody) error
-	AcceptCast(ctx context.Context, message protocol.Message) error
+	AcceptCast(ctx context.Context, from protocol.PeerID, message protocol.Message) error
 }
 
 type caster struct {
@@ -57,7 +57,7 @@ func (caster *caster) Cast(ctx context.Context, to protocol.PeerID, body protoco
 	}
 }
 
-func (caster *caster) AcceptCast(ctx context.Context, message protocol.Message) error {
+func (caster *caster) AcceptCast(ctx context.Context, from protocol.PeerID, message protocol.Message) error {
 	// TODO: Update to allow message forwarding.
 	// Pre-condition checks
 	if message.Version != protocol.V1 {
@@ -70,6 +70,7 @@ func (caster *caster) AcceptCast(ctx context.Context, message protocol.Message) 
 	event := protocol.EventMessageReceived{
 		Time:    time.Now(),
 		Message: message.Body,
+		From:    from,
 	}
 
 	// Check if context is already expired

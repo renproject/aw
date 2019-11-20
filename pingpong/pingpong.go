@@ -136,7 +136,7 @@ func (pp *pingPonger) propagatePing(ctx context.Context, sender protocol.PeerID,
 		return newStorageErr(err)
 	}
 	if len(peerAddrs) == 0 {
-		return errors.New("dht has zero address.")
+		return errors.New("dht has zero address")
 	}
 
 	// Using the messaging sending channel protects the pinger/ponger from

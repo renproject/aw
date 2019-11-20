@@ -26,7 +26,7 @@ type Broadcaster interface {
 	Broadcast(ctx context.Context, groupID protocol.PeerGroupID, body protocol.MessageBody) error
 
 	// AcceptBroadcast message from another peer in the network.
-	AcceptBroadcast(ctx context.Context, message protocol.Message) error
+	AcceptBroadcast(ctx context.Context, from protocol.PeerID, message protocol.Message) error
 }
 
 type broadcaster struct {
@@ -54,7 +54,6 @@ func NewBroadcaster(logger logrus.FieldLogger, messages protocol.MessageSender, 
 // Broadcast a message to multiple remote servers in an attempt to saturate the
 // network.
 func (broadcaster *broadcaster) Broadcast(ctx context.Context, groupID protocol.PeerGroupID, body protocol.MessageBody) error {
-
 	// Ignore message if it already been sent.
 	message := protocol.NewMessage(protocol.V1, protocol.Broadcast, groupID, body)
 	ok, err := broadcaster.messageHashAlreadySeen(message.Hash())
@@ -78,6 +77,10 @@ func (broadcaster *broadcaster) Broadcast(ctx context.Context, groupID protocol.
 	default:
 	}
 
+	if err := broadcaster.store.Insert(message.Hash().String(), true); err != nil {
+		return err
+	}
+
 	phi.ParForAll(addrs, func(i int) {
 		to := addrs[i]
 		if to == nil {
@@ -96,12 +99,12 @@ func (broadcaster *broadcaster) Broadcast(ctx context.Context, groupID protocol.
 		}
 	})
 
-	return broadcaster.store.Insert(message.Hash().String(), true)
+	return nil
 }
 
 // AcceptBroadcast from a remote client and propagate it to all peers in the
 // network.
-func (broadcaster *broadcaster) AcceptBroadcast(ctx context.Context, message protocol.Message) error {
+func (broadcaster *broadcaster) AcceptBroadcast(ctx context.Context, from protocol.PeerID, message protocol.Message) error {
 	// Pre-condition checks
 	if message.Version != protocol.V1 {
 		return protocol.NewErrMessageVersionIsNotSupported(message.Version)
@@ -124,6 +127,7 @@ func (broadcaster *broadcaster) AcceptBroadcast(ctx context.Context, message pro
 	event := protocol.EventMessageReceived{
 		Time:    time.Now(),
 		Message: message.Body,
+		From:    from,
 	}
 
 	// Check if context is already expired

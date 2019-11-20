@@ -31,7 +31,7 @@ func (client *Client) Run(ctx context.Context, messages protocol.MessageReceiver
 		case <-ctx.Done():
 			return
 		case messageOtw := <-messages:
-			client.handleMessageOnTheWire(messageOtw)
+			go client.handleMessageOnTheWire(messageOtw)
 		}
 	}
 }
@@ -45,10 +45,11 @@ func (client *Client) handleMessageOnTheWire(message protocol.MessageOnTheWire) 
 
 var DefaultServerOptions = ServerOptions{
 	Logger:           logrus.StandardLogger(),
-	Timeout:          20 * time.Second,
 	Host:             "127.0.0.1:19231",
+	Timeout:          20 * time.Second,
 	RateLimit:        time.Minute,
 	TimeoutKeepAlive: 10 * time.Second,
+	MaxConnections:   256,
 }
 
 type ServerOptions struct {
@@ -107,6 +108,7 @@ func NewServer(options ServerOptions, handshaker handshake.Handshaker) *Server {
 // for new connections, spawning each one into a background goroutine so that it
 // can be handled concurrently.
 func (server *Server) Run(ctx context.Context, messages protocol.MessageSender) {
+	server.options.Logger.Debugf("server start listening at %v", server.options.Host)
 	listener, err := net.Listen("tcp", server.options.Host)
 	if err != nil {
 		server.options.Logger.Fatalf("failed to listen on %s: %v", server.options.Host, err)
@@ -123,6 +125,7 @@ func (server *Server) Run(ctx context.Context, messages protocol.MessageSender) 
 	}()
 
 	for {
+		server.options.Logger.Debugf("waiting for new connection...")
 		conn, err := listener.Accept()
 		if err != nil {
 			select {
@@ -136,6 +139,7 @@ func (server *Server) Run(ctx context.Context, messages protocol.MessageSender) 
 			server.options.Logger.Errorf("error accepting connection: %v", err)
 			continue
 		}
+		server.options.Logger.Debugf("new connect from %v", conn.RemoteAddr().String())
 
 		// Spawn background goroutine to handle this connection so that it does
 		// not block other connections.
@@ -153,6 +157,7 @@ func (server *Server) handle(ctx context.Context, conn net.Conn, messages protoc
 	}
 
 	// Attempt to establish a session with the client.
+	now := time.Now()
 	session, err := server.establishSession(ctx, conn)
 	if err != nil {
 		server.options.Logger.Errorf("closing connection: error establishing session: %v", err)
@@ -162,6 +167,7 @@ func (server *Server) handle(ctx context.Context, conn net.Conn, messages protoc
 		server.options.Logger.Errorf("cannot establish session with %v", conn.RemoteAddr().String())
 		return
 	}
+	server.options.Logger.Debugf("new connection with %v takes %v", conn.RemoteAddr().String(), time.Now().Sub(now))
 
 	for {
 		messageOtw, err := session.ReadMessageOnTheWire(conn)
@@ -178,6 +184,7 @@ func (server *Server) handle(ctx context.Context, conn net.Conn, messages protoc
 		case <-ctx.Done():
 			return
 		case messages <- messageOtw:
+			server.options.Logger.Debugf("receive a %v message from %v", messageOtw.Message.Variant, messageOtw.From.String())
 		}
 	}
 }
@@ -202,7 +209,7 @@ func (server *Server) allowRateLimit(conn net.Conn) bool {
 	}
 
 	if time.Now().Sub(lastConnAttempt) < server.options.RateLimit {
-		server.options.Logger.Warn("%s is rate limited", conn.RemoteAddr())
+		server.options.Logger.Debugf("%s is rate limited", conn.RemoteAddr())
 		return false
 	}
 	return true
