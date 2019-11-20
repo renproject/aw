@@ -37,7 +37,10 @@ var _ = Describe("Connection pool", func() {
 			It("should try to connect to it and maintain the connection in the pool", func() {
 				test := func() bool {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-					defer cancel()
+					defer func() {
+						cancel()
+						time.Sleep(10 * time.Millisecond)
+					}()
 
 					// Initialize a connPool
 					clientSignVerifier := NewMockSignVerifier()
@@ -66,7 +69,10 @@ var _ = Describe("Connection pool", func() {
 			It("return an error when trying to send messages to new receiver", func() {
 				test := func() bool {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-					defer cancel()
+					defer func() {
+						cancel()
+						time.Sleep(10 * time.Millisecond)
+					}()
 
 					// Initialize a connPool
 					clientSignVerifier := NewMockSignVerifier()
@@ -97,7 +103,10 @@ var _ = Describe("Connection pool", func() {
 			It("should close the connection to release the resources", func() {
 				test := func() bool {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-					defer cancel()
+					defer func() {
+						cancel()
+						time.Sleep(10 * time.Millisecond)
+					}()
 
 					// Initialize a connPool
 					clientSignVerifier := NewMockSignVerifier()
