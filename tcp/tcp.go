@@ -174,7 +174,7 @@ func (server *Server) handle(ctx context.Context, conn net.Conn, messages protoc
 
 		if err != nil {
 			if err != io.EOF {
-				server.options.Logger.Error(newErrReadingIncomingMessage(err))
+				server.options.Logger.Errorf("error reading incoming message: %v", err)
 			}
 			server.options.Logger.Info("closing connection: EOF")
 			return
@@ -208,11 +208,7 @@ func (server *Server) allowRateLimit(conn net.Conn) bool {
 		return true
 	}
 
-	if time.Now().Sub(lastConnAttempt) < server.options.RateLimit {
-		server.options.Logger.Debugf("%s is rate limited", conn.RemoteAddr())
-		return false
-	}
-	return true
+	return time.Now().Sub(lastConnAttempt) >= server.options.RateLimit
 }
 
 func (server *Server) establishSession(ctx context.Context, conn net.Conn) (protocol.Session, error) {
@@ -224,12 +220,4 @@ func (server *Server) establishSession(ctx context.Context, conn net.Conn) (prot
 		return nil, fmt.Errorf("bad handshake with %v: %v", conn.RemoteAddr().String(), err)
 	}
 	return session, nil
-}
-
-type ErrReadingIncomingMessage struct {
-	error
-}
-
-func newErrReadingIncomingMessage(err error) error {
-	return ErrReadingIncomingMessage{fmt.Errorf("error reading incoming message: %v", err)}
 }

@@ -37,13 +37,13 @@ var _ = Describe("Protocol", func() {
 
 	Context("when checking message GroupID", func() {
 		It("should be nil for Ping, Pong and Cast message", func() {
-			Expect(ValidatePeerGroupID(NilPeerGroupID,Ping)).To(BeNil())
-			Expect(ValidatePeerGroupID(NilPeerGroupID,Pong)).To(BeNil())
-			Expect(ValidatePeerGroupID(NilPeerGroupID,Cast)).To(BeNil())
+			Expect(ValidatePeerGroupID(NilPeerGroupID, Ping)).To(BeNil())
+			Expect(ValidatePeerGroupID(NilPeerGroupID, Pong)).To(BeNil())
+			Expect(ValidatePeerGroupID(NilPeerGroupID, Cast)).To(BeNil())
 
-			Expect(ValidatePeerGroupID(RandomPeerGroupID(),Ping)).NotTo(BeNil())
-			Expect(ValidatePeerGroupID(RandomPeerGroupID(),Pong)).NotTo(BeNil())
-			Expect(ValidatePeerGroupID(RandomPeerGroupID(),Cast)).NotTo(BeNil())
+			Expect(ValidatePeerGroupID(RandomPeerGroupID(), Ping)).NotTo(BeNil())
+			Expect(ValidatePeerGroupID(RandomPeerGroupID(), Pong)).NotTo(BeNil())
+			Expect(ValidatePeerGroupID(RandomPeerGroupID(), Cast)).NotTo(BeNil())
 		})
 	})
 

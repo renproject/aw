@@ -27,6 +27,14 @@ var _ = Describe("TCP client and server", func() {
 		return message
 	}
 
+	Context("when initializing a server", func() {
+		It("should panic if providing a nil handshaker", func() {
+			Expect(func() {
+				_ = NewServer(ServerOptions{}, nil)
+			}).Should(Panic())
+		})
+	})
+
 	Context("when sending a message", func() {
 		It("should create a session between client and server and successfully send the message through the session", func() {
 			ctx, cancel := context.WithCancel(context.Background())
