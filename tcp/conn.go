@@ -81,7 +81,6 @@ func (pool *connPool) Send(to net.Addr, m protocol.Message) error {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	now := time.Now()
 	toStr := to.String()
 	c, ok := pool.conns[toStr]
 	if !ok {
@@ -99,7 +98,6 @@ func (pool *connPool) Send(to net.Addr, m protocol.Message) error {
 		go pool.closeConn(toStr)
 	}
 
-	defer pool.options.Logger.Debugf("sending a %v message to %v takes %v", m.Variant, to.String(), time.Now().Sub(now))
 	return c.session.WriteMessage(c.conn, m)
 }
 
@@ -111,6 +109,7 @@ func (pool *connPool) connect(to net.Addr) (conn, error) {
 	if err != nil {
 		return conn{}, err
 	}
+	now := time.Now()
 	session, err := pool.handshaker.Handshake(ctx, netConn)
 	if err != nil {
 		return conn{}, err
@@ -118,6 +117,7 @@ func (pool *connPool) connect(to net.Addr) (conn, error) {
 	if session == nil {
 		return conn{}, fmt.Errorf("nil session [addr = %v] returned by handshaker", to)
 	}
+	pool.options.Logger.Debugf("creating session with %v takes %v", to.String(), time.Now().Sub(now))
 
 	return conn{
 		conn:    netConn,

@@ -210,12 +210,11 @@ func (peer *peer) handleMessage(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			continue
+			return
 		case messageOtw := <-peer.serverMessages:
 			if err := peer.receiveMessageOnTheWire(ctx, messageOtw); err != nil {
 				peer.options.Logger.Error(err)
 			}
-
 		}
 	}
 }
