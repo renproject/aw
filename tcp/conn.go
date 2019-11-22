@@ -78,17 +78,15 @@ func NewConnPool(options ConnPoolOptions, handshaker handshake.Handshaker) ConnP
 }
 
 func (pool *connPool) Send(to net.Addr, m protocol.Message) error {
-	toStr := to.String()
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
 
-	pool.mu.RLock()
+	toStr := to.String()
 	c, ok := pool.conns[toStr]
-	pool.mu.RUnlock()
 	if !ok {
-		pool.mu.RLock()
 		if len(pool.conns) >= pool.options.MaxConnections {
 			return ErrTooManyConnections
 		}
-		pool.mu.RUnlock()
 
 		var err error
 		c, err = pool.connect(to)
@@ -96,9 +94,7 @@ func (pool *connPool) Send(to net.Addr, m protocol.Message) error {
 			return err
 		}
 
-		pool.mu.Lock()
 		pool.conns[toStr] = c
-		pool.mu.Unlock()
 		go pool.closeConn(toStr)
 	}
 
