@@ -52,7 +52,7 @@ type connPool struct {
 	options    ConnPoolOptions
 	handshaker handshake.Handshaker // Handshaker to use while making connections
 
-	mu    *sync.Mutex
+	mu    *sync.RWMutex
 	conns map[string]conn
 }
 
@@ -69,7 +69,7 @@ func NewConnPool(options ConnPoolOptions, handshaker handshake.Handshaker) ConnP
 		panic("ConnPool cannot have a nil handshaker")
 	}
 	return &connPool{
-		mu:    new(sync.Mutex),
+		mu:    new(sync.RWMutex),
 		conns: map[string]conn{},
 
 		options:    options,
@@ -78,11 +78,11 @@ func NewConnPool(options ConnPoolOptions, handshaker handshake.Handshaker) ConnP
 }
 
 func (pool *connPool) Send(to net.Addr, m protocol.Message) error {
-	pool.mu.Lock()
-	defer pool.mu.Unlock()
-
 	toStr := to.String()
+
+	pool.mu.RLock()
 	c, ok := pool.conns[toStr]
+	pool.mu.RUnlock()
 	if !ok {
 		if len(pool.conns) >= pool.options.MaxConnections {
 			return ErrTooManyConnections
@@ -93,7 +93,9 @@ func (pool *connPool) Send(to net.Addr, m protocol.Message) error {
 			return err
 		}
 
+		pool.mu.Lock()
 		pool.conns[toStr] = c
+		pool.mu.Unlock()
 		go pool.closeConn(toStr)
 	}
 
