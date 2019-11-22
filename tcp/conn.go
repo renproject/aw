@@ -84,9 +84,12 @@ func (pool *connPool) Send(to net.Addr, m protocol.Message) error {
 	c, ok := pool.conns[toStr]
 	pool.mu.RUnlock()
 	if !ok {
+		pool.mu.RLock()
 		if len(pool.conns) >= pool.options.MaxConnections {
 			return ErrTooManyConnections
 		}
+		pool.mu.RUnlock()
+
 		var err error
 		c, err = pool.connect(to)
 		if err != nil {
