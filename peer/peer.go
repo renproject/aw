@@ -14,7 +14,6 @@ import (
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/aw/tcp"
 	"github.com/renproject/kv"
-	"github.com/renproject/phi"
 )
 
 type Peer interface {
@@ -42,7 +41,7 @@ type peer struct {
 	server         protocol.Server
 	serverMessages chan protocol.MessageOnTheWire
 
-	// messagers
+	// messengers
 	caster      cast.Caster
 	pingPonger  pingpong.PingPonger
 	multicaster multicast.Multicaster
@@ -58,9 +57,9 @@ func New(options Options, dht dht.DHT, handshaker handshake.Handshaker, client p
 	clientMessages := make(chan protocol.MessageOnTheWire, options.Capacity)
 
 	caster := cast.NewCaster(options.Logger, clientMessages, events, dht)
-	pingponger := pingpong.NewPingPonger(options.Logger, dht, clientMessages, events, options.Codec)
-	multicaster := multicast.NewMulticaster(options.Logger, clientMessages, events, dht)
-	broadcaster := broadcast.NewBroadcaster(options.Logger, clientMessages, events, dht)
+	pingponger := pingpong.NewPingPonger(options.Logger, options.NumWorkers, dht, clientMessages, events, options.Codec)
+	multicaster := multicast.NewMulticaster(options.Logger, options.NumWorkers, clientMessages, events, dht)
+	broadcaster := broadcast.NewBroadcaster(options.Logger, options.NumWorkers, clientMessages, events, dht)
 
 	return &peer{
 		options:    options,
@@ -118,6 +117,10 @@ func (peer *peer) PeerAddresses() (protocol.PeerAddresses, error) {
 	return peer.dht.PeerAddresses()
 }
 
+func (peer *peer) RandomPeerAddresses(id protocol.PeerGroupID, n int) (protocol.PeerAddresses, error) {
+	return peer.dht.RandomPeerAddresses(id, n)
+}
+
 func (peer *peer) AddPeerAddress(addrs protocol.PeerAddress) error {
 	return peer.dht.AddPeerAddress(addrs)
 }
@@ -134,8 +137,12 @@ func (peer *peer) AddPeerGroup(groupID protocol.PeerGroupID, ids protocol.PeerID
 	return peer.dht.AddPeerGroup(groupID, ids)
 }
 
-func (peer *peer) PeerGroup(groupID protocol.PeerGroupID) (protocol.PeerIDs, protocol.PeerAddresses, error) {
-	return peer.dht.PeerGroup(groupID)
+func (peer *peer) PeerGroupIDs(groupID protocol.PeerGroupID) (protocol.PeerIDs, error) {
+	return peer.PeerGroupIDs(groupID)
+}
+
+func (peer *peer) PeerGroupAddresses(groupID protocol.PeerGroupID) (protocol.PeerAddresses, error) {
+	return peer.PeerGroupAddresses(groupID)
 }
 
 func (peer *peer) RemovePeerGroup(groupID protocol.PeerGroupID) {
@@ -165,44 +172,30 @@ func (peer *peer) bootstrap(ctx context.Context) {
 		peer.options.Logger.Errorf("error bootstrapping: error loading peer addresses: %v", err)
 		return
 	}
-	peerAddrsQ := make(chan protocol.PeerAddress, len(peerAddrs))
-	for _, peerAddr := range peerAddrs {
-		peerAddrsQ <- peerAddr
-	}
-	close(peerAddrsQ)
 
-	// Spawn multiple goroutine workers to process the peer addresses in the
-	// queue one-by-one
-	phi.ForAll(peer.options.BootstrapWorkers, func(_ int) {
-		for {
-			peerAddr, ok := <-peerAddrsQ
-			if !ok {
+	protocol.ParForAllAddresses(peerAddrs, peer.options.NumWorkers, func(peerAddr protocol.PeerAddress) {
+		// Timeout is computed to ensure that we are ready for the next
+		// bootstrap tick even if every single ping takes the maximum amount of
+		// time (with a minimum timeout of 1 second)
+		pingTimeout := time.Duration(int64(peer.options.NumWorkers) * int64(peer.options.BootstrapDuration) / int64(len(peerAddrs)))
+		if pingTimeout > peer.options.BootstrapDuration {
+			pingTimeout = peer.options.BootstrapDuration
+		}
+		if pingTimeout > peer.options.MaxPingTimeout {
+			pingTimeout = peer.options.MaxPingTimeout
+		}
+		if pingTimeout < peer.options.MinPingTimeout {
+			pingTimeout = peer.options.MinPingTimeout
+		}
+
+		func() {
+			pingCtx, pingCancel := context.WithTimeout(ctx, pingTimeout)
+			defer pingCancel()
+			if err := peer.pingPonger.Ping(pingCtx, peerAddr.PeerID()); err != nil {
+				peer.options.Logger.Errorf("error bootstrapping: error ping/ponging peer address=%v: %v", peerAddr, err)
 				return
 			}
-
-			// Timeout is computed to ensure that we are ready for the next
-			// bootstrap tick even if every single ping takes the maximum amount of
-			// time (with a minimum timeout of 1 second)
-			pingTimeout := time.Duration(int64(peer.options.BootstrapWorkers) * int64(peer.options.BootstrapDuration) / int64(len(peerAddrs)))
-			if pingTimeout > peer.options.BootstrapDuration {
-				pingTimeout = peer.options.BootstrapDuration
-			}
-			if pingTimeout > 30*time.Second {
-				pingTimeout = 30 * time.Second
-			}
-			if pingTimeout < time.Second {
-				pingTimeout = time.Second
-			}
-
-			func() {
-				pingCtx, pingCancel := context.WithTimeout(ctx, pingTimeout)
-				defer pingCancel()
-				if err := peer.pingPonger.Ping(pingCtx, peerAddr.PeerID()); err != nil {
-					peer.options.Logger.Errorf("error bootstrapping: error ping/ponging peer address=%v: %v", peerAddr, err)
-					return
-				}
-			}()
-		}
+		}()
 	})
 }
 

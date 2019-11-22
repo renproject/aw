@@ -7,7 +7,6 @@ import (
 
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/protocol"
-	"github.com/renproject/phi"
 	"github.com/sirupsen/logrus"
 )
 
@@ -17,23 +16,25 @@ type Multicaster interface {
 }
 
 type multicaster struct {
-	logger   logrus.FieldLogger
-	messages protocol.MessageSender
-	events   protocol.EventSender
-	dht      dht.DHT
+	logger     logrus.FieldLogger
+	numWorkers int
+	messages   protocol.MessageSender
+	events     protocol.EventSender
+	dht        dht.DHT
 }
 
-func NewMulticaster(logger logrus.FieldLogger, messages protocol.MessageSender, events protocol.EventSender, dht dht.DHT) Multicaster {
+func NewMulticaster(logger logrus.FieldLogger, numWorkers int, messages protocol.MessageSender, events protocol.EventSender, dht dht.DHT) Multicaster {
 	return &multicaster{
-		logger:   logger,
-		messages: messages,
-		events:   events,
-		dht:      dht,
+		logger:     logger,
+		numWorkers: numWorkers,
+		messages:   messages,
+		events:     events,
+		dht:        dht,
 	}
 }
 
 func (multicaster *multicaster) Multicast(ctx context.Context, groupID protocol.PeerGroupID, body protocol.MessageBody) error {
-	ids, addrs, err := multicaster.dht.PeerGroup(groupID)
+	addrs, err := multicaster.dht.PeerGroupAddresses(groupID)
 	if err != nil {
 		return err
 	}
@@ -45,10 +46,9 @@ func (multicaster *multicaster) Multicast(ctx context.Context, groupID protocol.
 	default:
 	}
 
-	phi.ParForAll(addrs, func(i int) {
-		to := addrs[i]
+	protocol.ParForAllAddresses(addrs, multicaster.numWorkers, func(to protocol.PeerAddress) {
 		if to == nil {
-			multicaster.logger.Debugf("cannot multicast to node [%v] in group [%v], cannot find PeerAddress from dht.", ids[i], groupID)
+			multicaster.logger.Debugf("cannot multicast to node in group [%v], cannot find PeerAddress from dht.", groupID)
 			return
 		}
 		messageWire := protocol.MessageOnTheWire{
@@ -62,6 +62,7 @@ func (multicaster *multicaster) Multicast(ctx context.Context, groupID protocol.
 		case multicaster.messages <- messageWire:
 		}
 	})
+
 	return nil
 }
 

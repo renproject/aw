@@ -26,7 +26,6 @@ func NewFullyConnectedPeers(b, n int) ([]peer.Peer, []chan protocol.Event) {
 		Codec:                SimpleTCPPeerAddressCodec{},
 		DisablePeerDiscovery: false,
 		Capacity:             128,
-		BootstrapWorkers:     16,
 	}
 
 	peers := make([]peer.Peer, n)

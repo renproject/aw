@@ -25,6 +25,7 @@ package handshake
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/binary"
@@ -32,6 +33,9 @@ import (
 	"io"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/crypto/ecies"
+	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 	"github.com/renproject/aw/protocol"
 )
 
@@ -63,114 +67,33 @@ func New(signVerifier protocol.SignVerifier, sessionManager protocol.SessionMana
 }
 
 func (hs *handshaker) Handshake(ctx context.Context, rw io.ReadWriter) (protocol.Session, error) {
-	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	localPrivateKey, err := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	if err != nil {
-		panic(fmt.Errorf("invariant violation: cannot generate rsa.PrivateKey"))
+		return nil, fmt.Errorf("error generating new ecdsa key : %v", err)
 	}
 
-	// Write our RSA public key with our signature.
-	pubKeyBytes, err := pubKeyToBytes(&privKey.PublicKey)
-	if err != nil {
-		return nil, err
+	// Write self PeerID and Signature of it.
+	localPublicKey := localPrivateKey.PublicKey
+	localPublicKeyBytes := crypto.FromECDSAPub(&localPublicKey)
+	if err := write(rw, localPublicKeyBytes); err != nil {
+		return nil, fmt.Errorf("error writing ecdsa.PublicKey to io.Writer: %v", err)
 	}
-	pubKeySig, err := hs.signVerifier.Sign(hs.signVerifier.Hash(pubKeyBytes))
+	pubKeySig, err := hs.signVerifier.Sign(hs.signVerifier.Hash(localPublicKeyBytes))
 	if err != nil {
-		panic(fmt.Errorf("invariant violation: cannot sign rsa.PublicKey: %v", err))
-	}
-	if err := write(rw, pubKeyBytes); err != nil {
-		return nil, fmt.Errorf("error writing rsa.PublicKey to io.Writer: %v", err)
+		panic(fmt.Errorf("invariant violation: cannot sign ecdsa.publickey: %v", err))
 	}
 	if err := write(rw, pubKeySig); err != nil {
 		return nil, fmt.Errorf("error writing rsa.PublicKey signature to io.Writer: %v", err)
 	}
 
-	// Read the session key and verify the remote signature.
-	remoteSessionKey, err := readEncrypted(rw, privKey)
-	if err != nil {
-		return nil, fmt.Errorf("error reading encrypted session key from io.Reader: %v", err)
-	}
-	localSessionKey := hs.sessionManager.NewSessionKey()
-	if len(localSessionKey) != len(remoteSessionKey) {
-		return nil, fmt.Errorf("error verifying session key: expected session key len=%v, got session key len=%v", len(localSessionKey), len(remoteSessionKey))
-	}
-	remoteSessionKeySig, err := read(rw)
-	if err != nil {
-		return nil, fmt.Errorf("error reading session key signature from io.Reader: %v", err)
-	}
-	remotePeerID, err := hs.signVerifier.Verify(hs.signVerifier.Hash(remoteSessionKey), remoteSessionKeySig)
-	if err != nil {
-		return nil, fmt.Errorf("error verifying session key: %v", err)
-	}
-
-	// Write the session key with our signature.
-	remoteSessionKeySig, err = hs.signVerifier.Sign(hs.signVerifier.Hash(remoteSessionKey))
-	if err != nil {
-		panic(fmt.Errorf("invariant violation: cannot sign session key: %v", err))
-	}
-	if err := write(rw, remoteSessionKeySig); err != nil {
-		return nil, fmt.Errorf("error writing session key signature to io.Writer: %v", err)
-	}
-
-	// Read the remote RSA public key and verify the signature.
+	// Read the remote ECDSA public key and verify the signature.
 	remotePubKeyBytes, err := read(rw)
 	if err != nil {
 		return nil, fmt.Errorf("error reading rsa.PublicKey from io.Reader: %v", err)
 	}
-	remotePubKey, err := pubKeyFromBytes(remotePubKeyBytes)
+	remotePublicKey, err := crypto.UnmarshalPubkey(remotePubKeyBytes)
 	if err != nil {
-		return nil, fmt.Errorf("error unmarshaling rsa.PublicKey: %v", err)
-	}
-	remotePubKeySig, err := read(rw)
-	if err != nil {
-		return nil, fmt.Errorf("error reading rsa.PublicKey signature from io.Reader: %v", err)
-	}
-	remotePeerID2, err := hs.signVerifier.Verify(hs.signVerifier.Hash(remotePubKeyBytes), remotePubKeySig)
-	if err != nil {
-		return nil, fmt.Errorf("error verifying rsa.PublicKey: %v", err)
-	}
-	if !remotePeerID.Equal(remotePeerID2) {
-		return nil, fmt.Errorf("error verifying session key: expected peer=%v, got peer=%v", remotePeerID, remotePeerID2)
-	}
-
-	// Write our own session key with our signature.
-	if err := writeEncrypted(rw, localSessionKey, &remotePubKey); err != nil {
-		return nil, fmt.Errorf("error writing session key to io.Writer: %v", err)
-	}
-	localSessionKeySig, err := hs.signVerifier.Sign(hs.signVerifier.Hash(localSessionKey))
-	if err != nil {
-		panic(fmt.Errorf("invariant violation: cannot sign session key: %v", err))
-	}
-	if err := write(rw, localSessionKeySig); err != nil {
-		return nil, fmt.Errorf("error writing session key signature to io.Writer: %v", err)
-	}
-
-	// Read the remote session key signature.
-	remoteSessionKeySig, err = read(rw)
-	if err != nil {
-		return nil, fmt.Errorf("error reading session key signature from io.Reader: %v", err)
-	}
-	remotePeerID2, err = hs.signVerifier.Verify(hs.signVerifier.Hash(localSessionKey), remoteSessionKeySig)
-	if err != nil {
-		return nil, fmt.Errorf("error verifying session key: %v", err)
-	}
-	if !remotePeerID.Equal(remotePeerID2) {
-		return nil, fmt.Errorf("error verifying session key: expected peer=%v, got peer=%v", remotePeerID, remotePeerID2)
-	}
-
-	// Build the shared session
-	sessionKey := xorSessionKeys(localSessionKey, remoteSessionKey)
-	return hs.sessionManager.NewSession(remotePeerID, sessionKey), nil
-}
-
-func (hs *handshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) (protocol.Session, error) {
-	// Read the remote RSA public key and verify the signature.
-	remotePubKeyBytes, err := read(rw)
-	if err != nil {
-		return nil, fmt.Errorf("error reading rsa.PublicKey from io.Reader: %v", err)
-	}
-	remotePubKey, err := pubKeyFromBytes(remotePubKeyBytes)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshaling rsa.PublicKey: %v", err)
+		return nil, fmt.Errorf("error unmarshaling ecdsa PublicKey: %v", err)
 	}
 	remotePubKeySig, err := read(rw)
 	if err != nil {
@@ -181,81 +104,91 @@ func (hs *handshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) (pr
 		return nil, fmt.Errorf("error verifying rsa.PublicKey: %v", err)
 	}
 
-	// Write the session key with our signature.
-	localSessionKey := hs.sessionManager.NewSessionKey()
-	if err := writeEncrypted(rw, localSessionKey, &remotePubKey); err != nil {
-		return nil, fmt.Errorf("error writing session key to io.Writer: %v", err)
-	}
-	localSessionKeySig, err := hs.signVerifier.Sign(hs.signVerifier.Hash(localSessionKey))
+	// Generate a session key and write to server
+	sessionKey := hs.sessionManager.NewSessionKey()
+	data, err := ecies.Encrypt(rand.Reader, ecies.ImportECDSAPublic(remotePublicKey), sessionKey, nil, nil)
 	if err != nil {
-		panic(fmt.Errorf("invariant violation: cannot sign session key: %v", err))
+		return nil, fmt.Errorf("error encrypting session key: %v", err)
 	}
-	if err := write(rw, localSessionKeySig); err != nil {
-		return nil, fmt.Errorf("error writing session key signature to io.Writer: %v", err)
+	if err := write(rw, data); err != nil {
+		return nil, fmt.Errorf("error writing rsa.PublicKey signature to io.Writer: %v", err)
 	}
 
-	// Read the remote session key signature.
-	remoteSessionKeySig, err := read(rw)
+	// Read and decrypt the session to confirm server receive it.
+	encryptedSessionKey, err := read(rw)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error reading rsa.PublicKey from io.Reader: %v", err)
 	}
-	remotePeerID2, err := hs.signVerifier.Verify(hs.signVerifier.Hash(localSessionKey), remoteSessionKeySig)
+	eciesPrivateKey := ecies.ImportECDSA(localPrivateKey)
+	decryptedSessionKey, err := eciesPrivateKey.Decrypt(encryptedSessionKey, nil, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error decrypting session key from server: %v", err)
 	}
-	if !remotePeerID.Equal(remotePeerID2) {
-		return nil, fmt.Errorf("bad handshake: expected peer=%v, got peer=%v", remotePeerID, remotePeerID2)
+	if !bytes.Equal(decryptedSessionKey, sessionKey) {
+		return nil, fmt.Errorf("server sends wrong session key back")
 	}
 
-	// Write our RSA public key with our signature.
-	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	return hs.sessionManager.NewSession(remotePeerID, sessionKey), nil
+}
+
+func (hs *handshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) (protocol.Session, error) {
+	// Read the remote ECDSA public key and verify the signature.
+	remotePubKeyBytes, err := read(rw)
 	if err != nil {
-		panic(fmt.Errorf("invariant violation: cannot generate rsa.PrivateKey"))
+		return nil, fmt.Errorf("error reading rsa.PublicKey from io.Reader: %v", err)
 	}
-	pubKeyBytes, err := pubKeyToBytes(&privKey.PublicKey)
+	remotePublicKey, err := crypto.UnmarshalPubkey(remotePubKeyBytes)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error unmarshaling remote ecdsa PublicKey: %v", err)
 	}
-	pubKeySig, err := hs.signVerifier.Sign(hs.signVerifier.Hash(pubKeyBytes))
+	remotePubKeySig, err := read(rw)
+	if err != nil {
+		return nil, fmt.Errorf("error reading rsa.PublicKey signature from io.Reader: %v", err)
+	}
+	remotePeerID, err := hs.signVerifier.Verify(hs.signVerifier.Hash(remotePubKeyBytes), remotePubKeySig)
+	if err != nil {
+		return nil, fmt.Errorf("error verifying rsa.PublicKey: %v", err)
+	}
+
+	// Write self PeerID and Signature of it.
+	localPrivateKey, err := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("error generating new ecdsa key : %v", err)
+	}
+	localPublicKey := localPrivateKey.PublicKey
+	localPublicKeyBytes := crypto.FromECDSAPub(&localPublicKey)
+	if err := write(rw, localPublicKeyBytes); err != nil {
+		return nil, fmt.Errorf("error writing rsa.PublicKey to io.Writer: %v", err)
+	}
+	pubKeySig, err := hs.signVerifier.Sign(hs.signVerifier.Hash(localPublicKeyBytes))
 	if err != nil {
 		panic(fmt.Errorf("invariant violation: cannot sign rsa.PublicKey: %v", err))
 	}
-	if err := write(rw, pubKeyBytes); err != nil {
-		return nil, err
-	}
 	if err := write(rw, pubKeySig); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error writing rsa.PublicKey signature to io.Writer: %v", err)
 	}
 
-	// Read the session key and verify the remote signature.
-	remoteSessionKey, err := readEncrypted(rw, privKey)
+	// Read and decrypt session key from the client
+	encryptedSessionKey, err := read(rw)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error reading rsa.PublicKey from io.Reader: %v", err)
 	}
-	if len(localSessionKey) != len(remoteSessionKey) {
-		return nil, fmt.Errorf("bad handshake: expected session key len=%v, got session key len=%v", len(localSessionKey), len(remoteSessionKey))
-	}
-	remoteSessionKeySig, err = read(rw)
+	eciesPrivateKey := ecies.ImportECDSA(localPrivateKey)
+	sessionKey, err := eciesPrivateKey.Decrypt(encryptedSessionKey, nil, nil)
 	if err != nil {
-		return nil, err
-	}
-	remotePeerID2, err = hs.signVerifier.Verify(hs.signVerifier.Hash(remoteSessionKey), remoteSessionKeySig)
-	if err != nil {
-		return nil, err
-	}
-	if !remotePeerID.Equal(remotePeerID2) {
-		return nil, fmt.Errorf("bad handshake: expected peer=%v, got peer=%v", remotePeerID, remotePeerID2)
-	}
-	remoteSessionKeySig, err = hs.signVerifier.Sign(hs.signVerifier.Hash(remoteSessionKey))
-	if err != nil {
-		panic(fmt.Errorf("invariant violation: cannot sign session key: %v", err))
-	}
-	if err := write(rw, remoteSessionKeySig); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error decrypting session key from client: %v", err)
 	}
 
-	// Build the shared session
-	sessionKey := xorSessionKeys(localSessionKey, remoteSessionKey)
+	// Encrypt the session key with client's publick key and write to client
+	data, err := ecies.Encrypt(rand.Reader, ecies.ImportECDSAPublic(remotePublicKey), sessionKey, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error encrypting session key: %v", err)
+	}
+	if err := write(rw, data); err != nil {
+		return nil, fmt.Errorf("error writing rsa.PublicKey signature to io.Writer: %v", err)
+	}
+
+	// fixme : peerID shoud not be nil
 	return hs.sessionManager.NewSession(remotePeerID, sessionKey), nil
 }
 

@@ -21,7 +21,7 @@ var _ = Describe("Multicaster", func() {
 				messages := make(chan protocol.MessageOnTheWire, 128)
 				events := make(chan protocol.Event, 1)
 				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				multicaster := NewMulticaster(logrus.New(), messages, events, dht)
+				multicaster := NewMulticaster(logrus.New(), 8, messages, events, dht)
 
 				groupID, addrs, err := NewGroup(dht)
 				Expect(err).NotTo(HaveOccurred())
@@ -50,7 +50,7 @@ var _ = Describe("Multicaster", func() {
 					messages := make(chan protocol.MessageOnTheWire, 128)
 					events := make(chan protocol.Event, 1)
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-					multicaster := NewMulticaster(logrus.New(), messages, events, dht)
+					multicaster := NewMulticaster(logrus.New(), 8, messages, events, dht)
 
 					groupID, _, err := NewGroup(dht)
 					Expect(err).NotTo(HaveOccurred())
@@ -71,7 +71,7 @@ var _ = Describe("Multicaster", func() {
 					messages := make(chan protocol.MessageOnTheWire, 128)
 					events := make(chan protocol.Event, 1)
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-					multicaster := NewMulticaster(logrus.New(), messages, events, dht)
+					multicaster := NewMulticaster(logrus.New(), 8, messages, events, dht)
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
@@ -89,7 +89,7 @@ var _ = Describe("Multicaster", func() {
 					messages := make(chan protocol.MessageOnTheWire, 128)
 					events := make(chan protocol.Event, 1)
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-					multicaster := NewMulticaster(logrus.New(), messages, events, dht)
+					multicaster := NewMulticaster(logrus.New(), 8, messages, events, dht)
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
@@ -110,7 +110,7 @@ var _ = Describe("Multicaster", func() {
 				messages := make(chan protocol.MessageOnTheWire)
 				events := make(chan protocol.Event, 16)
 				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				multicaster := NewMulticaster(logrus.New(), messages, events, dht)
+				multicaster := NewMulticaster(logrus.New(), 8, messages, events, dht)
 
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
@@ -130,7 +130,7 @@ var _ = Describe("Multicaster", func() {
 				messages := make(chan protocol.MessageOnTheWire)
 				events := make(chan protocol.Event, 16)
 				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				multicaster := NewMulticaster(logrus.New(), messages, events, dht)
+				multicaster := NewMulticaster(logrus.New(), 8, messages, events, dht)
 
 				ctx, cancel := context.WithCancel(context.Background())
 				cancel()
@@ -145,7 +145,7 @@ var _ = Describe("Multicaster", func() {
 				messages := make(chan protocol.MessageOnTheWire)
 				events := make(chan protocol.Event, 16)
 				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				multicaster := NewMulticaster(logrus.New(), messages, events, dht)
+				multicaster := NewMulticaster(logrus.New(), 8, messages, events, dht)
 
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
@@ -161,7 +161,7 @@ var _ = Describe("Multicaster", func() {
 				messages := make(chan protocol.MessageOnTheWire)
 				events := make(chan protocol.Event, 16)
 				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				multicaster := NewMulticaster(logrus.New(), messages, events, dht)
+				multicaster := NewMulticaster(logrus.New(), 8, messages, events, dht)
 
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()

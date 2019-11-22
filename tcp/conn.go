@@ -94,7 +94,6 @@ func (pool *connPool) Send(to net.Addr, m protocol.Message) error {
 		}
 
 		pool.conns[toStr] = c
-		// Fixme : lock can potentially required twice
 		go pool.closeConn(toStr)
 	}
 

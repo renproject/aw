@@ -3,6 +3,7 @@ package pingpong_test
 import (
 	"bytes"
 	"context"
+	"math/rand"
 	"testing/quick"
 
 	. "github.com/onsi/ginkgo"
@@ -23,7 +24,7 @@ var _ = Describe("Pingpong", func() {
 					messages := make(chan protocol.MessageOnTheWire, 128)
 					events := make(chan protocol.Event, 1)
 					dht := NewDHT(me, NewTable("dht"), nil)
-					pingpong := NewPingPonger(logrus.New(), dht, messages, events, SimpleTCPPeerAddressCodec{})
+					pingpong := NewPingPonger(logrus.New(), 8, dht, messages, events, SimpleTCPPeerAddressCodec{})
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
@@ -51,7 +52,7 @@ var _ = Describe("Pingpong", func() {
 					messages := make(chan protocol.MessageOnTheWire, 128)
 					events := make(chan protocol.Event, 1)
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-					pingpong := NewPingPonger(logrus.New(), dht, messages, events, SimpleTCPPeerAddressCodec{})
+					pingpong := NewPingPonger(logrus.New(), 8, dht, messages, events, SimpleTCPPeerAddressCodec{})
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
@@ -71,7 +72,7 @@ var _ = Describe("Pingpong", func() {
 					messages := make(chan protocol.MessageOnTheWire)
 					events := make(chan protocol.Event)
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-					pingpong := NewPingPonger(logrus.New(), dht, messages, events, SimpleTCPPeerAddressCodec{})
+					pingpong := NewPingPonger(logrus.New(), 8, dht, messages, events, SimpleTCPPeerAddressCodec{})
 
 					ctx, cancel := context.WithCancel(context.Background())
 					cancel()
@@ -95,7 +96,7 @@ var _ = Describe("Pingpong", func() {
 					events := make(chan protocol.Event, 1)
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
 					codec := SimpleTCPPeerAddressCodec{}
-					pingpong := NewPingPonger(logrus.New(), dht, messages, events, codec)
+					pingpong := NewPingPonger(logrus.New(), 8, dht, messages, events, codec)
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
@@ -121,11 +122,11 @@ var _ = Describe("Pingpong", func() {
 				test := func() bool {
 					messages := make(chan protocol.MessageOnTheWire, 128)
 					events := make(chan protocol.Event, 1)
-					bootstrapAddress := RandomAddresses()
+					bootstrapAddress := RandomAddresses(rand.Intn(32))
 					me := RandomAddress()
 					dht := NewDHT(me, NewTable("dht"), bootstrapAddress)
 					codec := SimpleTCPPeerAddressCodec{}
-					pingpong := NewPingPonger(logrus.New(), dht, messages, events, codec)
+					pingpong := NewPingPonger(logrus.New(), 8, dht, messages, events, codec)
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
@@ -184,7 +185,7 @@ var _ = Describe("Pingpong", func() {
 					events := make(chan protocol.Event, 1)
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
 					codec := SimpleTCPPeerAddressCodec{}
-					pingpong := NewPingPonger(logrus.New(), dht, messages, events, codec)
+					pingpong := NewPingPonger(logrus.New(), 8, dht, messages, events, codec)
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
@@ -216,7 +217,7 @@ var _ = Describe("Pingpong", func() {
 					me := RandomAddress()
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
 					codec := SimpleTCPPeerAddressCodec{}
-					pingpong := NewPingPonger(logrus.New(), dht, messages, events, codec)
+					pingpong := NewPingPonger(logrus.New(), 8, dht, messages, events, codec)
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
@@ -241,7 +242,7 @@ var _ = Describe("Pingpong", func() {
 					events := make(chan protocol.Event, 1)
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
 					codec := SimpleTCPPeerAddressCodec{}
-					pingpong := NewPingPonger(logrus.New(), dht, messages, events, codec)
+					pingpong := NewPingPonger(logrus.New(), 8, dht, messages, events, codec)
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
@@ -268,7 +269,7 @@ var _ = Describe("Pingpong", func() {
 					events := make(chan protocol.Event, 1)
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
 					codec := SimpleTCPPeerAddressCodec{}
-					pingpong := NewPingPonger(logrus.New(), dht, messages, events, codec)
+					pingpong := NewPingPonger(logrus.New(), 8, dht, messages, events, codec)
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
@@ -302,7 +303,7 @@ var _ = Describe("Pingpong", func() {
 					events := make(chan protocol.Event, 1)
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
 					codec := SimpleTCPPeerAddressCodec{}
-					pingpong := NewPingPonger(logrus.New(), dht, messages, events, codec)
+					pingpong := NewPingPonger(logrus.New(), 8, dht, messages, events, codec)
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()

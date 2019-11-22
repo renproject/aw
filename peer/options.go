@@ -19,9 +19,10 @@ type Options struct {
 	// Optional
 	DisablePeerDiscovery bool          `json:"disablePeerDiscovery"` // Defaults to false
 	Capacity             int           `json:"capacity"`             // capacity of internal channel
-	ConnPoolWorkers      int           `json:"connPoolWorkers"`      // Defaults to 2x the number of CPUs
-	BootstrapWorkers     int           `json:"bootstrapWorkers"`     // Defaults to 2x the number of CPUs
+	NumWorkers           int           `json:"numWorkers"`           // Defaults to 2x the number of CPUs
 	BootstrapDuration    time.Duration `json:"bootstrapDuration"`    // Defaults to 1 hour
+	MinPingTimeout       time.Duration `json:"minPingTimeout"`       // Defaults to 1 second
+	MaxPingTimeout       time.Duration `json:"maxPingTimeout"`       // Defaults to 30 seconds
 }
 
 func (options *Options) SetZeroToDefault() error {
@@ -39,14 +40,17 @@ func (options *Options) SetZeroToDefault() error {
 	if options.Capacity == 0 {
 		options.Capacity = 1024
 	}
-	if options.ConnPoolWorkers == 0 {
-		options.ConnPoolWorkers = 2 * runtime.NumCPU()
-	}
-	if options.BootstrapWorkers <= 0 {
-		options.BootstrapWorkers = 2 * runtime.NumCPU()
+	if options.NumWorkers == 0 {
+		options.NumWorkers = 2 * runtime.NumCPU()
 	}
 	if options.BootstrapDuration <= 0 {
 		options.BootstrapDuration = time.Hour
+	}
+	if options.MinPingTimeout <= 0 {
+		options.MinPingTimeout = time.Second
+	}
+	if options.MaxPingTimeout <= 0 {
+		options.MaxPingTimeout = 30 * time.Second
 	}
 
 	return nil

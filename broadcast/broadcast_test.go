@@ -3,6 +3,7 @@ package broadcast_test
 import (
 	"bytes"
 	"context"
+	"math/rand"
 	"testing/quick"
 
 	. "github.com/onsi/ginkgo"
@@ -22,7 +23,7 @@ var _ = Describe("Broadcaster", func() {
 				messages := make(chan protocol.MessageOnTheWire, 128)
 				events := make(chan protocol.Event, 1)
 				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+				broadcaster := NewBroadcaster(logrus.New(), 8, messages, events, dht)
 
 				groupID, addrs, err := NewGroup(dht)
 				Expect(err).NotTo(HaveOccurred())
@@ -50,7 +51,7 @@ var _ = Describe("Broadcaster", func() {
 				messages := make(chan protocol.MessageOnTheWire, 128)
 				events := make(chan protocol.Event, 1)
 				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+				broadcaster := NewBroadcaster(logrus.New(), 8, messages, events, dht)
 
 				groupID, addrs, err := NewGroup(dht)
 				Expect(err).NotTo(HaveOccurred())
@@ -83,7 +84,7 @@ var _ = Describe("Broadcaster", func() {
 					messages := make(chan protocol.MessageOnTheWire, 128)
 					events := make(chan protocol.Event, 1)
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-					broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+					broadcaster := NewBroadcaster(logrus.New(), 8, messages, events, dht)
 
 					groupID, _, err := NewGroup(dht)
 					Expect(err).NotTo(HaveOccurred())
@@ -104,9 +105,9 @@ var _ = Describe("Broadcaster", func() {
 					messages := make(chan protocol.MessageOnTheWire, 128)
 					events := make(chan protocol.Event, 1)
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-					broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+					broadcaster := NewBroadcaster(logrus.New(), 8, messages, events, dht)
 
-					groupID, addrs := RandomPeerGroupID(), RandomAddresses()
+					groupID, addrs := RandomPeerGroupID(), RandomAddresses(rand.Intn(32))
 					last := RandomAddress()
 					addrs = append(addrs, last)
 					Expect(dht.AddPeerGroup(groupID, FromAddressesToIDs(addrs))).NotTo(HaveOccurred())
@@ -142,9 +143,9 @@ var _ = Describe("Broadcaster", func() {
 				messages := make(chan protocol.MessageOnTheWire, 128)
 				events := make(chan protocol.Event, 16)
 				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+				broadcaster := NewBroadcaster(logrus.New(), 8, messages, events, dht)
 
-				groupID, addrs := RandomPeerGroupID(), RandomAddresses()
+				groupID, addrs := RandomPeerGroupID(), RandomAddresses(rand.Intn(32))
 				for _, addr := range addrs {
 					Expect(dht.AddPeerAddress(addr)).NotTo(HaveOccurred())
 				}
@@ -179,7 +180,7 @@ var _ = Describe("Broadcaster", func() {
 					messages := make(chan protocol.MessageOnTheWire, 128)
 					events := make(chan protocol.Event, 16)
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-					broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+					broadcaster := NewBroadcaster(logrus.New(), 8, messages, events, dht)
 
 					ctx, cancel := context.WithCancel(context.Background())
 					cancel()
@@ -199,7 +200,7 @@ var _ = Describe("Broadcaster", func() {
 					messages := make(chan protocol.MessageOnTheWire, 128)
 					events := make(chan protocol.Event, 16)
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-					broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+					broadcaster := NewBroadcaster(logrus.New(), 8, messages, events, dht)
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
@@ -220,7 +221,7 @@ var _ = Describe("Broadcaster", func() {
 					messages := make(chan protocol.MessageOnTheWire, 128)
 					events := make(chan protocol.Event, 16)
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-					broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+					broadcaster := NewBroadcaster(logrus.New(), 8, messages, events, dht)
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
@@ -241,10 +242,10 @@ var _ = Describe("Broadcaster", func() {
 					messages := make(chan protocol.MessageOnTheWire, 128)
 					events := make(chan protocol.Event, 16)
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-					broadcaster := NewBroadcaster(logrus.New(), messages, events, dht)
+					broadcaster := NewBroadcaster(logrus.New(), 8, messages, events, dht)
 
 					// Intentionally not inserting the last peer address to the dht.
-					groupID, addrs := RandomPeerGroupID(), RandomAddresses()
+					groupID, addrs := RandomPeerGroupID(), RandomAddresses(rand.Intn(32))
 					for _, addr := range addrs {
 						Expect(dht.AddPeerAddress(addr)).NotTo(HaveOccurred())
 					}

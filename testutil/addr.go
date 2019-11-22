@@ -83,10 +83,9 @@ func RandomString() string {
 	return string(str)
 }
 
-// RandomAddresses returns a random number of distinct PeerAddresses.
-func RandomAddresses() protocol.PeerAddresses {
-	length := rand.Intn(16)
-	addrs := make(protocol.PeerAddresses, length)
+// RandomAddresses returns n distinct PeerAddresses which are randomly generated.
+func RandomAddresses(n int) protocol.PeerAddresses {
+	addrs := make(protocol.PeerAddresses, n)
 	seenIds := map[string]struct{}{}
 	for i := range addrs {
 		var addr protocol.PeerAddress

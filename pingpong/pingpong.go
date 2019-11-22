@@ -18,20 +18,22 @@ type PingPonger interface {
 }
 
 type pingPonger struct {
-	logger   logrus.FieldLogger
-	dht      dht.DHT
-	messages protocol.MessageSender
-	events   protocol.EventSender
-	codec    protocol.PeerAddressCodec
+	logger     logrus.FieldLogger
+	numWorkers int
+	dht        dht.DHT
+	messages   protocol.MessageSender
+	events     protocol.EventSender
+	codec      protocol.PeerAddressCodec
 }
 
-func NewPingPonger(logger logrus.FieldLogger, dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender, codec protocol.PeerAddressCodec) PingPonger {
+func NewPingPonger(logger logrus.FieldLogger, numWorkers int, dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender, codec protocol.PeerAddressCodec) PingPonger {
 	return &pingPonger{
-		logger:   logger,
-		dht:      dht,
-		messages: messages,
-		events:   events,
-		codec:    codec,
+		logger:     logger,
+		numWorkers: numWorkers,
+		dht:        dht,
+		messages:   messages,
+		events:     events,
+		codec:      codec,
 	}
 }
 
@@ -133,11 +135,9 @@ func (pp *pingPonger) propagatePing(ctx context.Context, sender protocol.PeerID,
 		return err
 	}
 
-	// Using the messaging sending channel protects the pinger/ponger from
-	// cascading time outs, but will still capture back pressure
-	for _, addr := range peerAddrs {
+	protocol.ParForAllAddresses(peerAddrs, pp.numWorkers, func(addr protocol.PeerAddress) {
 		if addr.PeerID().Equal(sender) {
-			continue
+			return
 		}
 		messageWire := protocol.MessageOnTheWire{
 			To:      addr,
@@ -148,10 +148,9 @@ func (pp *pingPonger) propagatePing(ctx context.Context, sender protocol.PeerID,
 			err = ctx.Err()
 		case pp.messages <- messageWire:
 		}
-	}
+	})
 
-	// Return the last error
-	return err
+	return nil
 }
 
 func (pp *pingPonger) updatePeerAddress(ctx context.Context, peerAddr protocol.PeerAddress) (bool, error) {

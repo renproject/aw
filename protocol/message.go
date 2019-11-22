@@ -112,6 +112,19 @@ func (variant MessageVariant) String() string {
 	}
 }
 
+// Returns the message length (ex-messageBody) which equals to
+// len(MessageLength) + len(MessageVersion) + len(MessageVariant) + len(PeerGroupID)
+func (variant MessageVariant) NonBodyLength() int {
+	switch variant {
+	case Ping, Pong, Cast:
+		return 8 // 4 + 2 + 2 + 0
+	case Multicast, Broadcast:
+		return 40 // 4 + 2 + 2 + 32
+	default:
+		panic(NewErrMessageVariantIsNotSupported(variant))
+	}
+}
+
 // ValidateMessageVariant checks if the given variant is supported.
 func ValidateMessageVariant(variant MessageVariant) error {
 	switch variant {
@@ -154,13 +167,8 @@ func NewMessage(version MessageVersion, variant MessageVariant, groupID PeerGrou
 		body = make(MessageBody, 0)
 	}
 
-	length := 8
-	if variant == Broadcast || variant == Multicast {
-		length = 40
-	}
-
 	return Message{
-		Length:  MessageLength(length + len(body)),
+		Length:  MessageLength(variant.NonBodyLength() + len(body)),
 		Version: version,
 		Variant: variant,
 		GroupID: groupID,

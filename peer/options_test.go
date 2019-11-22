@@ -42,8 +42,7 @@ var _ = Describe("options", func() {
 			}
 			Expect(option.SetZeroToDefault()).NotTo(HaveOccurred())
 			Expect(option.Capacity).Should(Equal(1024))
-			Expect(option.ConnPoolWorkers).Should(Equal(2 * runtime.NumCPU()))
-			Expect(option.BootstrapWorkers).Should(Equal(2 * runtime.NumCPU()))
+			Expect(option.NumWorkers).Should(Equal(2 * runtime.NumCPU()))
 			Expect(option.BootstrapDuration).Should(Equal(time.Hour))
 		})
 	})

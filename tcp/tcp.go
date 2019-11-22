@@ -184,7 +184,7 @@ func (server *Server) handle(ctx context.Context, conn net.Conn, messages protoc
 		case <-ctx.Done():
 			return
 		case messages <- messageOtw:
-			server.options.Logger.Debugf("receive a %v message from %v", messageOtw.Message.Variant, messageOtw.From.String())
+			// server.options.Logger.Debugf("receive a %v message from %v", messageOtw.Message.Variant, messageOtw.From.String())
 		}
 	}
 }

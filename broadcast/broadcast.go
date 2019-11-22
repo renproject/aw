@@ -9,7 +9,6 @@ import (
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/id"
 	"github.com/renproject/kv"
-	"github.com/renproject/phi"
 	"github.com/sirupsen/logrus"
 )
 
@@ -30,24 +29,26 @@ type Broadcaster interface {
 }
 
 type broadcaster struct {
-	logger   logrus.FieldLogger
-	store    kv.Table
-	messages protocol.MessageSender
-	events   protocol.EventSender
-	dht      dht.DHT
+	logger     logrus.FieldLogger
+	numWorkers int
+	store      kv.Table
+	messages   protocol.MessageSender
+	events     protocol.EventSender
+	dht        dht.DHT
 }
 
 // NewBroadcaster returns a Broadcaster that will use the given Storage
 // interface and DHT interface for storing messages and peer addresses
 // respectively.
-func NewBroadcaster(logger logrus.FieldLogger, messages protocol.MessageSender, events protocol.EventSender, dht dht.DHT) Broadcaster {
+func NewBroadcaster(logger logrus.FieldLogger, numWorkers int, messages protocol.MessageSender, events protocol.EventSender, dht dht.DHT) Broadcaster {
 	store := kv.NewTable(kv.NewMemDB(kv.GobCodec), "broadcaster")
 	return &broadcaster{
-		logger:   logger,
-		store:    store,
-		messages: messages,
-		events:   events,
-		dht:      dht,
+		logger:     logger,
+		numWorkers: numWorkers,
+		store:      store,
+		messages:   messages,
+		events:     events,
+		dht:        dht,
 	}
 }
 
@@ -65,7 +66,7 @@ func (broadcaster *broadcaster) Broadcast(ctx context.Context, groupID protocol.
 	}
 
 	// Get all peer details of the Group ID.
-	ids, addrs, err := broadcaster.dht.PeerGroup(groupID)
+	addrs, err := broadcaster.dht.PeerGroupAddresses(groupID)
 	if err != nil {
 		return err
 	}
@@ -77,14 +78,15 @@ func (broadcaster *broadcaster) Broadcast(ctx context.Context, groupID protocol.
 	default:
 	}
 
+	// Insert the message to cache to prevent getting a broadcast back of the same message before
+	// finish broadcasting.
 	if err := broadcaster.store.Insert(message.Hash().String(), true); err != nil {
 		return err
 	}
 
-	phi.ParForAll(addrs, func(i int) {
-		to := addrs[i]
+	protocol.ParForAllAddresses(addrs, broadcaster.numWorkers, func(to protocol.PeerAddress) {
 		if to == nil {
-			broadcaster.logger.Debugf("cannot broadcast to node [%v] in group [%v], cannot find PeerAddress from dht.", ids[i], groupID)
+			broadcaster.logger.Debugf("cannot broadcast to node in group [%v], cannot find PeerAddress from dht.", groupID)
 			return
 		}
 		messageWire := protocol.MessageOnTheWire{

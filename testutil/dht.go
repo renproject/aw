@@ -1,6 +1,8 @@
 package testutil
 
 import (
+	"math/rand"
+
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/kv"
@@ -23,7 +25,7 @@ func NewTable(name string) kv.Table {
 
 func NewGroup(dht dht.DHT) (protocol.PeerGroupID, protocol.PeerAddresses, error) {
 	groupID := RandomPeerGroupID()
-	addrs := RandomAddresses()
+	addrs := RandomAddresses(rand.Intn(32))
 	ids := make([]protocol.PeerID, len(addrs))
 	for i := range addrs {
 		ids[i] = addrs[i].PeerID()

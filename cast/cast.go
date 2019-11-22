@@ -58,7 +58,6 @@ func (caster *caster) Cast(ctx context.Context, to protocol.PeerID, body protoco
 }
 
 func (caster *caster) AcceptCast(ctx context.Context, from protocol.PeerID, message protocol.Message) error {
-	// TODO: Update to allow message forwarding.
 	// Pre-condition checks
 	if message.Version != protocol.V1 {
 		return protocol.NewErrMessageVersionIsNotSupported(message.Version)

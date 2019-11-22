@@ -31,11 +31,14 @@ func (message Message) MarshalBinary() ([]byte, error) {
 	if err := binary.Write(buffer, binary.LittleEndian, message.Variant); err != nil {
 		return nil, fmt.Errorf("error marshaling message variant=%v: %v", message.Variant, err)
 	}
-	if message.Variant == Broadcast || message.Variant == Multicast {
-		if err := binary.Write(buffer, binary.LittleEndian, message.GroupID); err != nil {
-			return nil, fmt.Errorf("error marshaling message group id=%v: %v", message.GroupID, err)
+	if message.Version == V1 {
+		if message.Variant == Broadcast || message.Variant == Multicast {
+			if err := binary.Write(buffer, binary.LittleEndian, message.GroupID); err != nil {
+				return nil, fmt.Errorf("error marshaling message group id=%v: %v", message.GroupID, err)
+			}
 		}
 	}
+
 	if err := binary.Write(buffer, binary.LittleEndian, message.Body); err != nil {
 		return nil, fmt.Errorf("error marshaling message body: %v", err)
 	}
@@ -77,16 +80,16 @@ func (message *Message) UnmarshalReader(reader io.Reader) error {
 	}
 
 	// Read the group ID if the message is a Broadcast or a Multicast
-	length := 8
-	if message.Variant == Broadcast || message.Variant == Multicast {
-		length = 40
-		if err := binary.Read(reader, binary.LittleEndian, &message.GroupID); err != nil {
-			return fmt.Errorf("error unmarshaling message group id: %v", err)
+	if message.Version == V1 {
+		if message.Variant == Broadcast || message.Variant == Multicast {
+			if err := binary.Read(reader, binary.LittleEndian, &message.GroupID); err != nil {
+				return fmt.Errorf("error unmarshaling message group id: %v", err)
+			}
 		}
 	}
 
 	// Read the message body.
-	message.Body = make(MessageBody, int(message.Length)-length)
+	message.Body = make(MessageBody, int(message.Length)-message.Variant.NonBodyLength())
 	if err := binary.Read(reader, binary.LittleEndian, message.Body); err != nil {
 		return fmt.Errorf("error unmarshaling message body: %v", err)
 	}
