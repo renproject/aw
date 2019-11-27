@@ -45,7 +45,7 @@ func New(signVerifier protocol.SignVerifier, sessionManager protocol.SessionMana
 }
 
 func (hs *handshaker) Handshake(ctx context.Context, rw io.ReadWriter) (protocol.Session, error) {
-	// 1. Write self ecdsa public key and Signature of it.
+	// 1. Write self ECDSA public key and Signature of it.
 	localPrivateKey, err := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("error generating new ecdsa key : %v", err)
@@ -60,7 +60,7 @@ func (hs *handshaker) Handshake(ctx context.Context, rw io.ReadWriter) (protocol
 		return nil, err
 	}
 
-	// 3. Generate a session key and write to server
+	// 3. Generate a session key, encrypted with remote ECDSA key and write to server
 	localSessionKey := hs.sessionManager.NewSessionKey()
 	if err := hs.writeEncrypted(rw, localSessionKey, remotePublicKey); err != nil {
 		return nil, err

@@ -62,7 +62,7 @@ var _ = Describe("TCP client and server", func() {
 	})
 
 	Context("rate limiting of tcp server", func() {
-		It("should reject connection from client who have attempted to connect too recently", func() {
+		It("should reject connection from client who has attempted to connect too recently", func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -75,23 +75,54 @@ var _ = Describe("TCP client and server", func() {
 			serverAddr := NewSimpleTCPPeerAddress(RandomPeerID().String(), "", "8080")
 			options := ServerOptions{
 				Host:      serverAddr.NetworkAddress().String(),
-				RateLimit: 3 * time.Second,
+				RateLimit: 2 * time.Second,
 			}
 			messageReceiver := NewTCPServer(ctx, options, clientSignVerifier)
 
-			// Try to reconnect after sending a message
+			// Try to connect and send a message to server
 			_ = sendRandomMessage(messageSender, serverAddr)
 			Eventually(messageReceiver, 3*time.Second).Should(Receive())
-			clientCancel()
 
+			// Cancel the ctx which close the connection
+			time.Sleep(100 * time.Millisecond)
+			clientCancel()
+			time.Sleep(100 * time.Millisecond)
+
+			// Create a new client and send a message and expect it to be rejected.
 			messageSender = NewTCPClient(ctx, ConnPoolOptions{}, clientSignVerifier)
 			_ = sendRandomMessage(messageSender, serverAddr)
 			Eventually(messageReceiver).ShouldNot(Receive())
 
+			// Wait for the rate limit expire
 			time.Sleep(3 * time.Second)
 
-			_ = sendRandomMessage(messageSender, serverAddr)
-			Eventually(messageReceiver, 3*time.Second).ShouldNot(Receive())
+			// Expect the connection to be accepted by the server
+			message := sendRandomMessage(messageSender, serverAddr)
+			var received protocol.MessageOnTheWire
+			Eventually(messageReceiver, time.Second).Should(Receive(&received))
+			Expect(cmp.Equal(message, received.Message, cmpopts.EquateEmpty())).Should(BeTrue())
+		})
+	})
+
+	Context("when an honest server is dialed by a malicious client", func() {
+		Context("when client doesn't do anything in the handshake process", func() {
+			It("should timeout after sometime", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+
+				// Initialize a malicious client
+				clientSignVerifier := NewMockSignVerifier()
+				messageSender := NewMaliciousTCPClient(ctx, ConnPoolOptions{}, clientSignVerifier)
+
+				// Initialize a server
+				serverAddr := NewSimpleTCPPeerAddress(RandomPeerID().String(), "", "8080")
+				options := ServerOptions{Host: serverAddr.NetworkAddress().String(), Timeout: 500 * time.Millisecond}
+				messageReceiver := NewTCPServer(ctx, options, clientSignVerifier)
+
+				// Send a message through the messageSender and expect the server reject the connection.
+				_ = sendRandomMessage(messageSender, serverAddr)
+				Eventually(messageReceiver, 3*time.Second).ShouldNot(Receive())
+			})
 		})
 	})
 })

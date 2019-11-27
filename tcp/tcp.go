@@ -125,7 +125,6 @@ func (server *Server) Run(ctx context.Context, messages protocol.MessageSender) 
 	}()
 
 	for {
-		server.options.Logger.Debugf("waiting for new connection...")
 		conn, err := listener.Accept()
 		if err != nil {
 			select {
@@ -139,10 +138,10 @@ func (server *Server) Run(ctx context.Context, messages protocol.MessageSender) 
 			server.options.Logger.Errorf("error accepting connection: %v", err)
 			continue
 		}
-		server.options.Logger.Debugf("new connect from %v", conn.RemoteAddr().String())
 
 		// Spawn background goroutine to handle this connection so that it does
 		// not block other connections.
+
 		go server.handle(ctx, conn, messages)
 	}
 }
@@ -150,9 +149,8 @@ func (server *Server) Run(ctx context.Context, messages protocol.MessageSender) 
 func (server *Server) handle(ctx context.Context, conn net.Conn, messages protocol.MessageSender) {
 	defer conn.Close()
 
+	// Reject connections from IP addresses that have attempted to connect too recently.
 	if !server.allowRateLimit(conn) {
-		// Reject connections from IP addresses that have attempted to connect
-		// too recently.
 		return
 	}
 
@@ -184,7 +182,7 @@ func (server *Server) handle(ctx context.Context, conn net.Conn, messages protoc
 		case <-ctx.Done():
 			return
 		case messages <- messageOtw:
-			// server.options.Logger.Debugf("receive a %v message from %v", messageOtw.Message.Variant, messageOtw.From.String())
+			server.options.Logger.Debugf("receive a %v message from %v", messageOtw.Message.Variant, messageOtw.From.String())
 		}
 	}
 }
@@ -215,9 +213,21 @@ func (server *Server) establishSession(ctx context.Context, conn net.Conn) (prot
 	handshakeCtx, handshakeCancel := context.WithTimeout(ctx, server.options.Timeout)
 	defer handshakeCancel()
 
+	// Set a timeout for the handshake process
+	deadline := time.Now().Add(server.options.Timeout)
+	if err := conn.SetDeadline(deadline); err != nil {
+		return nil, err
+	}
+
 	session, err := server.handshaker.AcceptHandshake(handshakeCtx, conn)
 	if err != nil {
 		return nil, fmt.Errorf("bad handshake with %v: %v", conn.RemoteAddr().String(), err)
 	}
+
+	// Reset the timeout back
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		return nil, err
+	}
+
 	return session, nil
 }

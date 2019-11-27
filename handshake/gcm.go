@@ -76,10 +76,7 @@ func (session *gcmSession) ReadMessageOnTheWire(r io.Reader) (protocol.MessageOn
 	if err != nil {
 		return otw, err
 	}
-	length := 8
-	if otw.Message.Variant == protocol.Multicast || otw.Message.Variant == protocol.Broadcast {
-		length = 40
-	}
+	length := otw.Message.Variant.NonBodyLength()
 	otw.Message.Length = protocol.MessageLength(len(otw.Message.Body) + length)
 	return otw, nil
 }
@@ -91,10 +88,7 @@ func (session *gcmSession) WriteMessage(w io.Writer, message protocol.Message) e
 		return err
 	}
 	message.Body = session.gcm.Seal(nil, nonce, message.Body, nil)
-	length := 8
-	if message.Variant == protocol.Multicast || message.Variant == protocol.Broadcast {
-		length = 40
-	}
+	length := message.Variant.NonBodyLength()
 	message.Length = protocol.MessageLength(len(message.Body) + length)
 
 	data, err := message.MarshalBinary()

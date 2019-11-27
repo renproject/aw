@@ -109,7 +109,13 @@ func (pool *connPool) connect(to net.Addr) (conn, error) {
 	if err != nil {
 		return conn{}, err
 	}
-	now := time.Now()
+
+	// Set a timeout for the handshake process
+	deadline := time.Now().Add(pool.options.Timeout)
+	if err := netConn.SetDeadline(deadline); err != nil {
+		return conn{}, err
+	}
+
 	session, err := pool.handshaker.Handshake(ctx, netConn)
 	if err != nil {
 		return conn{}, err
@@ -117,7 +123,11 @@ func (pool *connPool) connect(to net.Addr) (conn, error) {
 	if session == nil {
 		return conn{}, fmt.Errorf("nil session [addr = %v] returned by handshaker", to)
 	}
-	pool.options.Logger.Debugf("creating session with %v takes %v", to.String(), time.Now().Sub(now))
+
+	// Reset the timeout back
+	if err := netConn.SetDeadline(time.Time{}); err != nil {
+		return conn{}, err
+	}
 
 	return conn{
 		conn:    netConn,
