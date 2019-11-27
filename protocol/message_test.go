@@ -1,8 +1,9 @@
 package protocol_test
 
 import (
-	"crypto/rand"
+	"bytes"
 	"encoding/base64"
+	"testing/quick"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -11,18 +12,19 @@ import (
 )
 
 var _ = Describe("Protocol", func() {
-	Context("when checking message versions", func() {
-		It("should return a version string", func() {
+
+	Context("MessageVersion", func() {
+		It("should implement the Stringer interface", func() {
 			Expect(V1.String()).To(Equal("v1"))
 		})
 
 		It("should panic for invalid versions", func() {
-			Expect(func() { _ = MessageVersion(2).String() }).To(Panic())
+			Expect(func() { _ = InvalidMessageVersion().String() }).To(Panic())
 		})
 	})
 
-	Context("when checking message variants", func() {
-		It("should return a variant string", func() {
+	Context("MessageVariant", func() {
+		It("should implement the Stringer interface", func() {
 			Expect(Ping.String()).To(Equal("ping"))
 			Expect(Pong.String()).To(Equal("pong"))
 			Expect(Cast.String()).To(Equal("cast"))
@@ -31,66 +33,50 @@ var _ = Describe("Protocol", func() {
 		})
 
 		It("should panic for invalid variants", func() {
-			Expect(func() { _ = MessageVariant(6).String() }).To(Panic())
+			Expect(func() { _ = InvalidMessageVariant().String() }).To(Panic())
 		})
-	})
 
-	Context("when checking message GroupID", func() {
-		It("should be nil for Ping, Pong and Cast message", func() {
-			Expect(ValidatePeerGroupID(NilPeerGroupID, Ping)).To(BeNil())
-			Expect(ValidatePeerGroupID(NilPeerGroupID, Pong)).To(BeNil())
-			Expect(ValidatePeerGroupID(NilPeerGroupID, Cast)).To(BeNil())
-
-			Expect(ValidatePeerGroupID(RandomPeerGroupID(), Ping)).NotTo(BeNil())
-			Expect(ValidatePeerGroupID(RandomPeerGroupID(), Pong)).NotTo(BeNil())
-			Expect(ValidatePeerGroupID(RandomPeerGroupID(), Cast)).NotTo(BeNil())
+		It("should return the correct non-messageBody length for differernt message variant", func() {
+			Expect(Ping.NonBodyLength()).To(Equal(8))
+			Expect(Pong.NonBodyLength()).To(Equal(8))
+			Expect(Cast.NonBodyLength()).To(Equal(8))
+			Expect(Multicast.NonBodyLength()).To(Equal(40))
+			Expect(Broadcast.NonBodyLength()).To(Equal(40))
 		})
 	})
 
 	Context("when stringifying message bodies", func() {
-		It("should return a base64 string", func() {
-			body := [32]byte{}
-			n, err := rand.Read(body[:])
-			Expect(n).To(Equal(32))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(MessageBody(body[:]).String()).To(Equal(base64.RawStdEncoding.EncodeToString(body[:])))
+		It("should return a standard raw base64 encoded string", func() {
+			body := RandomMessageBody()
+			decoded, err := base64.RawStdEncoding.DecodeString(body.String())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(bytes.Equal(body, decoded)).Should(BeTrue())
 		})
 	})
 
 	Context("when creating valid messages", func() {
-		It("should not return nil", func() {
-			body := [32]byte{}
-			n, err := rand.Read(body[:])
-			Expect(n).To(Equal(32))
-			Expect(err).ToNot(HaveOccurred())
-			messageBody := MessageBody(body[:])
-			Expect(NewMessage(V1, Cast, NilPeerGroupID, messageBody)).ToNot(BeNil())
-			Expect(NewMessage(V1, Multicast, NilPeerGroupID, messageBody)).ToNot(BeNil())
-			Expect(NewMessage(V1, Broadcast, NilPeerGroupID, messageBody)).ToNot(BeNil())
-			Expect(NewMessage(V1, Ping, NilPeerGroupID, messageBody)).ToNot(BeNil())
-			Expect(NewMessage(V1, Pong, NilPeerGroupID, messageBody)).ToNot(BeNil())
-		})
-	})
+		It("should not panic or return nil", func() {
+			test := func() bool {
+				variant := RandomMessageVariant()
+				body := RandomMessageBody()
+				Expect(NewMessage(V1, variant, NilPeerGroupID, body)).ToNot(BeNil())
 
-	Context("when creating valid empty messages", func() {
-		It("should not return nil", func() {
-			Expect(NewMessage(V1, Cast, NilPeerGroupID, nil)).ToNot(BeNil())
-			Expect(NewMessage(V1, Multicast, NilPeerGroupID, nil)).ToNot(BeNil())
-			Expect(NewMessage(V1, Broadcast, NilPeerGroupID, nil)).ToNot(BeNil())
-			Expect(NewMessage(V1, Ping, NilPeerGroupID, nil)).ToNot(BeNil())
-			Expect(NewMessage(V1, Pong, NilPeerGroupID, nil)).ToNot(BeNil())
+				return true
+			}
+
+			Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
 		})
 	})
 
 	Context("when creating invalid messages", func() {
 		It("should panic for invalid versions", func() {
 			messageBody := RandomMessageBody()
-			Expect(func() { NewMessage(MessageVersion(2), Cast, NilPeerGroupID, messageBody) }).To(Panic())
+			Expect(func() { NewMessage(InvalidMessageVersion(), Cast, NilPeerGroupID, messageBody) }).To(Panic())
 		})
 
 		It("should panic for invalid variants", func() {
 			messageBody := RandomMessageBody()
-			Expect(func() { NewMessage(V1, MessageVariant(6), NilPeerGroupID, messageBody) }).To(Panic())
+			Expect(func() { NewMessage(V1, InvalidMessageVariant(), NilPeerGroupID, messageBody) }).To(Panic())
 		})
 
 		It("should panic for invalid groupID", func() {
@@ -103,24 +89,15 @@ var _ = Describe("Protocol", func() {
 
 	Context("when hashing a valid message", func() {
 		It("should not panic", func() {
-			body := [32]byte{}
-			n, err := rand.Read(body[:])
-			Expect(n).To(Equal(32))
-			Expect(err).ToNot(HaveOccurred())
-			messageBody := MessageBody(body[:])
-			message := NewMessage(V1, Cast, NilPeerGroupID, messageBody)
-			Expect(func() { message.Hash() }).ToNot(Panic())
+			message := RandomMessage(V1, RandomMessageVariant())
+			hash := message.Hash()
+			Expect(len(hash)).Should(Equal(32))
 		})
 	})
 
 	Context("when hashing an invalid message", func() {
 		It("should panic", func() {
-			body := [32]byte{}
-			n, err := rand.Read(body[:])
-			Expect(n).To(Equal(32))
-			Expect(err).ToNot(HaveOccurred())
-			messageBody := MessageBody(body[:])
-			message := NewMessage(V1, Cast, NilPeerGroupID, messageBody)
+			message := RandomMessage(V1, RandomMessageVariant())
 			message.Length = 0
 			Expect(func() { message.Hash() }).To(Panic())
 		})

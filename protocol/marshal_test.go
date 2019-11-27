@@ -2,7 +2,6 @@ package protocol_test
 
 import (
 	"encoding/binary"
-	"math"
 	"math/rand"
 	"testing/quick"
 
@@ -39,9 +38,8 @@ var _ = Describe("marshaling and unmarshaling", func() {
 			test := func() bool {
 				message := RandomMessage(V1, RandomMessageVariant())
 				message.Length = MessageLength(rand.Intn(8))
-				data, err := message.MarshalBinary()
+				_, err := message.MarshalBinary()
 				Expect(err).To(HaveOccurred())
-				Expect(data).Should(BeNil())
 				return true
 			}
 
@@ -50,16 +48,9 @@ var _ = Describe("marshaling and unmarshaling", func() {
 
 		It("should returns an error when trying to marshal a message with unsupported version", func() {
 			test := func() bool {
-				// Generate a version which is not V1.
-				version := MessageVersion(rand.Intn(math.MaxUint16))
-				for version == V1 {
-					version = MessageVersion(rand.Intn(math.MaxUint16))
-				}
-				message := RandomMessage(version, RandomMessageVariant())
-
-				data, err := message.MarshalBinary()
+				message := RandomMessage(InvalidMessageVersion(), RandomMessageVariant())
+				_, err := message.MarshalBinary()
 				Expect(err).To(HaveOccurred())
-				Expect(data).Should(BeNil())
 				return true
 			}
 
@@ -68,16 +59,9 @@ var _ = Describe("marshaling and unmarshaling", func() {
 
 		It("should returns an error when trying to marshal a message with unsupported variant", func() {
 			test := func() bool {
-				// Generate a message with invalid variant
-				variant := MessageVariant(rand.Intn(math.MaxUint16))
-				for variant >= Ping && variant <= Broadcast {
-					variant = MessageVariant(rand.Intn(math.MaxUint16))
-				}
-				message := RandomMessage(V1, variant)
-
-				data, err := message.MarshalBinary()
+				message := RandomMessage(V1, InvalidMessageVariant())
+				_, err := message.MarshalBinary()
 				Expect(err).To(HaveOccurred())
-				Expect(data).Should(BeNil())
 				return true
 			}
 
@@ -92,7 +76,7 @@ var _ = Describe("marshaling and unmarshaling", func() {
 
 				var message Message
 				err := message.UnmarshalBinary(data)
-				Expect(err).ShouldNot(BeNil())
+				Expect(err).To(HaveOccurred())
 				return true
 			}
 
@@ -106,7 +90,7 @@ var _ = Describe("marshaling and unmarshaling", func() {
 
 				var message Message
 				err := message.UnmarshalBinary(data)
-				Expect(err).ShouldNot(BeNil())
+				Expect(err).To(HaveOccurred())
 				return true
 			}
 

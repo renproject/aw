@@ -21,23 +21,6 @@ type MessageSender chan<- MessageOnTheWire
 // MessageReceiver is used for reading MessageOnTheWire.
 type MessageReceiver <-chan MessageOnTheWire
 
-// MessageOnTheWireResponse is the result of the message sending action.
-type MessageOnTheWireResponse struct {
-	To      PeerID
-	Success bool
-}
-
-// MessageResponseSender is used for sending MessageOnTheWireResponse.
-type MessageResponseSender chan<- MessageOnTheWireResponse
-
-// MessageResponseSender is used for reading MessageOnTheWireResponse.
-type MessageResponseReceiver <-chan MessageOnTheWireResponse
-
-// MessageReceive represents the message read from the stream.
-type MessageReceive struct {
-	Message Message
-}
-
 // MessageLength indicates the length of the entire message.
 type MessageLength uint32
 
@@ -45,11 +28,11 @@ type MessageLength uint32
 func ValidateMessageLength(length MessageLength, variant MessageVariant) error {
 	switch variant {
 	case Cast, Ping, Pong:
-		if length < 8 {
+		if int(length) < variant.NonBodyLength() {
 			return NewErrMessageLengthIsTooLow(length)
 		}
 	case Multicast, Broadcast:
-		if length < 40 {
+		if int(length) < variant.NonBodyLength() {
 			return NewErrMessageLengthIsTooLow(length)
 		}
 	default:
@@ -117,9 +100,9 @@ func (variant MessageVariant) String() string {
 func (variant MessageVariant) NonBodyLength() int {
 	switch variant {
 	case Ping, Pong, Cast:
-		return 8 // 4 + 2 + 2 + 0
+		return 8 // 4(uint32) + 2(uint16) + 2(uint16) + 0
 	case Multicast, Broadcast:
-		return 40 // 4 + 2 + 2 + 32
+		return 40 // 4(uint32) + 2(uint16) + 2(uint16) + 32([32]byte)
 	default:
 		panic(NewErrMessageVariantIsNotSupported(variant))
 	}
@@ -143,7 +126,7 @@ func (body MessageBody) String() string {
 	return base64.RawStdEncoding.EncodeToString(body)
 }
 
-// Message is the object users communicating in the network.
+// Message is the object used for communicating in the network.
 type Message struct {
 	Length  MessageLength
 	Version MessageVersion
@@ -163,12 +146,10 @@ func NewMessage(version MessageVersion, variant MessageVariant, groupID PeerGrou
 	if err := ValidatePeerGroupID(groupID, variant); err != nil {
 		panic(err)
 	}
-	if body == nil {
-		body = make(MessageBody, 0)
-	}
+	length := MessageLength(variant.NonBodyLength() + len(body))
 
 	return Message{
-		Length:  MessageLength(variant.NonBodyLength() + len(body)),
+		Length:  length,
 		Version: version,
 		Variant: variant,
 		GroupID: groupID,
@@ -183,13 +164,4 @@ func (message Message) Hash() id.Hash {
 		panic(fmt.Errorf("invariant violation: malformed message: %v", err))
 	}
 	return sha256.Sum256(data)
-}
-
-func ValidatePeerGroupID(groupID PeerGroupID, variant MessageVariant) error {
-	if variant != Broadcast && variant != Multicast {
-		if groupID != NilPeerGroupID {
-			return ErrInvalidPeerGroupID
-		}
-	}
-	return nil
 }

@@ -48,7 +48,6 @@ func (multicaster *multicaster) Multicast(ctx context.Context, groupID protocol.
 
 	protocol.ParForAllAddresses(addrs, multicaster.numWorkers, func(to protocol.PeerAddress) {
 		if to == nil {
-			multicaster.logger.Debugf("cannot multicast to node in group [%v], cannot find PeerAddress from dht.", groupID)
 			return
 		}
 		messageWire := protocol.MessageOnTheWire{

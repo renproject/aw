@@ -56,8 +56,13 @@ func New(options Options, dht dht.DHT, handshaker handshake.Handshaker, client p
 	serverMessages := make(chan protocol.MessageOnTheWire, options.Capacity)
 	clientMessages := make(chan protocol.MessageOnTheWire, options.Capacity)
 
+	pingpongOption := pingpong.Options{
+		Logger:     options.Logger,
+		NumWorkers: options.NumWorkers,
+		Alpha:      options.Alpha,
+	}
 	caster := cast.NewCaster(options.Logger, clientMessages, events, dht)
-	pingponger := pingpong.NewPingPonger(options.Logger, options.NumWorkers, dht, clientMessages, events, options.Codec)
+	pingponger := pingpong.NewPingPonger(pingpongOption, dht, clientMessages, events, options.Codec)
 	multicaster := multicast.NewMulticaster(options.Logger, options.NumWorkers, clientMessages, events, dht)
 	broadcaster := broadcast.NewBroadcaster(options.Logger, options.NumWorkers, clientMessages, events, dht)
 

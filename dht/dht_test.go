@@ -17,11 +17,23 @@ import (
 var _ = Describe("DHT", func() {
 
 	Context("when creating DHT", func() {
+		Context("when passing nil parameters", func() {
+			It("should panic if provide nil self address or nil codec", func() {
+				Expect(func() {
+					New(nil, NewSimpleTCPPeerAddressCodec(), NewTable("dht"))
+				}).Should(Panic())
+
+				Expect(func() {
+					New(RandomAddress(), nil, NewTable("dht"))
+				}).Should(Panic())
+			})
+		})
+
 		Context("when initializing with no bootstrap address", func() {
 			It("should has zero PeerAddress in its table", func() {
 				test := func() bool {
 					me := RandomAddress()
-					dht := NewDHT(me, NewTable("dht"), nil)
+					dht := NewDHT(me, nil, nil)
 
 					Expect(dht.Me().Equal(me)).Should(BeTrue())
 
@@ -73,11 +85,11 @@ var _ = Describe("DHT", func() {
 		Context("when initializing with a non-nil storage", func() {
 			It("should load the address from store into cache for fast io", func() {
 				test := func() bool {
-					me, bootstrapAddress := RandomAddress(), RandomAddresses(rand.Intn(32))
+					me, bootstrapAddress := RandomAddress(), RandomAddresses(rand.Intn(32)+1)
 					store := NewTable("dht")
-					_ = NewDHT(me, store, bootstrapAddress)
+					_ = NewDHT(me, store, bootstrapAddress[:len(bootstrapAddress)-1])
 
-					dht := NewDHT(me, store, nil)
+					dht := NewDHT(me, store, bootstrapAddress)
 
 					// All stored addresses are bootstrap addresses.
 					num, err := dht.NumPeers()
@@ -282,6 +294,38 @@ var _ = Describe("DHT", func() {
 
 			Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
 		})
+
+		It("should only return the PeerAddresses we have when querying with a groupID", func() {
+			test := func() bool {
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				peerAddrs := RandomAddresses(rand.Intn(32) + 1)
+				ids := FromAddressesToIDs(peerAddrs)
+
+				// Purposely not adding the last PeerAddress
+				for i := range peerAddrs[:len(peerAddrs)-1] {
+					Expect(dht.AddPeerAddress(peerAddrs[i])).NotTo(HaveOccurred())
+				}
+				groupID := RandomPeerGroupID()
+				Expect(dht.AddPeerGroup(groupID, ids)).NotTo(HaveOccurred())
+
+				storedIDs, err := dht.PeerGroupIDs(groupID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(ids)).Should(Equal(len(storedIDs)))
+				for _, id := range storedIDs {
+					Expect(ids).Should(ContainElement(id))
+				}
+
+				storedAddrs, err := dht.PeerGroupAddresses(groupID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(storedAddrs)).Should(Equal(len(peerAddrs) - 1))
+				for _, addr := range storedAddrs {
+					Expect(peerAddrs).Should(ContainElement(addr))
+				}
+				return true
+			}
+
+			Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
+		})
 	})
 
 	Context("when retrieving random addresses from the dht", func() {
@@ -294,7 +338,7 @@ var _ = Describe("DHT", func() {
 						Expect(dht.AddPeerAddress(addrs[i])).NotTo(HaveOccurred())
 					}
 
-					n := rand.Intn(len(addrs))
+					n := rand.Intn(len(addrs)) + 1
 					randAddrs, err := dht.RandomPeerAddresses(protocol.NilPeerGroupID, n)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(len(randAddrs)).Should(Equal(n))

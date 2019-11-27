@@ -15,14 +15,14 @@ func InvalidMessageVersion() protocol.MessageVersion {
 	return version
 }
 
-func InvalidMessageVariant(validVariant ...protocol.MessageVariant) protocol.MessageVariant {
+func InvalidMessageVariant(validVariants ...protocol.MessageVariant) protocol.MessageVariant {
 	variant := protocol.MessageVariant(rand.Intn(math.MaxUint16))
 	valid := func(v protocol.MessageVariant) bool {
-		if validVariant == nil {
+		if validVariants == nil {
 			return protocol.ValidateMessageVariant(v) == nil
 		}
 
-		for _, validVariant := range validVariant {
+		for _, validVariant := range validVariants {
 			if validVariant == v {
 				return true
 			}
@@ -44,7 +44,7 @@ func RandomBytes(length int) []byte {
 	return slice
 }
 
-func RandomMessageBody() []byte {
+func RandomMessageBody() protocol.MessageBody {
 	length := rand.Intn(512)
 	return RandomBytes(length)
 }

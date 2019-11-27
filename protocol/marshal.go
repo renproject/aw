@@ -38,7 +38,6 @@ func (message Message) MarshalBinary() ([]byte, error) {
 			}
 		}
 	}
-
 	if err := binary.Write(buffer, binary.LittleEndian, message.Body); err != nil {
 		return nil, fmt.Errorf("error marshaling message body: %v", err)
 	}

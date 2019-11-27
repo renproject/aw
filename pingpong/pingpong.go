@@ -11,6 +11,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type Options struct {
+	Logger     logrus.FieldLogger
+	NumWorkers int
+	Alpha      int
+}
+
 type PingPonger interface {
 	Ping(ctx context.Context, to protocol.PeerID) error
 	AcceptPing(ctx context.Context, message protocol.Message) error
@@ -18,22 +24,20 @@ type PingPonger interface {
 }
 
 type pingPonger struct {
-	logger     logrus.FieldLogger
-	numWorkers int
-	dht        dht.DHT
-	messages   protocol.MessageSender
-	events     protocol.EventSender
-	codec      protocol.PeerAddressCodec
+	options  Options
+	dht      dht.DHT
+	messages protocol.MessageSender
+	events   protocol.EventSender
+	codec    protocol.PeerAddressCodec
 }
 
-func NewPingPonger(logger logrus.FieldLogger, numWorkers int, dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender, codec protocol.PeerAddressCodec) PingPonger {
+func NewPingPonger(options Options, dht dht.DHT, messages protocol.MessageSender, events protocol.EventSender, codec protocol.PeerAddressCodec) PingPonger {
 	return &pingPonger{
-		logger:     logger,
-		numWorkers: numWorkers,
-		dht:        dht,
-		messages:   messages,
-		events:     events,
-		codec:      codec,
+		options:  options,
+		dht:      dht,
+		messages: messages,
+		events:   events,
+		codec:    codec,
 	}
 }
 
@@ -130,12 +134,12 @@ func (pp *pingPonger) pong(ctx context.Context, to protocol.PeerAddress) error {
 }
 
 func (pp *pingPonger) propagatePing(ctx context.Context, sender protocol.PeerID, body protocol.MessageBody) error {
-	peerAddrs, err := pp.dht.PeerAddresses()
+	peerAddrs, err := pp.dht.RandomPeerAddresses(protocol.NilPeerGroupID, pp.options.Alpha)
 	if err != nil {
 		return err
 	}
 
-	protocol.ParForAllAddresses(peerAddrs, pp.numWorkers, func(addr protocol.PeerAddress) {
+	protocol.ParForAllAddresses(peerAddrs, pp.options.NumWorkers, func(addr protocol.PeerAddress) {
 		if addr.PeerID().Equal(sender) {
 			return
 		}

@@ -27,7 +27,7 @@ type DHT interface {
 	// PeerAddresses returns all the PeerAddresses stored in the DHT.
 	PeerAddresses() (protocol.PeerAddresses, error)
 
-	// RandomPeerAddresses returns n (at max) random PeerAddresses in the given peer group.
+	// RandomPeerAddresses returns (at max) n random PeerAddresses in the given peer group.
 	RandomPeerAddresses(id protocol.PeerGroupID, n int) (protocol.PeerAddresses, error)
 
 	// AddPeerAddress adds a PeerAddress into the DHT.
@@ -47,7 +47,8 @@ type DHT interface {
 	// PeerGroupIDs returns the PeerIDs of the given PeerGroupID
 	PeerGroupIDs(protocol.PeerGroupID) (protocol.PeerIDs, error)
 
-	// PeerGroupAddresses returns the PeerAddresses of the given PeerGroupID.
+	// PeerGroupAddresses returns the PeerAddresses of the given PeerGroupID. It
+	// will not return Peers which we don't have the PeerAddresses.
 	PeerGroupAddresses(protocol.PeerGroupID) (protocol.PeerAddresses, error)
 
 	// Remove a PeerGroup with given name from the DHT.
@@ -66,11 +67,23 @@ type dht struct {
 	inMemCache   map[string]protocol.PeerAddress
 }
 
-// New DHT that stores peer addresses in the given store. It will cache all peer
-// addresses in memory for fast access. It is safe for concurrent use,
+// New DHT that stores peer addresses in the given store. It will cache all
+// peer addresses in memory for fast access. It is safe for concurrent use,
 // regardless of the underlying store.
 func New(me protocol.PeerAddress, codec protocol.PeerAddressCodec, store kv.Table, bootstrapAddrs ...protocol.PeerAddress) (DHT, error) {
-	// fixme : check parameters are not nil
+	// Validate input parameters
+	if me == nil {
+		panic("pre-condition violation: self PeerAddress cannot be nil")
+	}
+	if codec == nil {
+		panic("pre-condition violation: PeerAddressCodec cannot be nil")
+	}
+
+	// Create a in-memory store if user doesn't provide one.
+	if store == nil {
+		store = kv.NewTable(kv.NewMemDB(kv.GobCodec), "dht")
+	}
+
 	dht := &dht{
 		me:    me,
 		codec: codec,
@@ -86,18 +99,7 @@ func New(me protocol.PeerAddress, codec protocol.PeerAddressCodec, store kv.Tabl
 	if err := dht.fillInMemCache(); err != nil {
 		return nil, err
 	}
-
-	if count, err := dht.NumPeers(); count == 0 || err != nil {
-		for _, addr := range bootstrapAddrs {
-			if addr.Equal(me) {
-				continue
-			}
-			if err := dht.addPeerAddressWithoutLock(addr); err != nil {
-				return nil, fmt.Errorf("error adding bootstrap addresses: %v", err)
-			}
-		}
-	}
-	return dht, nil
+	return dht, dht.addBootstrapNodes(bootstrapAddrs)
 }
 
 func (dht *dht) Me() protocol.PeerAddress {
@@ -261,6 +263,8 @@ func (dht *dht) addPeerAddressWithoutLock(peerAddr protocol.PeerAddress) error {
 
 func (dht *dht) fillInMemCache() error {
 	iter := dht.store.Iterator()
+	defer iter.Close()
+
 	for iter.Next() {
 		var data []byte
 		if err := iter.Value(&data); err != nil {
@@ -271,6 +275,17 @@ func (dht *dht) fillInMemCache() error {
 			return fmt.Errorf("error decoding peerAddress: %v", err)
 		}
 		dht.inMemCache[peerAddr.PeerID().String()] = peerAddr
+	}
+	return nil
+}
+
+// addBootstrapNodes loops through all the bootstrap nodes, update the store if
+// it is newer than the stored addresses.
+func (dht *dht) addBootstrapNodes(addrs protocol.PeerAddresses) error {
+	for _, addr := range addrs {
+		if _, err := dht.UpdatePeerAddress(addr); err != nil {
+			return err
+		}
 	}
 	return nil
 }

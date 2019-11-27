@@ -86,7 +86,6 @@ func (broadcaster *broadcaster) Broadcast(ctx context.Context, groupID protocol.
 
 	protocol.ParForAllAddresses(addrs, broadcaster.numWorkers, func(to protocol.PeerAddress) {
 		if to == nil {
-			broadcaster.logger.Debugf("cannot broadcast to node in group [%v], cannot find PeerAddress from dht.", groupID)
 			return
 		}
 		messageWire := protocol.MessageOnTheWire{

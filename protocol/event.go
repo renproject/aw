@@ -13,7 +13,7 @@ type Event interface {
 	IsEvent()
 }
 
-// EventPeerChanged is triggered when we detect an address change of a node.
+// EventPeerChanged is triggered when we detect an address change of a Peer.
 type EventPeerChanged struct {
 	Time        time.Time
 	PeerAddress PeerAddress
@@ -22,7 +22,7 @@ type EventPeerChanged struct {
 // EventPeerChanged implements the Event interface.
 func (EventPeerChanged) IsEvent() {}
 
-// EventMessageReceived is triggered when we receive a message from someone.
+// EventMessageReceived is triggered when we receive an AW message.
 type EventMessageReceived struct {
 	Time    time.Time
 	Message MessageBody

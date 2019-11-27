@@ -7,29 +7,35 @@ import (
 	"github.com/renproject/phi"
 )
 
+// SignVerifier is used for authentication by using cryptography.
 type SignVerifier interface {
 	Sign(digest []byte) ([]byte, error)
 	Verify(digest, sig []byte) (PeerID, error)
 	Hash(data []byte) []byte
-	// PrivateKey() ecdsa.PrivateKey
-	// PublicKey () ecdsa.PublicKey
 	SigLength() uint64
 }
 
+// Session is a secure connection between two Peers which allow them send and
+// receive AW messages through the same io.ReadWriter.
 type Session interface {
 	ReadMessageOnTheWire(io.Reader) (MessageOnTheWire, error)
 	WriteMessage(io.Writer, Message) error
 }
 
+// SessionManager is able to establish new Session with a Peer.
 type SessionManager interface {
-	NewSession(PeerID, []byte) Session
+	NewSession(peerID PeerID, key []byte) Session
 	NewSessionKey() []byte
 }
 
+// Client reads message from the MessageReceiver and sends the message to the
+// target Peer.
 type Client interface {
 	Run(context.Context, MessageReceiver)
 }
 
+// Server listens for messages sent by other Peers and pipes it to the message
+// handler through the provided MessageSender
 type Server interface {
 	Run(context.Context, MessageSender)
 }
