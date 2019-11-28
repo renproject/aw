@@ -96,7 +96,7 @@ var _ = Describe("Pingpong", func() {
 
 	Context("when accepting a ping", func() {
 		Context("when the address is same as before", func() {
-			It("should not propogate the ping message", func() {
+			It("should not propagate the ping message", func() {
 				test := func() bool {
 					messages := make(chan protocol.MessageOnTheWire, 128)
 					events := make(chan protocol.Event, 1)
