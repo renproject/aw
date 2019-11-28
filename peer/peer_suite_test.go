@@ -1,13 +1,13 @@
-package aw_test
+package peer_test
 
 import (
-	"testing"
-
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+
+	"testing"
 )
 
-func TestAw(t *testing.T) {
+func TestPeer(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Aw Suite")
+	RunSpecs(t, "Peer Suite")
 }

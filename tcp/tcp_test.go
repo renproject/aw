@@ -1,154 +1,128 @@
 package tcp_test
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
-	"reflect"
 	"testing/quick"
 	"time"
 
-	"github.com/renproject/aw/dht"
-	"github.com/renproject/aw/handshake"
-	"github.com/renproject/aw/protocol"
-	"github.com/renproject/aw/tcp"
-	"github.com/renproject/aw/testutil"
-	"github.com/renproject/kv"
-	"github.com/sirupsen/logrus"
-
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	. "github.com/renproject/aw/tcp"
+	. "github.com/renproject/aw/testutil"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/renproject/aw/protocol"
 )
 
-var _ = Describe("Tcp", func() {
-	initServer := func(ctx context.Context, sender protocol.MessageSender, hs handshake.Handshaker, port int) {
-		tcp.NewServer(tcp.ServerOptions{
-			Logger:     logrus.StandardLogger(),
-			Timeout:    time.Minute,
-			Handshaker: hs,
-			Port:       port,
-		}, sender).Run(ctx)
+var _ = Describe("TCP client and server", func() {
+
+	sendRandomMessage := func(messageSender protocol.MessageSender, to protocol.PeerAddress) protocol.Message {
+		message := RandomMessage(protocol.V1, RandomMessageVariant())
+		messageOtw := protocol.MessageOnTheWire{
+			To:      to,
+			Message: message,
+		}
+		messageSender <- messageOtw
+		return message
 	}
 
-	initClient := func(ctx context.Context, receiver protocol.MessageReceiver, hs handshake.Handshaker, dht dht.DHT) {
-		tcp.NewClient(
-			tcp.NewClientConns(tcp.ClientOptions{
-				Logger:         logrus.StandardLogger(),
-				Timeout:        time.Minute,
-				MaxConnections: 10,
-				Handshaker:     hs,
-			}),
-			dht, receiver,
-		).Run(ctx)
-	}
-
-	Context("when sending a valid message", func() {
-		It("should successfully send and receive", func() {
-			ctx, cancel := context.WithCancel(context.Background())
-			// defer time.Sleep(time.Millisecond)
-			defer cancel()
-
-			fromServer := make(chan protocol.MessageOnTheWire, 1000)
-			toClient := make(chan protocol.MessageOnTheWire, 1000)
-
-			sender := testutil.NewSimpleTCPPeerAddress("sender", "127.0.0.1", "47325")
-			receiver := testutil.NewSimpleTCPPeerAddress("receiver", "127.0.0.1", "47326")
-			codec := testutil.NewSimpleTCPPeerAddressCodec()
-			dht, err := dht.New(sender, codec, kv.NewTable(kv.NewMemDB(kv.JSONCodec), "dht"), receiver)
-			Expect(err).Should(BeNil())
-
-			// start TCP server and client
-			go initServer(ctx, fromServer, nil, 47326)
-			go initClient(ctx, toClient, nil, dht)
-
-			check := func(x uint, y uint) bool {
-				// Set variant and body size to an appropriate range
-				v := int((x % 5) + 1)
-				numBytes := int(y % 1000000) // 0 bytes to 1 megabyte
-
-				// Generate random variant
-				variant := protocol.MessageVariant(v)
-				body := make([]byte, numBytes)
-				if len(body) > 0 {
-					n, err := rand.Read(body)
-					Expect(n).To(Equal(numBytes))
-					Expect(err).ToNot(HaveOccurred())
-				}
-
-				// Send a message to the server using the client and read from
-				// message received by the server
-				toClient <- protocol.MessageOnTheWire{
-					To:      receiver.ID,
-					Message: protocol.NewMessage(protocol.V1, variant, body),
-				}
-				messageOtw := <-fromServer
-
-				// Check that the message sent equals the message received
-				return (messageOtw.Message.Length == protocol.MessageLength(len(body)+32) &&
-					reflect.DeepEqual(messageOtw.Message.Version, protocol.V1) &&
-					reflect.DeepEqual(messageOtw.Message.Variant, variant) &&
-					bytes.Compare(messageOtw.Message.Body, body) == 0)
-			}
-
-			Expect(quick.Check(check, &quick.Config{
-				MaxCount: 100,
-			})).Should(BeNil())
+	Context("when initializing a server", func() {
+		It("should panic if providing a nil handshaker", func() {
+			Expect(func() {
+				_ = NewServer(ServerOptions{}, nil)
+			}).Should(Panic())
 		})
+	})
 
-		It("should successfully send and receive when both nodes are authenticated", func() {
+	Context("when sending a message", func() {
+		It("should create a session between client and server and successfully send the message through the session", func() {
 			ctx, cancel := context.WithCancel(context.Background())
-			// defer time.Sleep(time.Millisecond)
 			defer cancel()
 
-			fromServer := make(chan protocol.MessageOnTheWire, 1000)
-			toClient := make(chan protocol.MessageOnTheWire, 1000)
+			// Initialize a client
+			clientSignVerifier := NewMockSignVerifier()
+			messageSender := NewTCPClient(ctx, ConnPoolOptions{}, clientSignVerifier)
 
-			clientSignVerifier := testutil.NewMockSignVerifier()
-			serverSignVerifier := testutil.NewMockSignVerifier(clientSignVerifier.ID())
-			clientSignVerifier.Whitelist(serverSignVerifier.ID())
+			// Initialize a server
+			serverAddr := NewSimpleTCPPeerAddress(RandomPeerID().String(), "", "8080")
+			options := ServerOptions{Host: serverAddr.NetworkAddress().String()}
+			messageReceiver := NewTCPServer(ctx, options, clientSignVerifier)
 
-			sender := testutil.NewSimpleTCPPeerAddress("sender", "127.0.0.1", "47325")
-			receiver := testutil.NewSimpleTCPPeerAddress("receiver", "127.0.0.1", "47326")
-			codec := testutil.NewSimpleTCPPeerAddressCodec()
-			dht, err := dht.New(sender, codec, kv.NewTable(kv.NewMemDB(kv.JSONCodec), "dht"), receiver)
-			Expect(err).Should(BeNil())
-
-			// start TCP server and client
-			go initServer(ctx, fromServer, handshake.New(serverSignVerifier), 47326)
-			go initClient(ctx, toClient, handshake.New(clientSignVerifier), dht)
-
-			check := func(x uint, y uint) bool {
-				// Set variant and body size to an appropriate range
-				v := int((x % 5) + 1)
-				numBytes := int(y % 1000000) // 0 bytes to 1 megabyte
-
-				// Generate random variant
-				variant := protocol.MessageVariant(v)
-				body := make([]byte, numBytes)
-				if len(body) > 0 {
-					n, err := rand.Read(body)
-					Expect(n).To(Equal(numBytes))
-					Expect(err).ToNot(HaveOccurred())
-				}
-
-				// Send a message to the server using the client and read from
-				// message received by the server
-				toClient <- protocol.MessageOnTheWire{
-					To:      receiver.ID,
-					Message: protocol.NewMessage(protocol.V1, variant, body),
-				}
-				messageOtw := <-fromServer
-
-				// Check that the message sent equals the message received
-				return (messageOtw.Message.Length == protocol.MessageLength(len(body)+32) &&
-					reflect.DeepEqual(messageOtw.Message.Version, protocol.V1) &&
-					reflect.DeepEqual(messageOtw.Message.Variant, variant) &&
-					bytes.Compare(messageOtw.Message.Body, body) == 0)
+			// Send a message through the messageSender and expect the server receives it.
+			test := func() bool {
+				message := sendRandomMessage(messageSender, serverAddr)
+				var received protocol.MessageOnTheWire
+				Eventually(messageReceiver, 3*time.Second).Should(Receive(&received))
+				return cmp.Equal(message, received.Message, cmpopts.EquateEmpty())
 			}
 
-			Expect(quick.Check(check, &quick.Config{
-				MaxCount: 100,
-			})).Should(BeNil())
+			Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
+		})
+	})
+
+	Context("rate limiting of tcp server", func() {
+		It("should reject connection from client who has attempted to connect too recently", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			// Initialize a client
+			clientSignVerifier := NewMockSignVerifier()
+			clientCtx, clientCancel := context.WithCancel(ctx)
+			messageSender := NewTCPClient(clientCtx, ConnPoolOptions{}, clientSignVerifier)
+
+			// Initialize a server
+			serverAddr := NewSimpleTCPPeerAddress(RandomPeerID().String(), "", "8080")
+			options := ServerOptions{
+				Host:      serverAddr.NetworkAddress().String(),
+				RateLimit: 2 * time.Second,
+			}
+			messageReceiver := NewTCPServer(ctx, options, clientSignVerifier)
+
+			// Try to connect and send a message to server
+			_ = sendRandomMessage(messageSender, serverAddr)
+			Eventually(messageReceiver, 3*time.Second).Should(Receive())
+
+			// Cancel the ctx which close the connection
+			time.Sleep(100 * time.Millisecond)
+			clientCancel()
+			time.Sleep(100 * time.Millisecond)
+
+			// Create a new client and send a message and expect it to be rejected.
+			messageSender = NewTCPClient(ctx, ConnPoolOptions{}, clientSignVerifier)
+			_ = sendRandomMessage(messageSender, serverAddr)
+			Eventually(messageReceiver).ShouldNot(Receive())
+
+			// Wait for the rate limit expire
+			time.Sleep(3 * time.Second)
+
+			// Expect the connection to be accepted by the server
+			message := sendRandomMessage(messageSender, serverAddr)
+			var received protocol.MessageOnTheWire
+			Eventually(messageReceiver, time.Second).Should(Receive(&received))
+			Expect(cmp.Equal(message, received.Message, cmpopts.EquateEmpty())).Should(BeTrue())
+		})
+	})
+
+	Context("when an honest server is dialed by a malicious client", func() {
+		Context("when client doesn't do anything in the handshake process", func() {
+			It("should timeout after sometime", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+
+				// Initialize a malicious client
+				clientSignVerifier := NewMockSignVerifier()
+				messageSender := NewMaliciousTCPClient(ctx, ConnPoolOptions{}, clientSignVerifier)
+
+				// Initialize a server
+				serverAddr := NewSimpleTCPPeerAddress(RandomPeerID().String(), "", "8080")
+				options := ServerOptions{Host: serverAddr.NetworkAddress().String(), Timeout: 500 * time.Millisecond}
+				messageReceiver := NewTCPServer(ctx, options, clientSignVerifier)
+
+				// Send a message through the messageSender and expect the server reject the connection.
+				_ = sendRandomMessage(messageSender, serverAddr)
+				Eventually(messageReceiver, 3*time.Second).ShouldNot(Receive())
+			})
 		})
 	})
 })

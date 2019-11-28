@@ -1,17 +1,16 @@
 package handshake
 
 import (
-	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"crypto/rand"
-	"crypto/rsa"
-	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"io"
-	"io/ioutil"
-	"math/big"
 
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/crypto/ecies"
+	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 	"github.com/renproject/aw/protocol"
 )
 
@@ -19,208 +18,184 @@ type Handshaker interface {
 	// Handshake with a remote server by initiating, and then interactively
 	// completing, a handshake protocol. The remote server is accessed by
 	// reading/writing to the `io.ReaderWriter`.
-	Handshake(ctx context.Context, rw io.ReadWriter) error
+	Handshake(ctx context.Context, rw io.ReadWriter) (protocol.Session, error)
 
 	// AcceptHandshake from a remote client by waiting for the initiation of,
 	// and then interactively completing, a handshake protocol. The remote
 	// client is accessed by reading/writing to the `io.ReaderWriter`.
-	AcceptHandshake(ctx context.Context, rw io.ReadWriter) error
+	AcceptHandshake(ctx context.Context, rw io.ReadWriter) (protocol.Session, error)
 }
 
 type handshaker struct {
-	signVerifier protocol.SignVerifier
+	signVerifier   protocol.SignVerifier
+	sessionManager protocol.SessionManager
 }
 
-func New(signVerifier protocol.SignVerifier) Handshaker {
-	return &handshaker{signVerifier: signVerifier}
+func New(signVerifier protocol.SignVerifier, sessionManager protocol.SessionManager) Handshaker {
+	if signVerifier == nil {
+		panic("invariant violation: SignVerifier cannot be nil")
+	}
+	if sessionManager == nil {
+		panic("invariant violation: SessionManager cannot be nil")
+	}
+	return &handshaker{
+		signVerifier:   signVerifier,
+		sessionManager: sessionManager,
+	}
 }
 
-func (hs *handshaker) Handshake(ctx context.Context, rw io.ReadWriter) error {
-	buf := new(bytes.Buffer)
-	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+func (hs *handshaker) Handshake(ctx context.Context, rw io.ReadWriter) (protocol.Session, error) {
+	// 1. Write self ECDSA public key and Signature of it.
+	localPrivateKey, err := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("error generating new ecdsa key : %v", err)
+	}
+	if err := hs.writePublicKey(rw, localPrivateKey); err != nil {
+		return nil, err
 	}
 
-	// Write initiator's public key
-	if err := writePubKey(buf, rsaKey.PublicKey); err != nil {
-		return err
-	}
-	if err := hs.signAndAppendSignature(buf, rw); err != nil {
-		return err
-	}
-
-	// Read responder's public key and challenge
-	if err := hs.verifyAndStripSignature(rw, buf); err != nil {
-		return err
-	}
-	challenge, err := readChallenge(buf, rsaKey)
+	// 2. Read the remote ECDSA public key and verify the signature.
+	remotePublicKey, remotePeerID, err := hs.readPublicKey(rw)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	responderPubKey, err := readPubKey(buf)
+
+	// 3. Generate a session key, encrypted with remote ECDSA key and write to server
+	localSessionKey := hs.sessionManager.NewSessionKey()
+	if err := hs.writeEncrypted(rw, localSessionKey, remotePublicKey); err != nil {
+		return nil, err
+	}
+
+	// 4. Read and decrypt the session key from the server.
+	remoteSessionKey, err := hs.readEncrypted(rw, localPrivateKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// Write the challenge reply
-	if err := writeChallenge(buf, challenge, &responderPubKey); err != nil {
-		return err
-	}
-	if err := hs.signAndAppendSignature(buf, rw); err != nil {
-		return err
-	}
-
-	return nil
+	return hs.sessionManager.NewSession(remotePeerID, xorSessionKeys(localSessionKey, remoteSessionKey)), nil
 }
 
-func (hs *handshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) error {
-	buf := new(bytes.Buffer)
-	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+func (hs *handshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) (protocol.Session, error) {
+	// 1. Read the remote ECDSA public key and verify the signature.
+	remotePublicKey, remotePeerID, err := hs.readPublicKey(rw)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// Read initiator's public key
-	if err := hs.verifyAndStripSignature(rw, buf); err != nil {
-		return err
-	}
-	initiatorPubKey, err := readPubKey(buf)
+	// 2. Write self ecdsa public key and Signature of it.
+	localPrivateKey, err := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("error generating new ecdsa key : %v", err)
+	}
+	if err := hs.writePublicKey(rw, localPrivateKey); err != nil {
+		return nil, err
 	}
 
-	// Write challenge and responder's public key and challenge
-	challenge := [32]byte{}
-	rand.Read(challenge[:])
-	if err := writeChallenge(buf, challenge, &initiatorPubKey); err != nil {
-		return err
-	}
-	if err := writePubKey(buf, rsaKey.PublicKey); err != nil {
-		return err
-	}
-	if err := hs.signAndAppendSignature(buf, rw); err != nil {
-		return err
-	}
-
-	// Read initiator's challenge reply
-	if err := hs.verifyAndStripSignature(rw, buf); err != nil {
-		return err
-	}
-	replyChallenge, err := readChallenge(buf, rsaKey)
+	// 3. Read and decrypt the session key from the client.
+	remoteSessionKey, err := hs.readEncrypted(rw, localPrivateKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	if challenge != replyChallenge {
-		return fmt.Errorf("initiator failed the challenge %s != %s", base64.StdEncoding.EncodeToString(challenge[:]), base64.StdEncoding.EncodeToString(replyChallenge[:]))
+	// 4. Generate a session key and write to client
+	localSessionKey := hs.sessionManager.NewSessionKey()
+	if err := hs.writeEncrypted(rw, localSessionKey, remotePublicKey); err != nil {
+		return nil, err
 	}
-	return nil
+	return hs.sessionManager.NewSession(remotePeerID, xorSessionKeys(localSessionKey, remoteSessionKey)), nil
 }
 
-func writePubKey(w io.Writer, pubKey rsa.PublicKey) error {
-	if err := binary.Write(w, binary.LittleEndian, int64(pubKey.E)); err != nil {
-		return err
+// Write the ecdsa public along with a signature of it through the io.Writer
+func (hs *handshaker) writePublicKey(w io.Writer, key *ecdsa.PrivateKey) error {
+	localPublicKey := key.PublicKey
+	localPublicKeyBytes := crypto.FromECDSAPub(&localPublicKey)
+	if err := write(w, localPublicKeyBytes); err != nil {
+		return fmt.Errorf("error writing ecdsa.PublicKey to io.Writer: %v", err)
 	}
-	if err := binary.Write(w, binary.LittleEndian, uint64(len(pubKey.N.Bytes()))); err != nil {
-		return err
+	pubKeySig, err := hs.signVerifier.Sign(hs.signVerifier.Hash(localPublicKeyBytes))
+	if err != nil {
+		return fmt.Errorf("invariant violation: cannot sign ecdsa.publickey: %v", err)
 	}
-	if n, err := w.Write(pubKey.N.Bytes()); n != len(pubKey.N.Bytes()) || err != nil {
-		return fmt.Errorf("failed to write the pubkey [%d != %d]: %v", n, len(pubKey.N.Bytes()), err)
+	if err := write(w, pubKeySig); err != nil {
+		return fmt.Errorf("error writing ecdsa.PublicKey signature to io.Writer: %v", err)
 	}
 	return nil
 }
 
-func readPubKey(r io.Reader) (rsa.PublicKey, error) {
-	pubKey := rsa.PublicKey{}
-	var E int64
-	if err := binary.Read(r, binary.LittleEndian, &E); err != nil {
-		return pubKey, err
+// Unmarshal the read data to an ecdsa.PublicKey and verify the signature.
+func (hs *handshaker) readPublicKey(r io.Reader) (*ecdsa.PublicKey, protocol.PeerID, error) {
+	remotePubKeyBytes, err := read(r)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error reading ecdsa.PublicKey from io.Reader: %v", err)
 	}
-	pubKey.E = int(E)
-	var size uint64
-	if err := binary.Read(r, binary.LittleEndian, &size); err != nil {
-		return pubKey, err
+	remotePublicKey, err := crypto.UnmarshalPubkey(remotePubKeyBytes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error unmarshaling ecdsa PublicKey: %v", err)
 	}
-	pubKeyBytes := make([]byte, size)
-	if n, err := r.Read(pubKeyBytes); uint64(n) != size || err != nil {
-		return pubKey, fmt.Errorf("failed to write the pubkey [%d != %d]: %v", n, size, err)
+	remotePubKeySig, err := read(r)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error reading ecdsa.PublicKey signature from io.Reader: %v", err)
 	}
-	pubKey.N = new(big.Int).SetBytes(pubKeyBytes)
-	return pubKey, nil
+	remotePeerID, err := hs.signVerifier.Verify(hs.signVerifier.Hash(remotePubKeyBytes), remotePubKeySig)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error verifying ecdsa.PublicKey: %v", err)
+	}
+	return remotePublicKey, remotePeerID, nil
 }
 
-func writeChallenge(w io.Writer, challenge [32]byte, pubKey *rsa.PublicKey) error {
-	encryptedChallenge, err := rsa.EncryptPKCS1v15(rand.Reader, pubKey, challenge[:])
+// encrypt the data with given public key and write the encrypted data through an io.Writer.
+func (hs *handshaker) writeEncrypted(w io.Writer, data []byte, publicKey *ecdsa.PublicKey) error {
+	data, err := ecies.Encrypt(rand.Reader, ecies.ImportECDSAPublic(publicKey), data, nil, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("error encrypting session key: %v", err)
 	}
-	if err := binary.Write(w, binary.LittleEndian, uint64(len(encryptedChallenge))); err != nil {
-		return err
-	}
-	if n, err := w.Write(encryptedChallenge); n != len(encryptedChallenge) || err != nil {
-		return fmt.Errorf("failed to write the pubkey [%d != %d]: %v", n, len(encryptedChallenge), err)
+	if err := write(w, data); err != nil {
+		return fmt.Errorf("error writing ecdsa.PublicKey signature to io.Writer: %v", err)
 	}
 	return nil
 }
 
-func readChallenge(r io.Reader, privKey *rsa.PrivateKey) ([32]byte, error) {
-	var size uint64
-	if err := binary.Read(r, binary.LittleEndian, &size); err != nil {
-		return [32]byte{}, err
+// read data from the io.Reader and decrypted with the ecdsa.PrivateKey.
+func (hs *handshaker) readEncrypted(r io.Reader, privateKey *ecdsa.PrivateKey) ([]byte, error) {
+	encryptedSessionKey, err := read(r)
+	if err != nil {
+		return nil, fmt.Errorf("error reading ecdsa.PublicKey from io.Reader: %v", err)
 	}
-	encryptedChallenge := make([]byte, size)
-	if n, err := r.Read(encryptedChallenge); uint64(n) != size || err != nil {
-		return [32]byte{}, fmt.Errorf("failed to write the pubkey [%d != %d]: %v", n, size, err)
+	eciesPrivateKey := ecies.ImportECDSA(privateKey)
+	decryptedSessionKey, err := eciesPrivateKey.Decrypt(encryptedSessionKey, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error decrypting session key from server: %v", err)
 	}
-	challengeBytes, err := rsa.DecryptPKCS1v15(rand.Reader, privKey, encryptedChallenge)
-	if err != nil || len(challengeBytes) != 32 {
-		return [32]byte{}, fmt.Errorf("failed to decrypt the challenge [%d != 32]: %v", len(challengeBytes), err)
-	}
-	challenge := [32]byte{}
-	copy(challenge[:], challengeBytes)
-	return challenge, nil
+
+	return decryptedSessionKey, nil
 }
 
-func (hs *handshaker) signAndAppendSignature(r io.Reader, w io.Writer) error {
-	data, err := ioutil.ReadAll(r)
-	if err != nil {
-		return err
+func write(w io.Writer, data []byte) error {
+	if err := binary.Write(w, binary.LittleEndian, uint64(len(data))); err != nil {
+		return fmt.Errorf("error writing data len=%v: %v", len(data), err)
 	}
-	n := len(data)
-
-	hash := hs.signVerifier.Hash(data)
-	sig, err := hs.signVerifier.Sign(hash)
-	if err != nil {
-		return err
-	}
-	sigLen := int(hs.signVerifier.SigLength())
-	if err := binary.Write(w, binary.LittleEndian, uint64(n+sigLen)); err != nil {
-		return err
-	}
-	if wn, err := w.Write(append(data, sig...)); wn != n+sigLen || err != nil {
-		return fmt.Errorf("failed to add the signature [%d != %d]: %v", wn, n+sigLen, err)
+	if err := binary.Write(w, binary.LittleEndian, data); err != nil {
+		return fmt.Errorf("error writing data: %v", err)
 	}
 	return nil
 }
 
-func (hs *handshaker) verifyAndStripSignature(r io.Reader, w io.Writer) error {
-	var size uint64
-	if err := binary.Read(r, binary.LittleEndian, &size); err != nil {
-		return err
+func read(r io.Reader) ([]byte, error) {
+	dataLen := uint64(0)
+	if err := binary.Read(r, binary.LittleEndian, &dataLen); err != nil {
+		return nil, fmt.Errorf("error reading data len=%v: %v", dataLen, err)
 	}
-	data := make([]byte, size)
-	n, err := r.Read(data)
-	if err != nil && uint64(n) != size {
-		return fmt.Errorf("failed to read [%d != %d]: %v", uint64(n), size, err)
+	data := make([]byte, dataLen)
+	if err := binary.Read(r, binary.LittleEndian, &data); err != nil {
+		return data, fmt.Errorf("error reading data: %v", err)
 	}
-	sigLen := hs.signVerifier.SigLength()
-	hash := hs.signVerifier.Hash(data[:size-sigLen])
-	if err := hs.signVerifier.Verify(hash, data[size-sigLen:]); err != nil {
-		return err
+	return data, nil
+}
+
+func xorSessionKeys(key1, key2 []byte) []byte {
+	sessionKey := make([]byte, 0)
+	for i := 0; i < len(key1); i++ {
+		sessionKey = append(sessionKey, key1[i]^key2[i])
 	}
-	if wn, err := w.Write(data[:size-sigLen]); uint64(wn) != size-sigLen || err != nil {
-		return fmt.Errorf("failed to strip the signature [%d != %d]: %v", wn, n+int(sigLen), err)
-	}
-	return nil
+	return sessionKey
 }

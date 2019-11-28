@@ -36,16 +36,17 @@ func (sv *mockSignVerifier) Sign(digest []byte) ([]byte, error) {
 	return crypto.Sign(digest, sv.privKey)
 }
 
-func (sv *mockSignVerifier) Verify(digest, sig []byte) error {
+func (sv *mockSignVerifier) Verify(digest, sig []byte) (protocol.PeerID, error) {
 	pubKey, err := crypto.SigToPub(digest, sig)
 	if err != nil {
-		return err
+		return SimplePeerID(""), err
 	}
+	address := crypto.PubkeyToAddress(*pubKey)
 	whitelisted, ok := sv.whitelist[crypto.PubkeyToAddress(*pubKey).String()]
 	if whitelisted && ok {
-		return nil
+		return SimplePeerID(address.String()), nil
 	}
-	return fmt.Errorf("unauthenticated user")
+	return SimplePeerID(""), fmt.Errorf("unauthenticated user")
 }
 
 func (sv *mockSignVerifier) ID() string {

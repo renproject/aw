@@ -5,33 +5,47 @@ version: 2.1
 
 _defaults: &defaults
     docker:
-      - image: circleci/golang:1.11
+      - image: circleci/golang:1.13.4
 
 jobs:
-  build:
+  test:
     <<: *defaults
     steps:
       - checkout
       - restore_cache:
           key: go-mod-v3-{{ checksum "go.sum" }}
       - run:
-          name: Building and testing
+          name: Run unit tests
           command: |
-            go build ./...
+            go vet ./...
             go get -u github.com/onsi/ginkgo/ginkgo
             go get -u github.com/loongy/covermerge
             go get -u github.com/mattn/goveralls
             CI=true /go/bin/ginkgo -v --race --cover --coverprofile coverprofile.out ./...
             /go/bin/covermerge                \
+              protocol/coverprofile.out       \
+              dht/coverprofile.out            \
+              cast/coverprofile.out           \
+              multicast/coverprofile.out      \
+              broadcast/coverprofile.out      \
+              pingpong/coverprofile.out       \
+              handshake/coverprofile.out      \
+              peer/coverprofile.out           \
               tcp/coverprofile.out > coverprofile.out
+            sed -i '/marshal.go/d' coverprofile.out
             goveralls -coverprofile=coverprofile.out -service=circleci -repotoken $COVERALLS_REPO_TOKEN
       - save_cache:
           key: go-mod-v3-{{ checksum "go.sum" }}
           paths:
             - "~/go"
+      - run:
+          name: Run linter
+          command: |
+              go get -u golang.org/x/lint/golint
+              golint ./...
 
 workflows:
   version: 2.1
   build:
     jobs:
-    - build
+      - test

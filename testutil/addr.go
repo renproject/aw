@@ -3,16 +3,22 @@ package testutil
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net"
+	"time"
 
 	"github.com/renproject/aw/protocol"
 )
 
-func NewSimpleTCPPeerAddressCodec() protocol.PeerAddressCodec {
-	return SimpleTCPPeerAddressCodec{}
+func init() {
+	rand.Seed(time.Now().Unix())
 }
 
 type SimpleTCPPeerAddressCodec struct {
+}
+
+func NewSimpleTCPPeerAddressCodec() protocol.PeerAddressCodec {
+	return SimpleTCPPeerAddressCodec{}
 }
 
 func (codec SimpleTCPPeerAddressCodec) Encode(peerAddress protocol.PeerAddress) ([]byte, error) {
@@ -31,16 +37,98 @@ func (codec SimpleTCPPeerAddressCodec) Decode(peerAddress []byte) (protocol.Peer
 	return address, nil
 }
 
-func NewSimpleTCPPeerAddress(id, address, port string) SimpleTCPPeerAddress {
-	return SimpleTCPPeerAddress{
-		ID:        SimplePeerID(id),
-		Nonce:     0,
-		IPAddress: address,
-		Port:      port,
+type SimplePeerIDCodec struct {
+}
+
+func (codec SimplePeerIDCodec) Encode(id protocol.PeerID) ([]byte, error) {
+	peerID, ok := id.(SimplePeerID)
+	if !ok {
+		return nil, fmt.Errorf("unsupported peer peerID of type: %T", id)
 	}
+	return json.Marshal(peerID)
+}
+
+func (codec SimplePeerIDCodec) Decode(data []byte) (protocol.PeerID, error) {
+	var peerID SimplePeerID
+	if err := json.Unmarshal(data, &peerID); err != nil {
+		return nil, err
+	}
+	return peerID, nil
 }
 
 type SimplePeerID string
+
+func RandomPeerID() protocol.PeerID {
+	return SimplePeerID(RandomString())
+}
+
+func RandomPeerGroupID() protocol.PeerGroupID {
+	id := protocol.PeerGroupID{}
+	for id.Equal(protocol.NilPeerGroupID) {
+		_, err := rand.Read(id[:])
+		if err != nil {
+			panic(fmt.Sprintf("cannot create random id, err = %v", err))
+		}
+	}
+	return id
+}
+
+func RandomString() string {
+	alphabet := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	length := rand.Intn(16) + 1
+	str := make([]byte, length)
+	for i := 0; i < length; i++ {
+		str[i] = alphabet[rand.Intn(len(alphabet))]
+	}
+	return string(str)
+}
+
+// RandomAddresses returns n distinct PeerAddresses which are randomly generated.
+func RandomAddresses(n int) protocol.PeerAddresses {
+	addrs := make(protocol.PeerAddresses, n)
+	seenIds := map[string]struct{}{}
+	for i := range addrs {
+		var addr protocol.PeerAddress
+		for {
+			addr = RandomAddress()
+			if _, ok := seenIds[addr.PeerID().String()]; !ok {
+				break
+			}
+		}
+		addrs[i] = addr
+		seenIds[addr.PeerID().String()] = struct{}{}
+	}
+	return addrs
+}
+
+func FromAddressesToIDs(addrs protocol.PeerAddresses) protocol.PeerIDs {
+	ids := make([]protocol.PeerID, len(addrs))
+	for i := range addrs {
+		if addrs[i] != nil {
+			ids[i] = addrs[i].PeerID()
+		}
+	}
+	return ids
+}
+
+// RandomPeerIDs returns a random number of distinct PeerID
+func RandomPeerIDs() protocol.PeerIDs {
+	length := rand.Intn(16)
+	ids := make(protocol.PeerIDs, length)
+	distinct := map[string]struct{}{}
+	for i := range ids {
+		var id protocol.PeerID
+		for {
+			id = RandomPeerID()
+			if _, ok := distinct[id.String()]; !ok {
+				break
+			}
+		}
+		ids[i] = id
+		distinct[id.String()] = struct{}{}
+	}
+	return ids
+}
 
 func (peerID SimplePeerID) String() string {
 	return string(peerID)
@@ -55,6 +143,26 @@ type SimpleTCPPeerAddress struct {
 	Nonce     int64        `json:"nonce"`
 	IPAddress string       `json:"ipAddress"`
 	Port      string       `json:"port"`
+}
+
+func NewSimpleTCPPeerAddress(id, address, port string) SimpleTCPPeerAddress {
+	return SimpleTCPPeerAddress{
+		ID:        SimplePeerID(id),
+		Nonce:     0,
+		IPAddress: address,
+		Port:      port,
+	}
+}
+
+func RandomAddress() SimpleTCPPeerAddress {
+	id := RandomPeerID()
+	ip1 := rand.Intn(128)
+	ip2 := rand.Intn(256)
+	ip3 := rand.Intn(256)
+	ip4 := rand.Intn(256)
+	ip := fmt.Sprintf("%v.%v.%v.%v", ip1, ip2, ip3, ip4)
+	port := fmt.Sprintf("%v", rand.Intn(65536))
+	return NewSimpleTCPPeerAddress(id.String(), ip, port)
 }
 
 func (address SimpleTCPPeerAddress) String() string {
@@ -96,4 +204,13 @@ func ClonePeerAddresses(addrs protocol.PeerAddresses) protocol.PeerAddresses {
 		clonedAddrs[i] = addrs[i]
 	}
 	return clonedAddrs
+}
+
+func ContainAddress(addrs protocol.PeerAddresses, addr protocol.PeerAddress) bool {
+	for i := range addrs {
+		if addrs[i].PeerID().Equal(addr.PeerID()) {
+			return true
+		}
+	}
+	return false
 }

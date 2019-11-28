@@ -5,106 +5,97 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/protocol"
 	"github.com/sirupsen/logrus"
 )
 
 type Caster interface {
 	Cast(ctx context.Context, to protocol.PeerID, body protocol.MessageBody) error
-	AcceptCast(ctx context.Context, message protocol.Message) error
+	AcceptCast(ctx context.Context, from protocol.PeerID, message protocol.Message) error
 }
 
 type caster struct {
+	logger   logrus.FieldLogger
 	messages protocol.MessageSender
 	events   protocol.EventSender
-	logger   logrus.FieldLogger
+	dht      dht.DHT
 }
 
-func NewCaster(messages protocol.MessageSender, events protocol.EventSender, logger logrus.FieldLogger) Caster {
+func NewCaster(logger logrus.FieldLogger, messages protocol.MessageSender, events protocol.EventSender, dht dht.DHT) Caster {
 	return &caster{
+		logger:   logger,
 		messages: messages,
 		events:   events,
-		logger:   logger,
+		dht:      dht,
 	}
 }
 
 func (caster *caster) Cast(ctx context.Context, to protocol.PeerID, body protocol.MessageBody) error {
-	messageWire := protocol.MessageOnTheWire{
-		To:      to,
-		Message: protocol.NewMessage(protocol.V1, protocol.Cast, body),
+	toAddr, err := caster.dht.PeerAddress(to)
+	if err != nil {
+		return err
 	}
+	message := protocol.MessageOnTheWire{
+		To:      toAddr,
+		Message: protocol.NewMessage(protocol.V1, protocol.Cast, protocol.NilPeerGroupID, body),
+	}
+
+	// Check if context is already expired
 	select {
 	case <-ctx.Done():
-		return newErrCastingMessage(to, ctx.Err())
-	case caster.messages <- messageWire:
+		return newErrCasting(to, ctx.Err())
+	default:
+	}
+
+	// Try to send the message via the message sender within the given context.
+	select {
+	case <-ctx.Done():
+		return newErrCasting(to, ctx.Err())
+	case caster.messages <- message:
 		return nil
 	}
 }
 
-func (caster *caster) AcceptCast(ctx context.Context, message protocol.Message) error {
-	// TODO: Update to allow message forwarding.
+func (caster *caster) AcceptCast(ctx context.Context, from protocol.PeerID, message protocol.Message) error {
 	// Pre-condition checks
 	if message.Version != protocol.V1 {
-		return newErrCastVersionNotSupported(message.Version)
+		return protocol.NewErrMessageVersionIsNotSupported(message.Version)
 	}
 	if message.Variant != protocol.Cast {
-		return newErrCastVariantNotSupported(message.Variant)
+		return protocol.NewErrMessageVariantIsNotSupported(message.Variant)
 	}
 
 	event := protocol.EventMessageReceived{
 		Time:    time.Now(),
 		Message: message.Body,
+		From:    from,
 	}
+
+	// Check if context is already expired
 	select {
 	case <-ctx.Done():
-		return newErrAcceptCastingMessage(ctx.Err())
+		return fmt.Errorf("error accepting cast: %v", ctx.Err())
+	default:
+	}
+
+	// Try to send the event via the event sender within the given context.
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("error accepting cast: %v", ctx.Err())
 	case caster.events <- event:
 		return nil
 	}
 }
 
-type ErrCastingMessage struct {
+type ErrCasting struct {
 	error
 	PeerID protocol.PeerID
 }
 
-func newErrCastingMessage(peerID protocol.PeerID, err error) error {
-	return ErrCastingMessage{
-		error:  fmt.Errorf("error casting to peer=%v: %v", peerID, err),
+func newErrCasting(peerID protocol.PeerID, err error) error {
+	return ErrCasting{
+		error:  fmt.Errorf("error casting to %v: %v", peerID, err),
 		PeerID: peerID,
-	}
-}
-
-type ErrAcceptCastingMessage struct {
-	error
-}
-
-func newErrAcceptCastingMessage(err error) error {
-	return ErrAcceptCastingMessage{
-		error: fmt.Errorf("error accept cast message: %v", err),
-	}
-}
-
-// ErrCastVersionNotSupported is returned when a broadcast message has an
-// unsupported version.
-type ErrCastVersionNotSupported struct {
-	error
-}
-
-func newErrCastVersionNotSupported(version protocol.MessageVersion) error {
-	return ErrCastVersionNotSupported{
-		error: fmt.Errorf("broadcast version=%v not supported", version),
-	}
-}
-
-// ErrCastVariantNotSupported is returned when a broadcast message has an
-// unsupported variant.
-type ErrCastVariantNotSupported struct {
-	error
-}
-
-func newErrCastVariantNotSupported(variant protocol.MessageVariant) error {
-	return ErrCastVariantNotSupported{
-		error: fmt.Errorf("broadcast variant=%v not supported", variant),
 	}
 }

@@ -1,30 +1,47 @@
 package protocol
 
 import (
-	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
-	"encoding/binary"
 	"fmt"
-	"io"
 
-	"golang.org/x/crypto/sha3"
+	"github.com/renproject/id"
 )
 
+// Message we trying to send on the wire.
+type MessageOnTheWire struct {
+	To      PeerAddress
+	From    PeerID
+	Message Message
+}
+
+// MessageSender is used for sending MessageOnTheWire.
 type MessageSender chan<- MessageOnTheWire
 
+// MessageReceiver is used for reading MessageOnTheWire.
 type MessageReceiver <-chan MessageOnTheWire
 
-type MessageOnTheWire struct {
-	To      PeerID
-	Message Message
-}
-
-type MessageReceive struct {
-	Message Message
-}
-
+// MessageLength indicates the length of the entire message.
 type MessageLength uint32
 
+// ValidateMessageVersion checks if the length is valid.
+func ValidateMessageLength(length MessageLength, variant MessageVariant) error {
+	switch variant {
+	case Cast, Ping, Pong:
+		if int(length) < variant.NonBodyLength() {
+			return NewErrMessageLengthIsTooLow(length)
+		}
+	case Multicast, Broadcast:
+		if int(length) < variant.NonBodyLength() {
+			return NewErrMessageLengthIsTooLow(length)
+		}
+	default:
+		return NewErrMessageVariantIsNotSupported(variant)
+	}
+	return nil
+}
+
+// MessageVersion indicates the version of the message.
 type MessageVersion uint16
 
 const (
@@ -36,10 +53,21 @@ func (version MessageVersion) String() string {
 	case V1:
 		return "v1"
 	default:
-		panic(newErrMessageVersionIsNotSupported(version))
+		panic(NewErrMessageVersionIsNotSupported(version))
 	}
 }
 
+// ValidateMessageVersion checks if the given version is supported.
+func ValidateMessageVersion(version MessageVersion) error {
+	switch version {
+	case V1:
+		return nil
+	default:
+		return NewErrMessageVersionIsNotSupported(version)
+	}
+}
+
+// MessageVariant represents the type of message.
 type MessageVariant uint16
 
 const (
@@ -67,154 +95,73 @@ func (variant MessageVariant) String() string {
 	}
 }
 
-type MessageHash [32]byte
-
-func (hash MessageHash) String() string {
-	return base64.StdEncoding.EncodeToString(hash[:])
+// Returns the message length (ex-messageBody) which equals to
+// len(MessageLength) + len(MessageVersion) + len(MessageVariant) + len(PeerGroupID)
+func (variant MessageVariant) NonBodyLength() int {
+	switch variant {
+	case Ping, Pong, Cast:
+		return 8 // 4(uint32) + 2(uint16) + 2(uint16) + 0
+	case Multicast, Broadcast:
+		return 40 // 4(uint32) + 2(uint16) + 2(uint16) + 32([32]byte)
+	default:
+		panic(NewErrMessageVariantIsNotSupported(variant))
+	}
 }
 
+// ValidateMessageVariant checks if the given variant is supported.
+func ValidateMessageVariant(variant MessageVariant) error {
+	switch variant {
+	case Ping, Pong, Cast, Multicast, Broadcast:
+		return nil
+	default:
+		return NewErrMessageVariantIsNotSupported(variant)
+	}
+}
+
+// MessageBody contains the content of the message.
 type MessageBody []byte
 
+// String implements the `Stringer` interface.
 func (body MessageBody) String() string {
-	return base64.StdEncoding.EncodeToString(body)
+	return base64.RawStdEncoding.EncodeToString(body)
 }
 
+// Message is the object used for communicating in the network.
 type Message struct {
 	Length  MessageLength
 	Version MessageVersion
 	Variant MessageVariant
+	GroupID PeerGroupID
 	Body    MessageBody
 }
 
-func NewMessage(version MessageVersion, variant MessageVariant, body MessageBody) Message {
-	switch version {
-	case V1:
-	default:
-		panic(newErrMessageVersionIsNotSupported(version))
+// NewMessage returns a new message with given version, variant and body.
+func NewMessage(version MessageVersion, variant MessageVariant, groupID PeerGroupID, body MessageBody) Message {
+	if err := ValidateMessageVersion(version); err != nil {
+		panic(err)
 	}
-	switch variant {
-	case Ping, Pong, Cast, Multicast, Broadcast:
-	default:
-		panic(NewErrMessageVariantIsNotSupported(variant))
+	if err := ValidateMessageVariant(variant); err != nil {
+		panic(err)
 	}
-	if body == nil {
-		body = make(MessageBody, 0)
+	if err := ValidatePeerGroupID(groupID, variant); err != nil {
+		panic(err)
 	}
+	length := MessageLength(variant.NonBodyLength() + len(body))
 
 	return Message{
-		Length:  MessageLength(32 + len(body)),
+		Length:  length,
 		Version: version,
 		Variant: variant,
+		GroupID: groupID,
 		Body:    body,
 	}
 }
 
-func (message Message) Hash() MessageHash {
-	buf := new(bytes.Buffer)
-	if err := message.Write(buf); err != nil {
-		panic(fmt.Errorf("invariant violation: sha3 hash of bad message: %v", err))
+// Hash returns the hash of the message.
+func (message Message) Hash() id.Hash {
+	data, err := message.MarshalBinary()
+	if err != nil {
+		panic(fmt.Errorf("invariant violation: malformed message: %v", err))
 	}
-	return MessageHash(sha3.Sum256(buf.Bytes()))
-}
-
-func (message Message) Write(writer io.Writer) error {
-	if message.Length < 32 {
-		return newErrMessageLengthIsTooLow(message.Length)
-	}
-	switch message.Version {
-	case V1:
-	default:
-		return newErrMessageVersionIsNotSupported(message.Version)
-	}
-	switch message.Variant {
-	case Ping, Pong, Cast, Multicast, Broadcast:
-	default:
-		return NewErrMessageVariantIsNotSupported(message.Variant)
-	}
-
-	if err := binary.Write(writer, binary.LittleEndian, message.Length); err != nil {
-		return fmt.Errorf("error marshaling message length=%v: %v", message.Length, err)
-	}
-	if err := binary.Write(writer, binary.LittleEndian, message.Version); err != nil {
-		return fmt.Errorf("error marshaling message version=%v: %v", message.Version, err)
-	}
-	if err := binary.Write(writer, binary.LittleEndian, message.Variant); err != nil {
-		return fmt.Errorf("error marshaling message variant=%v: %v", message.Variant, err)
-	}
-	if err := binary.Write(writer, binary.LittleEndian, message.Body); err != nil {
-		return fmt.Errorf("error marshaling message body: %v", err)
-	}
-	return nil
-}
-
-func (message *Message) Read(reader io.Reader) error {
-	if err := binary.Read(reader, binary.LittleEndian, &message.Length); err != nil {
-		if err == io.EOF {
-			return err
-		}
-		return fmt.Errorf("error unmarshaling message length: %v", err)
-	}
-	if message.Length < 32 {
-		return newErrMessageLengthIsTooLow(message.Length)
-	}
-
-	if err := binary.Read(reader, binary.LittleEndian, &message.Version); err != nil {
-		return fmt.Errorf("error unmarshaling message version: %v", err)
-	}
-	switch message.Version {
-	case V1:
-	default:
-		return newErrMessageVersionIsNotSupported(message.Version)
-	}
-
-	if err := binary.Read(reader, binary.LittleEndian, &message.Variant); err != nil {
-		return fmt.Errorf("error unmarshaling message variant: %v", err)
-	}
-	switch message.Variant {
-	case Ping, Pong, Cast, Multicast, Broadcast:
-	default:
-		return NewErrMessageVariantIsNotSupported(message.Variant)
-	}
-
-	message.Body = make(MessageBody, message.Length-32)
-	if err := binary.Read(reader, binary.LittleEndian, message.Body); err != nil {
-		return fmt.Errorf("error unmarshaling message body: %v", err)
-	}
-	return nil
-}
-
-type ErrMessageLengthIsTooLow struct {
-	error
-	Length MessageLength
-}
-
-func newErrMessageLengthIsTooLow(length MessageLength) error {
-	return ErrMessageLengthIsTooLow{
-		error:  fmt.Errorf("message length=%d is too low", length),
-		Length: length,
-	}
-}
-
-type ErrMessageVersionIsNotSupported struct {
-	error
-	Version MessageVersion
-}
-
-func newErrMessageVersionIsNotSupported(version MessageVersion) error {
-	return ErrMessageVersionIsNotSupported{
-		error:   fmt.Errorf("message version=%d is not supported", version),
-		Version: version,
-	}
-}
-
-type ErrMessageVariantIsNotSupported struct {
-	error
-	Variant MessageVariant
-}
-
-func NewErrMessageVariantIsNotSupported(variant MessageVariant) error {
-	return ErrMessageVariantIsNotSupported{
-		error:   fmt.Errorf("message variant=%d is not supported", variant),
-		Variant: variant,
-	}
+	return sha256.Sum256(data)
 }

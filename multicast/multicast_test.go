@@ -3,118 +3,173 @@ package multicast_test
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"testing/quick"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	. "github.com/renproject/aw/multicast"
+	. "github.com/renproject/aw/testutil"
+
 	"github.com/renproject/aw/protocol"
 	"github.com/sirupsen/logrus"
 )
 
 var _ = Describe("Multicaster", func() {
-	Context("when sending multicast messages", func() {
-		It("should be able to create aw compatible multicast messages", func() {
-			messages := make(chan protocol.MessageOnTheWire)
-			events := make(chan protocol.Event)
-			multicaster := NewMulticaster(messages, events, logrus.StandardLogger())
-			check := func(x [32]byte) bool {
+	Context("when multicasting", func() {
+		It("should be able to send messages", func() {
+			check := func(messageBody []byte) bool {
+				messages := make(chan protocol.MessageOnTheWire, 128)
+				events := make(chan protocol.Event, 1)
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				multicaster := NewMulticaster(logrus.New(), 8, messages, events, dht)
+
+				groupID, addrs, err := NewGroup(dht)
+				Expect(err).NotTo(HaveOccurred())
+
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
-				messageBody := protocol.MessageBody(x[:])
-				go func() {
-					err := multicaster.Multicast(ctx, messageBody)
-					if err != nil {
-						fmt.Println(err)
-					}
-				}()
-				msg := <-messages
-				return (msg.To == nil) && bytes.Equal(msg.Message.Body, x[:]) && (msg.Message.Variant == protocol.Multicast)
+				Expect(multicaster.Multicast(ctx, groupID, messageBody)).NotTo(HaveOccurred())
+
+				for i := 0; i < len(addrs); i++ {
+					var message protocol.MessageOnTheWire
+					Eventually(messages).Should(Receive(&message))
+					Expect(addrs).Should(ContainElement(message.To))
+					Expect(message.Message.Version).Should(Equal(protocol.V1))
+					Expect(message.Message.Variant).Should(Equal(protocol.Multicast))
+					Expect(bytes.Equal(message.Message.Body, messageBody)).Should(BeTrue())
+				}
+				return true
 			}
-			Expect(quick.Check(check, &quick.Config{
-				MaxCount: 100,
-			})).Should(BeNil())
+
+			Expect(quick.Check(check, nil)).Should(BeNil())
 		})
 
-		It("should return ErrCastCancelled if the context get's cancelled before multicast message is sent", func() {
-			messages := make(chan protocol.MessageOnTheWire)
-			events := make(chan protocol.Event)
-			multicaster := NewMulticaster(messages, events, logrus.StandardLogger())
-			ctx, cancel := context.WithCancel(context.Background())
-			cancel()
-			messageBody := protocol.MessageBody{}
-			err := multicaster.Multicast(ctx, messageBody)
-			if err != nil {
-				fmt.Println(err)
-			}
-			_, ok := err.(ErrMulticastingMessage)
-			Expect(ok).Should(BeTrue())
+		Context("when the context is cancelled", func() {
+			It("should return ErrMulticasting", func() {
+				check := func(messageBody []byte) bool {
+					messages := make(chan protocol.MessageOnTheWire, 128)
+					events := make(chan protocol.Event, 1)
+					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+					multicaster := NewMulticaster(logrus.New(), 8, messages, events, dht)
+
+					groupID, _, err := NewGroup(dht)
+					Expect(err).NotTo(HaveOccurred())
+
+					ctx, cancel := context.WithCancel(context.Background())
+					cancel()
+					Expect(multicaster.Multicast(ctx, groupID, messageBody)).Should(HaveOccurred())
+					return true
+				}
+
+				Expect(quick.Check(check, nil)).Should(BeNil())
+			})
+		})
+
+		Context("when the groupID doesn't exist in dht", func() {
+			It("should return an error", func() {
+				check := func(messageBody []byte) bool {
+					messages := make(chan protocol.MessageOnTheWire, 128)
+					events := make(chan protocol.Event, 1)
+					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+					multicaster := NewMulticaster(logrus.New(), 8, messages, events, dht)
+
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+					Expect(multicaster.Multicast(ctx, RandomPeerGroupID(), messageBody)).Should(HaveOccurred())
+					return true
+				}
+
+				Expect(quick.Check(check, nil)).Should(BeNil())
+			})
+		})
+
+		Context("when we don't have some addresses in the group in dht", func() {
+			It("should send to all known addresses in the group and print error to warn user", func() {
+				check := func(messageBody []byte) bool {
+					messages := make(chan protocol.MessageOnTheWire, 128)
+					events := make(chan protocol.Event, 1)
+					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+					multicaster := NewMulticaster(logrus.New(), 8, messages, events, dht)
+
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+					groupID := RandomPeerGroupID()
+					Expect(dht.AddPeerGroup(groupID, RandomPeerIDs())).NotTo(HaveOccurred())
+					Expect(multicaster.Multicast(ctx, groupID, messageBody)).ShouldNot(HaveOccurred())
+					return true
+				}
+
+				Expect(quick.Check(check, nil)).Should(BeNil())
+			})
 		})
 	})
 
-	Context("when accepting multicast messages", func() {
-		It("should be able to create aw compatible multicast messages", func() {
-			messages := make(chan protocol.MessageOnTheWire)
-			events := make(chan protocol.Event)
-			multicaster := NewMulticaster(messages, events, logrus.StandardLogger())
-			check := func(x [32]byte) bool {
+	Context("when accepting multicasts", func() {
+		It("should be able to receive messages", func() {
+			check := func(messageBody []byte) bool {
+				messages := make(chan protocol.MessageOnTheWire)
+				events := make(chan protocol.Event, 16)
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				multicaster := NewMulticaster(logrus.New(), 8, messages, events, dht)
+
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
-				messageBody := protocol.MessageBody(x[:])
-				go func() {
-					err := multicaster.AcceptMulticast(ctx, protocol.NewMessage(protocol.V1, protocol.Multicast, messageBody))
-					if err != nil {
-						fmt.Println(err)
-					}
-				}()
-				ev := <-events
-				event, ok := ev.(protocol.EventMessageReceived)
-				if !ok {
-					return false
-				}
-				return bytes.Equal(event.Message, x[:])
+				message := protocol.NewMessage(protocol.V1, protocol.Multicast, RandomPeerGroupID(), messageBody)
+				Expect(multicaster.AcceptMulticast(ctx, RandomPeerID(), message)).ToNot(HaveOccurred())
+
+				var event protocol.EventMessageReceived
+				Eventually(events).Should(Receive(&event))
+				return bytes.Equal(event.Message, messageBody)
 			}
-			Expect(quick.Check(check, &quick.Config{
-				MaxCount: 100,
-			})).Should(BeNil())
+
+			Expect(quick.Check(check, nil)).Should(BeNil())
 		})
 
-		It("should return Err if the context get's cancelled before multicast event is sent", func() {
-			messages := make(chan protocol.MessageOnTheWire)
-			events := make(chan protocol.Event)
-			multicaster := NewMulticaster(messages, events, logrus.StandardLogger())
-			ctx, cancel := context.WithCancel(context.Background())
-			cancel()
-			messageBody := protocol.MessageBody{}
-			err := multicaster.AcceptMulticast(ctx, protocol.NewMessage(protocol.V1, protocol.Multicast, messageBody))
-			_, ok := err.(ErrMulticastingMessage)
-			Expect(ok).Should(BeTrue())
+		Context("when the context is cancelled", func() {
+			It("should return ErrAcceptingMulticast", func() {
+				messages := make(chan protocol.MessageOnTheWire)
+				events := make(chan protocol.Event, 16)
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				multicaster := NewMulticaster(logrus.New(), 8, messages, events, dht)
+
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+
+				message := protocol.NewMessage(protocol.V1, protocol.Multicast, RandomPeerGroupID(), protocol.MessageBody{})
+				Expect(multicaster.AcceptMulticast(ctx, RandomPeerID(), message)).To(HaveOccurred())
+			})
 		})
 
-		It("should return ErrMulticastVersionNotSupported on receiving a message with invalid version", func() {
-			messages := make(chan protocol.MessageOnTheWire)
-			events := make(chan protocol.Event)
-			caster := NewMulticaster(messages, events, logrus.StandardLogger())
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			message := protocol.NewMessage(protocol.V1, protocol.Multicast, protocol.MessageBody{})
-			message.Version = protocol.MessageVersion(2)
-			err := caster.AcceptMulticast(ctx, message)
-			_, ok := err.(ErrMulticastVersionNotSupported)
-			Expect(ok).Should(BeTrue())
+		Context("when the message has an unsupported version", func() {
+			It("should return ErrMulticastVersionNotSupported", func() {
+				messages := make(chan protocol.MessageOnTheWire)
+				events := make(chan protocol.Event, 16)
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				multicaster := NewMulticaster(logrus.New(), 8, messages, events, dht)
+
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+
+				message := protocol.NewMessage(protocol.V1, protocol.Multicast, RandomPeerGroupID(), protocol.MessageBody{})
+				message.Version = InvalidMessageVersion()
+				Expect(multicaster.AcceptMulticast(ctx, RandomPeerID(), message)).To(HaveOccurred())
+			})
 		})
 
-		It("should return ErrMulticastVariantNotSupported on receiving a message with invalid variant", func() {
-			messages := make(chan protocol.MessageOnTheWire)
-			events := make(chan protocol.Event)
-			caster := NewMulticaster(messages, events, logrus.StandardLogger())
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			message := protocol.NewMessage(protocol.V1, protocol.Broadcast, protocol.MessageBody{})
-			err := caster.AcceptMulticast(ctx, message)
-			_, ok := err.(ErrMulticastVariantNotSupported)
-			Expect(ok).Should(BeTrue())
+		Context("when the message has an unsupported variant", func() {
+			It("should return ErrMulticastVariantNotSupported", func() {
+				messages := make(chan protocol.MessageOnTheWire)
+				events := make(chan protocol.Event, 16)
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				multicaster := NewMulticaster(logrus.New(), 8, messages, events, dht)
+
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+
+				message := protocol.NewMessage(protocol.V1, protocol.Multicast, RandomPeerGroupID(), protocol.MessageBody{})
+				message.Variant = InvalidMessageVariant(protocol.Multicast)
+				Expect(multicaster.AcceptMulticast(ctx, RandomPeerID(), message)).To(HaveOccurred())
+			})
 		})
 	})
 })
