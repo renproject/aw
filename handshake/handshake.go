@@ -91,13 +91,13 @@ func (hs *handshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) (pr
 		return nil, err
 	}
 
-	// 3. Read and decrypt the session key from the server.
+	// 3. Read and decrypt the session key from the client.
 	remoteSessionKey, err := hs.readEncrypted(rw, localPrivateKey)
 	if err != nil {
 		return nil, err
 	}
 
-	// 4. Generate a session key and write to server
+	// 4. Generate a session key and write to client
 	localSessionKey := hs.sessionManager.NewSessionKey()
 	if err := hs.writeEncrypted(rw, localSessionKey, remotePublicKey); err != nil {
 		return nil, err
