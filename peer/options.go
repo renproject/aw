@@ -49,7 +49,7 @@ func (options *Options) SetZeroToDefault() error {
 		if len(options.BootstrapAddresses) != 0 {
 			options.Alpha = 2 * len(options.BootstrapAddresses)
 		} else {
-			options.Alpha = 10
+			options.Alpha = 24
 		}
 	}
 	if options.BootstrapDuration <= 0 {

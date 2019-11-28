@@ -170,8 +170,7 @@ func (peer *peer) bootstrap(ctx context.Context) {
 	if peer.options.DisablePeerDiscovery {
 		return
 	}
-	// Load all peer addresses into a fully buffered queue so that
-	// workers can process them most efficiently
+
 	peerAddrs, err := peer.dht.PeerAddresses()
 	if err != nil {
 		peer.options.Logger.Errorf("error bootstrapping: error loading peer addresses: %v", err)
@@ -193,14 +192,12 @@ func (peer *peer) bootstrap(ctx context.Context) {
 			pingTimeout = peer.options.MinPingTimeout
 		}
 
-		func() {
-			pingCtx, pingCancel := context.WithTimeout(ctx, pingTimeout)
-			defer pingCancel()
-			if err := peer.pingPonger.Ping(pingCtx, peerAddr.PeerID()); err != nil {
-				peer.options.Logger.Errorf("error bootstrapping: error ping/ponging peer address=%v: %v", peerAddr, err)
-				return
-			}
-		}()
+		pingCtx, pingCancel := context.WithTimeout(ctx, pingTimeout)
+		defer pingCancel()
+		if err := peer.pingPonger.Ping(pingCtx, peerAddr.PeerID()); err != nil {
+			peer.options.Logger.Errorf("error bootstrapping: error ping/ponging peer address=%v: %v", peerAddr, err)
+			return
+		}
 	})
 }
 

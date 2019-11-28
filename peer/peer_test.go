@@ -30,7 +30,7 @@ var _ = Describe("Peer", func() {
 
 		message, ok := ReadChannel(castCtx, events[receiver])
 		Expect(ok).Should(BeTrue())
-		// Expect(message.From.Equal(peers[sender].Me().PeerID())).Should(BeTrue())
+		Expect(message.From.Equal(peers[sender].Me().PeerID())).Should(BeTrue())
 		Expect(bytes.Equal(message.Message, messageBody)).Should(BeTrue())
 	}
 
@@ -48,7 +48,7 @@ var _ = Describe("Peer", func() {
 			}
 			message, ok := ReadChannel(multicastCtx, event)
 			Expect(ok).Should(BeTrue())
-			// Expect(message.From.Equal(peers[sender].Me().PeerID())).Should(BeTrue())
+			Expect(message.From.Equal(peers[sender].Me().PeerID())).Should(BeTrue())
 			Expect(bytes.Equal(message.Message, messageBody)).Should(BeTrue())
 		}
 	}
@@ -74,9 +74,9 @@ var _ = Describe("Peer", func() {
 	Context("single group network", func() {
 		networkOption := []struct {
 			B int // num of bootstrap nodes
-			N int // total num of nodes(including bootstrap nodes )
+			N int // total num of nodes(including bootstrap nodes)
 		}{
-			{4, 12},
+			{6, 24},
 		}
 
 		for _, option := range networkOption {

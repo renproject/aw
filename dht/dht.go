@@ -283,6 +283,9 @@ func (dht *dht) fillInMemCache() error {
 // it is newer than the stored addresses.
 func (dht *dht) addBootstrapNodes(addrs protocol.PeerAddresses) error {
 	for _, addr := range addrs {
+		if addr.Equal(dht.me) {
+			continue
+		}
 		if _, err := dht.UpdatePeerAddress(addr); err != nil {
 			return err
 		}
