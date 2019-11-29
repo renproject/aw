@@ -37,9 +37,13 @@ func (client *Client) Run(ctx context.Context, messages protocol.MessageReceiver
 }
 
 func (client *Client) handleMessageOnTheWire(message protocol.MessageOnTheWire) {
-	if err := client.pool.Send(message.To.NetworkAddress(), message.Message); err != nil {
+	for i := 0; i < 5 ; i ++ {
+		err := client.pool.Send(message.To.NetworkAddress(), message.Message)
+		if err == nil {
+			return
+		}
+		time.Sleep(5 * time.Second)
 		client.logger.Errorf("error writing to %v: %v", message.To.NetworkAddress(), err)
-		return
 	}
 }
 

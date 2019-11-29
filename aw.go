@@ -49,7 +49,8 @@ type (
 )
 
 var (
-	NewPeer    = peer.New
-	NewTcpPeer = peer.NewTCP
-	NewDHT     = dht.New
+	NewPeer        = peer.New
+	NewTcpPeer     = peer.NewTCP
+	NewDHT         = dht.New
+	NilPeerGroupID = protocol.NilPeerGroupID
 )
