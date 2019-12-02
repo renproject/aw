@@ -18,39 +18,57 @@ const (
 )
 
 type (
+	// Messages
 	Message          = protocol.Message
 	MessageOnTheWire = protocol.MessageOnTheWire
 	MessageLength    = protocol.MessageLength
 	MessageVariant   = protocol.MessageVariant
 	MessageVersion   = protocol.MessageVersion
+	MessageBody      = protocol.MessageBody
 	MessageSender    = protocol.MessageSender
 	MessageReceiver  = protocol.MessageReceiver
 
-	Event         = protocol.Event
-	EventSender   = protocol.EventSender
-	EventReceiver = protocol.EventReceiver
+	// Events
+	Event                = protocol.Event
+	EventSender          = protocol.EventSender
+	EventReceiver        = protocol.EventReceiver
+	EventPeerChanged     = protocol.EventPeerChanged
+	EventMessageReceived = protocol.EventMessageReceived
 
+	// Peers
 	Peer             = peer.Peer
 	PeerOption       = peer.Options
 	PeerID           = protocol.PeerID
 	PeerIDs          = protocol.PeerIDs
+	PeerGroupID      = protocol.PeerGroupID
 	PeerAddress      = protocol.PeerAddress
 	PeerAddresses    = protocol.PeerAddresses
 	PeerAddressCodec = protocol.PeerAddressCodec
 
-	SignVerifier = protocol.SignVerifier
-	Handshaker   = handshake.Handshaker
-	DHT          = dht.DHT
-	Client       = protocol.Client
-	Server       = protocol.Server
+	// Network
+	DHT            = dht.DHT
+	Client         = protocol.Client
+	Server         = protocol.Server
+	Session        = protocol.Session
+	SessionManager = protocol.SessionManager
+	SignVerifier   = protocol.SignVerifier
+	Handshaker     = handshake.Handshaker
 
+	// Options
 	TcpConnPoolOption = tcp.ConnPoolOptions
 	TcpServerOption   = tcp.ServerOptions
 )
 
+// Default values
+var NilPeerGroupID = protocol.NilPeerGroupID
+
+// Constructors
 var (
+	NewMessage     = protocol.NewMessage
 	NewPeer        = peer.New
-	NewTcpPeer     = peer.NewTCP
 	NewDHT         = dht.New
-	NilPeerGroupID = protocol.NilPeerGroupID
+	NewTcpPeer     = peer.NewTCP
+	NewConnPool    = tcp.NewConnPool
+	NewTcpClient   = tcp.NewClient
+	NewTcpServer   = tcp.NewServer
 )
