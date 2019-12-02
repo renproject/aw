@@ -232,6 +232,8 @@ func (dht *dht) PeerGroupAddresses(groupID protocol.PeerGroupID) (protocol.PeerA
 		return nil, err
 	}
 	addrs := make([]protocol.PeerAddress, 0, len(ids))
+	dht.inMemCacheMu.RLock()
+	defer dht.inMemCacheMu.RUnlock()
 	for _, id := range ids {
 		addr, ok := dht.inMemCache[id.String()]
 		if !ok {

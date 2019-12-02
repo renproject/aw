@@ -37,7 +37,7 @@ func (client *Client) Run(ctx context.Context, messages protocol.MessageReceiver
 }
 
 func (client *Client) handleMessageOnTheWire(message protocol.MessageOnTheWire) {
-	for i := 0; i < 5 ; i ++ {
+	for i := 0; i < 5; i++ {
 		err := client.pool.Send(message.To.NetworkAddress(), message.Message)
 		if err == nil {
 			return

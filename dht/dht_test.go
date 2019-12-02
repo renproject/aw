@@ -326,6 +326,33 @@ var _ = Describe("DHT", func() {
 
 			Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
 		})
+
+		It("should be concurrent safe to use PeerGroup", func() {
+			test := func() bool {
+				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				groupID, peerAddrs := RandomPeerGroupID(), RandomAddresses(rand.Intn(32))
+				peerIDs := FromAddressesToIDs(peerAddrs)
+				Expect(dht.AddPeerGroup(groupID, peerIDs)).NotTo(HaveOccurred())
+
+				// Try to add and query PeerGroups at the same time
+				var err1, err2 error
+				phi.ParBegin(func() {
+					for _, peerAddr := range peerAddrs {
+						if err1 = dht.AddPeerAddress(peerAddr); err1 != nil {
+							return
+						}
+					}
+				}, func() {
+					_, err2 = dht.PeerGroupAddresses(groupID)
+				})
+				Expect(err1).NotTo(HaveOccurred())
+				Expect(err2).NotTo(HaveOccurred())
+
+				return true
+			}
+
+			Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
+		})
 	})
 
 	Context("when retrieving random addresses from the dht", func() {
