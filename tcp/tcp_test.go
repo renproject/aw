@@ -64,7 +64,7 @@ var _ = Describe("TCP client and server", func() {
 	})
 
 	Context("when reach max number of connection allowed", func() {
-		FIt("show reject the connection", func() {
+		It("show reject the connection", func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
