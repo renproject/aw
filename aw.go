@@ -64,11 +64,11 @@ var NilPeerGroupID = protocol.NilPeerGroupID
 
 // Constructors
 var (
-	NewMessage     = protocol.NewMessage
-	NewPeer        = peer.New
-	NewDHT         = dht.New
-	NewTcpPeer     = peer.NewTCP
-	NewConnPool    = tcp.NewConnPool
-	NewTcpClient   = tcp.NewClient
-	NewTcpServer   = tcp.NewServer
+	NewMessage   = protocol.NewMessage
+	NewPeer      = peer.New
+	NewDHT       = dht.New
+	NewTcpPeer   = peer.NewTCP
+	NewConnPool  = tcp.NewConnPool
+	NewTcpClient = tcp.NewClient
+	NewTcpServer = tcp.NewServer
 )

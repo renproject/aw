@@ -14,6 +14,7 @@ import (
 	"github.com/renproject/aw/protocol"
 	"github.com/renproject/aw/tcp"
 	"github.com/renproject/kv"
+	"github.com/sirupsen/logrus"
 )
 
 type Peer interface {
@@ -30,6 +31,8 @@ type Peer interface {
 
 type peer struct {
 	// General
+	logger     logrus.FieldLogger
+	codec      protocol.PeerAddressCodec
 	options    Options
 	dht        dht.DHT
 	handshaker handshake.Handshaker
@@ -48,7 +51,7 @@ type peer struct {
 	broadcaster broadcast.Broadcaster
 }
 
-func New(options Options, dht dht.DHT, handshaker handshake.Handshaker, client protocol.Client, server protocol.Server, events protocol.EventSender) Peer {
+func New(logger logrus.FieldLogger, codec protocol.PeerAddressCodec, options Options, dht dht.DHT, handshaker handshake.Handshaker, client protocol.Client, server protocol.Server, events protocol.EventSender) Peer {
 	if err := options.SetZeroToDefault(); err != nil {
 		panic(fmt.Errorf("pre-condition violation: invalid peer option, err = %v", err))
 	}
@@ -57,14 +60,14 @@ func New(options Options, dht dht.DHT, handshaker handshake.Handshaker, client p
 	clientMessages := make(chan protocol.MessageOnTheWire, options.Capacity)
 
 	pingpongOption := pingpong.Options{
-		Logger:     options.Logger,
+		Logger:     logger,
 		NumWorkers: options.NumWorkers,
 		Alpha:      options.Alpha,
 	}
-	caster := cast.NewCaster(options.Logger, clientMessages, events, dht)
-	pingponger := pingpong.NewPingPonger(pingpongOption, dht, clientMessages, events, options.Codec)
-	multicaster := multicast.NewMulticaster(options.Logger, options.NumWorkers, clientMessages, events, dht)
-	broadcaster := broadcast.NewBroadcaster(options.Logger, options.NumWorkers, clientMessages, events, dht)
+	caster := cast.NewCaster(logger, clientMessages, events, dht)
+	pingponger := pingpong.NewPingPonger(pingpongOption, dht, clientMessages, events, codec)
+	multicaster := multicast.NewMulticaster(logger, options.NumWorkers, clientMessages, events, dht)
+	broadcaster := broadcast.NewBroadcaster(logger, options.NumWorkers, clientMessages, events, dht)
 
 	return &peer{
 		options:    options,
@@ -173,7 +176,7 @@ func (peer *peer) bootstrap(ctx context.Context) {
 
 	peerAddrs, err := peer.dht.PeerAddresses()
 	if err != nil {
-		peer.options.Logger.Errorf("error bootstrapping: error loading peer addresses: %v", err)
+		peer.logger.Errorf("error bootstrapping: error loading peer addresses: %v", err)
 		return
 	}
 
@@ -195,7 +198,7 @@ func (peer *peer) bootstrap(ctx context.Context) {
 		pingCtx, pingCancel := context.WithTimeout(ctx, pingTimeout)
 		defer pingCancel()
 		if err := peer.pingPonger.Ping(pingCtx, peerAddr.PeerID()); err != nil {
-			peer.options.Logger.Errorf("error bootstrapping: error ping/ponging peer address=%v: %v", peerAddr, err)
+			peer.logger.Errorf("error bootstrapping: error ping/ponging peer address=%v: %v", peerAddr, err)
 			return
 		}
 	})
@@ -208,7 +211,7 @@ func (peer *peer) handleMessage(ctx context.Context) {
 			return
 		case messageOtw := <-peer.serverMessages:
 			if err := peer.receiveMessageOnTheWire(ctx, messageOtw); err != nil {
-				peer.options.Logger.Error(err)
+				peer.logger.Error(err)
 			}
 		}
 	}
@@ -231,18 +234,18 @@ func (peer *peer) receiveMessageOnTheWire(ctx context.Context, messageOtw protoc
 	}
 }
 
-func NewTCP(options Options, events protocol.EventSender, signVerifier protocol.SignVerifier, poolOptions tcp.ConnPoolOptions, serverOptions tcp.ServerOptions) Peer {
+func NewTCP(logger logrus.FieldLogger, codec protocol.PeerAddressCodec, options Options, events protocol.EventSender, signVerifier protocol.SignVerifier, poolOptions tcp.ConnPoolOptions, serverOptions tcp.ServerOptions) Peer {
 	if err := options.SetZeroToDefault(); err != nil {
 		panic(fmt.Errorf("pre-condition violation: invalid peer option, err = %v", err))
 	}
 	store := kv.NewTable(kv.NewMemDB(kv.JSONCodec), "dht")
-	dht, err := dht.New(options.Me, options.Codec, store, options.BootstrapAddresses...)
+	dht, err := dht.New(options.Me, codec, store, options.BootstrapAddresses...)
 	if err != nil {
 		panic(fmt.Errorf("pre-condition violation: fail to initialize dht, err = %v", err))
 	}
 	handshaker := handshake.New(signVerifier, handshake.NewGCMSessionManager())
-	connPool := tcp.NewConnPool(poolOptions, handshaker)
-	client := tcp.NewClient(options.Logger, connPool)
-	server := tcp.NewServer(serverOptions, handshaker)
-	return New(options, dht, handshaker, client, server, events)
+	connPool := tcp.NewConnPool(logger, poolOptions, handshaker)
+	client := tcp.NewClient(logger, connPool)
+	server := tcp.NewServer(logger, serverOptions, handshaker)
+	return New(logger, codec, options, dht, handshaker, client, server, events)
 }

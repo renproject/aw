@@ -6,15 +6,11 @@ import (
 	"time"
 
 	"github.com/renproject/aw/protocol"
-	"github.com/sirupsen/logrus"
 )
 
 type Options struct {
-	Logger logrus.FieldLogger
-
 	Me                 protocol.PeerAddress
 	BootstrapAddresses protocol.PeerAddresses
-	Codec              protocol.PeerAddressCodec
 
 	// Optional
 	DisablePeerDiscovery bool          `json:"disablePeerDiscovery"` // Defaults to false
@@ -27,15 +23,8 @@ type Options struct {
 }
 
 func (options *Options) SetZeroToDefault() error {
-	if options.Logger == nil {
-		return fmt.Errorf("nil logger")
-	}
-
 	if options.Me == nil {
 		return fmt.Errorf("nil me address")
-	}
-	if options.Codec == nil {
-		return fmt.Errorf("nil peer address codec")
 	}
 
 	if options.Capacity == 0 {
