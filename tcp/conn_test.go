@@ -92,7 +92,7 @@ var _ = Describe("Connection pool", func() {
 					_ = NewTCPServer(ctx, ServerOptions{Host: serverAddr1.String()}, clientSignVerifier)
 					_ = NewTCPServer(ctx, ServerOptions{Host: serverAddr2.String()}, clientSignVerifier)
 
-					// Expect the second send operation fail due to reaching max connetion limits.
+					// Expect the second send operation failing due to reaching max number of connections
 					message := RandomMessage(protocol.V1, RandomMessageVariant())
 					Expect(pool.Send(serverAddr1, message)).NotTo(HaveOccurred())
 					Expect(pool.Send(serverAddr2, message)).To(HaveOccurred())
