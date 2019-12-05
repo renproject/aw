@@ -70,6 +70,7 @@ func New(logger logrus.FieldLogger, codec protocol.PeerAddressCodec, options Opt
 	broadcaster := broadcast.NewBroadcaster(logger, options.NumWorkers, clientMessages, events, dht)
 
 	return &peer{
+		logger:     logger,
 		options:    options,
 		dht:        dht,
 		handshaker: handshaker,

@@ -43,16 +43,16 @@ func (client *Client) handleMessageOnTheWire(message protocol.MessageOnTheWire) 
 		if err == nil {
 			return
 		}
+		client.logger.Debugf("error send %v message to %v: %v", message.Message.Variant, message.To.NetworkAddress(), err)
 		time.Sleep(5 * time.Second)
-		client.logger.Errorf("error writing to %v: %v", message.To.NetworkAddress(), err)
 	}
 }
 
 type ServerOptions struct {
-	Host             string              // Host address
-	Timeout          time.Duration       // Timeout when establish a connection
-	RateLimit        time.Duration       // Minimum time interval before accepting connection from same peer.
-	MaxConnections   int                 // Max connections allowed.
+	Host           string        // Host address
+	Timeout        time.Duration // Timeout when establish a connection
+	RateLimit      time.Duration // Minimum time interval before accepting connection from same peer.
+	MaxConnections int           // Max connections allowed.
 }
 
 func (options *ServerOptions) setZerosToDefaults() {
@@ -88,7 +88,7 @@ func NewServer(logger logrus.FieldLogger, options ServerOptions, handshaker hand
 		panic("handshaker cannot be nil")
 	}
 	return &Server{
-		logger:     logger ,
+		logger:     logger,
 		options:    options,
 		handshaker: handshaker,
 
@@ -154,7 +154,6 @@ func (server *Server) handle(ctx context.Context, conn net.Conn, messages protoc
 	if !server.allowRateLimit(conn) {
 		return
 	}
-
 
 	// Attempt to establish a session with the client.
 	now := time.Now()

@@ -10,11 +10,11 @@ import (
 	. "github.com/onsi/gomega"
 	. "github.com/renproject/aw/tcp"
 	. "github.com/renproject/aw/testutil"
-	"github.com/sirupsen/logrus"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/renproject/aw/protocol"
+	"github.com/sirupsen/logrus"
 )
 
 var _ = Describe("TCP client and server", func() {
@@ -73,15 +73,15 @@ var _ = Describe("TCP client and server", func() {
 			options := ServerOptions{Host: serverAddr.NetworkAddress().String(), MaxConnections: 1}
 			_ = NewTCPServer(ctx, options)
 
-			addr1, err:= net.ResolveTCPAddr("tcp", ":10000")
+			addr1, err := net.ResolveTCPAddr("tcp", ":10000")
 			Expect(err).NotTo(HaveOccurred())
-			dialer1 := net.Dialer{LocalAddr:addr1}
+			dialer1 := net.Dialer{LocalAddr: addr1}
 			_, err = dialer1.Dial("tcp", ":8080")
 			Expect(err).NotTo(HaveOccurred())
 
-			addr2, err:= net.ResolveTCPAddr("tcp", ":10001")
+			addr2, err := net.ResolveTCPAddr("tcp", ":10001")
 			Expect(err).NotTo(HaveOccurred())
-			dialer2 := net.Dialer{LocalAddr:addr2}
+			dialer2 := net.Dialer{LocalAddr: addr2}
 			conn, err := dialer2.Dial("tcp", ":8080")
 			Expect(err).NotTo(HaveOccurred())
 			_, err = conn.Read(make([]byte, 10))

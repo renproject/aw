@@ -10,12 +10,12 @@ import (
 	. "github.com/onsi/gomega"
 	. "github.com/renproject/aw/tcp"
 	. "github.com/renproject/aw/testutil"
-	"github.com/sirupsen/logrus"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/protocol"
+	"github.com/sirupsen/logrus"
 )
 
 var _ = Describe("Connection pool", func() {
