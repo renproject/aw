@@ -38,7 +38,7 @@ func NewFullyConnectedPeers(b, n int) ([]peer.Peer, []chan protocol.Event) {
 			RateLimit: time.Duration(-1), // disable this due to all peers have the same ip address in local test.
 		}
 
-		peers[i] = peer.NewTCP(logger.WithField("node", i), SimpleTCPPeerAddressCodec{}, options, events[i], signVerifiers[i], poolOption, serverOption)
+		peers[i] = peer.NewTCP(options, logger.WithField("node", i), SimpleTCPPeerAddressCodec{}, events[i], signVerifiers[i], poolOption, serverOption)
 	}
 	return peers, events
 }

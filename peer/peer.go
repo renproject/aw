@@ -50,7 +50,7 @@ type peer struct {
 	broadcaster broadcast.Broadcaster
 }
 
-func New(logger logrus.FieldLogger, codec protocol.PeerAddressCodec, options Options, dht dht.DHT, handshaker handshake.Handshaker, client protocol.Client, server protocol.Server, events protocol.EventSender) Peer {
+func New(options Options, logger logrus.FieldLogger, codec protocol.PeerAddressCodec, dht dht.DHT, handshaker handshake.Handshaker, client protocol.Client, server protocol.Server, events protocol.EventSender) Peer {
 	if err := options.SetZeroToDefault(); err != nil {
 		panic(fmt.Errorf("pre-condition violation: invalid peer option, err = %v", err))
 	}
@@ -85,7 +85,7 @@ func New(logger logrus.FieldLogger, codec protocol.PeerAddressCodec, options Opt
 	}
 }
 
-func NewTCP(logger logrus.FieldLogger, codec protocol.PeerAddressCodec, options Options, events protocol.EventSender, signVerifier protocol.SignVerifier, poolOptions tcp.ConnPoolOptions, serverOptions tcp.ServerOptions) Peer {
+func NewTCP(options Options, logger logrus.FieldLogger, codec protocol.PeerAddressCodec, events protocol.EventSender, signVerifier protocol.SignVerifier, poolOptions tcp.ConnPoolOptions, serverOptions tcp.ServerOptions) Peer {
 	if err := options.SetZeroToDefault(); err != nil {
 		panic(fmt.Errorf("pre-condition violation: invalid peer option, err = %v", err))
 	}
@@ -98,7 +98,7 @@ func NewTCP(logger logrus.FieldLogger, codec protocol.PeerAddressCodec, options 
 	connPool := tcp.NewConnPool(poolOptions, logger, handshaker)
 	client := tcp.NewClient(logger, connPool)
 	server := tcp.NewServer(serverOptions, logger, handshaker)
-	return New(logger, codec, options, dht, handshaker, client, server, events)
+	return New(options, logger, codec, dht, handshaker, client, server, events)
 }
 
 func (peer *peer) Run(ctx context.Context) {
