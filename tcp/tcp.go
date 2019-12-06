@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/renproject/aw/handshake"
@@ -37,71 +38,61 @@ func (client *Client) Run(ctx context.Context, messages protocol.MessageReceiver
 }
 
 func (client *Client) handleMessageOnTheWire(message protocol.MessageOnTheWire) {
-	for i := 0; i < 5 ; i ++ {
+	for i := 0; i < 5; i++ {
 		err := client.pool.Send(message.To.NetworkAddress(), message.Message)
 		if err == nil {
 			return
 		}
+		client.logger.Debugf("error send %v message to %v: %v", message.Message.Variant, message.To.NetworkAddress(), err)
 		time.Sleep(5 * time.Second)
-		client.logger.Errorf("error writing to %v: %v", message.To.NetworkAddress(), err)
 	}
-}
-
-var DefaultServerOptions = ServerOptions{
-	Logger:           logrus.StandardLogger(),
-	Host:             "127.0.0.1:19231",
-	Timeout:          20 * time.Second,
-	RateLimit:        time.Minute,
-	TimeoutKeepAlive: 10 * time.Second,
-	MaxConnections:   256,
 }
 
 type ServerOptions struct {
-	Logger           logrus.FieldLogger
-	Host             string
-	Timeout          time.Duration
-	RateLimit        time.Duration
-	TimeoutKeepAlive time.Duration
-	MaxConnections   int // Max connections allowed.
-
-	// TODO: Implement IP blacklisting to help protect the server from DoS
-	// attacks.
+	Host           string        // Host address
+	Timeout        time.Duration // Timeout when establish a connection
+	RateLimit      time.Duration // Minimum time interval before accepting connection from same peer.
+	MaxConnections int           // Max connections allowed.
 }
 
 func (options *ServerOptions) setZerosToDefaults() {
-	if options.Logger == nil {
-		options.Logger = DefaultServerOptions.Logger
-	}
 	if options.Host == "" {
-		options.Host = DefaultServerOptions.Host
+		options.Host = "127.0.0.1:19231"
 	}
 	if options.Timeout == 0 {
-		options.Timeout = DefaultServerOptions.Timeout
-	}
-	if options.TimeoutKeepAlive == 0 {
-		options.TimeoutKeepAlive = DefaultServerOptions.TimeoutKeepAlive
+		options.Timeout = 20 * time.Second
 	}
 	if options.RateLimit == 0 {
-		options.RateLimit = DefaultServerOptions.RateLimit
+		options.RateLimit = time.Minute
+	}
+	if options.MaxConnections == 0 {
+		options.MaxConnections = 256
 	}
 }
 
 type Server struct {
-	options    ServerOptions
-	handshaker handshake.Handshaker
+	logger      logrus.FieldLogger
+	options     ServerOptions
+	handshaker  handshake.Handshaker
+	connections int64
 
 	lastConnAttemptsMu *sync.RWMutex
 	lastConnAttempts   map[string]time.Time
 }
 
-func NewServer(options ServerOptions, handshaker handshake.Handshaker) *Server {
+func NewServer(options ServerOptions, logger logrus.FieldLogger, handshaker handshake.Handshaker) *Server {
+	if logger == nil {
+		logger = logrus.New()
+	}
 	options.setZerosToDefaults()
 	if handshaker == nil {
 		panic("handshaker cannot be nil")
 	}
 	return &Server{
-		options:    options,
-		handshaker: handshaker,
+		logger:      logger,
+		options:     options,
+		handshaker:  handshaker,
+		connections: 0,
 
 		lastConnAttemptsMu: new(sync.RWMutex),
 		lastConnAttempts:   map[string]time.Time{},
@@ -112,10 +103,10 @@ func NewServer(options ServerOptions, handshaker handshake.Handshaker) *Server {
 // for new connections, spawning each one into a background goroutine so that it
 // can be handled concurrently.
 func (server *Server) Run(ctx context.Context, messages protocol.MessageSender) {
-	server.options.Logger.Debugf("server start listening at %v", server.options.Host)
+	server.logger.Debugf("server start listening at %v", server.options.Host)
 	listener, err := net.Listen("tcp", server.options.Host)
 	if err != nil {
-		server.options.Logger.Fatalf("failed to listen on %s: %v", server.options.Host, err)
+		server.logger.Fatalf("failed to listen on %s: %v", server.options.Host, err)
 		return
 	}
 
@@ -124,7 +115,7 @@ func (server *Server) Run(ctx context.Context, messages protocol.MessageSender) 
 		// does not block on waiting to accept a new connection.
 		<-ctx.Done()
 		if err := listener.Close(); err != nil {
-			server.options.Logger.Errorf("error closing listener: %v", err)
+			server.logger.Errorf("error closing listener: %v", err)
 		}
 	}()
 
@@ -139,9 +130,15 @@ func (server *Server) Run(ctx context.Context, messages protocol.MessageSender) 
 			default:
 			}
 
-			server.options.Logger.Errorf("error accepting connection: %v", err)
+			server.logger.Errorf("error accepting connection: %v", err)
 			continue
 		}
+		if atomic.LoadInt64(&server.connections) >= int64(server.options.MaxConnections) {
+			server.logger.Info("tcp server reaches max number of connections")
+			conn.Close()
+			continue
+		}
+		atomic.AddInt64(&server.connections, 1)
 
 		// Spawn background goroutine to handle this connection so that it does
 		// not block other connections.
@@ -151,6 +148,7 @@ func (server *Server) Run(ctx context.Context, messages protocol.MessageSender) 
 }
 
 func (server *Server) handle(ctx context.Context, conn net.Conn, messages protocol.MessageSender) {
+	defer atomic.AddInt64(&server.connections, -1)
 	defer conn.Close()
 
 	// Reject connections from IP addresses that have attempted to connect too recently.
@@ -162,23 +160,23 @@ func (server *Server) handle(ctx context.Context, conn net.Conn, messages protoc
 	now := time.Now()
 	session, err := server.establishSession(ctx, conn)
 	if err != nil {
-		server.options.Logger.Errorf("closing connection: error establishing session: %v", err)
+		server.logger.Errorf("closing connection: error establishing session: %v", err)
 		return
 	}
 	if session == nil {
-		server.options.Logger.Errorf("cannot establish session with %v", conn.RemoteAddr().String())
+		server.logger.Errorf("cannot establish session with %v", conn.RemoteAddr().String())
 		return
 	}
-	server.options.Logger.Debugf("new connection with %v takes %v", conn.RemoteAddr().String(), time.Now().Sub(now))
+	server.logger.Debugf("new connection with %v takes %v", conn.RemoteAddr().String(), time.Now().Sub(now))
 
 	for {
 		messageOtw, err := session.ReadMessageOnTheWire(conn)
 
 		if err != nil {
 			if err != io.EOF {
-				server.options.Logger.Errorf("error reading incoming message: %v", err)
+				server.logger.Errorf("error reading incoming message: %v", err)
 			}
-			server.options.Logger.Info("closing connection: EOF")
+			server.logger.Info("closing connection: EOF")
 			return
 		}
 
@@ -186,7 +184,6 @@ func (server *Server) handle(ctx context.Context, conn net.Conn, messages protoc
 		case <-ctx.Done():
 			return
 		case messages <- messageOtw:
-			server.options.Logger.Debugf("receive a %v message from %v", messageOtw.Message.Variant, messageOtw.From.String())
 		}
 	}
 }

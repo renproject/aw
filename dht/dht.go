@@ -232,6 +232,8 @@ func (dht *dht) PeerGroupAddresses(groupID protocol.PeerGroupID) (protocol.PeerA
 		return nil, err
 	}
 	addrs := make([]protocol.PeerAddress, 0, len(ids))
+	dht.inMemCacheMu.RLock()
+	defer dht.inMemCacheMu.RUnlock()
 	for _, id := range ids {
 		addr, ok := dht.inMemCache[id.String()]
 		if !ok {
@@ -283,7 +285,7 @@ func (dht *dht) fillInMemCache() error {
 // it is newer than the stored addresses.
 func (dht *dht) addBootstrapNodes(addrs protocol.PeerAddresses) error {
 	for _, addr := range addrs {
-		if addr.Equal(dht.me) {
+		if addr.PeerID().Equal(dht.Me().PeerID()) {
 			continue
 		}
 		if _, err := dht.UpdatePeerAddress(addr); err != nil {

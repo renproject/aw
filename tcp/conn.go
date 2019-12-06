@@ -27,16 +27,12 @@ type ConnPool interface {
 
 // ConnPoolOptions are used to parameterise the behaviour of a ConnPool.
 type ConnPoolOptions struct {
-	Logger         logrus.FieldLogger
 	Timeout        time.Duration // Timeout when dialing new connections.
 	TimeToLive     time.Duration // Time-to-live for connections.
 	MaxConnections int           // Max connections allowed.
 }
 
 func (options *ConnPoolOptions) setZerosToDefaults() {
-	if options.Logger == nil {
-		options.Logger = logrus.New()
-	}
 	if options.Timeout == 0 {
 		options.Timeout = 5 * time.Second
 	}
@@ -49,6 +45,7 @@ func (options *ConnPoolOptions) setZerosToDefaults() {
 }
 
 type connPool struct {
+	logger     logrus.Logger
 	options    ConnPoolOptions
 	handshaker handshake.Handshaker // Handshaker to use while making connections
 
@@ -63,7 +60,10 @@ type conn struct {
 
 // NewConnPool returns a ConnPool with no existing connections. It is safe for
 // concurrent use.
-func NewConnPool(options ConnPoolOptions, handshaker handshake.Handshaker) ConnPool {
+func NewConnPool(options ConnPoolOptions, logger logrus.FieldLogger, handshaker handshake.Handshaker) ConnPool {
+	if logger == nil {
+		logger = logrus.New()
+	}
 	options.setZerosToDefaults()
 	if handshaker == nil {
 		panic("ConnPool cannot have a nil handshaker")
@@ -141,7 +141,7 @@ func (pool *connPool) closeConn(to string) {
 	defer pool.mu.Unlock()
 
 	if err := pool.conns[to].conn.Close(); err != nil {
-		pool.options.Logger.Errorf("error closing connection to %v: %v", to, err)
+		pool.logger.Errorf("error closing connection to %v: %v", to, err)
 	}
 	delete(pool.conns, to)
 }

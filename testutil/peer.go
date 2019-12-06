@@ -20,10 +20,8 @@ func NewFullyConnectedPeers(b, n int) ([]peer.Peer, []chan protocol.Event) {
 	}
 
 	options := peer.Options{
-		Logger:               nil,
 		Me:                   nil,
 		BootstrapAddresses:   addrs[:b],
-		Codec:                SimpleTCPPeerAddressCodec{},
 		DisablePeerDiscovery: false,
 		Capacity:             128,
 	}
@@ -31,22 +29,16 @@ func NewFullyConnectedPeers(b, n int) ([]peer.Peer, []chan protocol.Event) {
 	peers := make([]peer.Peer, n)
 	events := make([]chan protocol.Event, n)
 	for i := range peers {
-		logger := logrus.New()
-		// if i == 0 {
-		// 	logger.SetLevel(logrus.DebugLevel)
-		// }
-
-		options.Logger = logger.WithField("node", i)
+		logger := logrus.New().WithField("node", i)
 		options.Me = addrs[i]
 		events[i] = make(chan protocol.Event, 1024)
-		poolOption := tcp.ConnPoolOptions{Logger: options.Logger}
+		poolOption := tcp.ConnPoolOptions{}
 		serverOption := tcp.ServerOptions{
-			Logger:    options.Logger,
 			Host:      fmt.Sprintf(":%v", 8000+i),
 			RateLimit: time.Duration(-1), // disable this due to all peers have the same ip address in local test.
 		}
 
-		peers[i] = peer.NewTCP(options, events[i], signVerifiers[i], poolOption, serverOption)
+		peers[i] = peer.NewTCP(options, logger.WithField("node", i), SimpleTCPPeerAddressCodec{}, events[i], signVerifiers[i], poolOption, serverOption)
 	}
 	return peers, events
 }
