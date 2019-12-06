@@ -51,7 +51,7 @@ var _ = Describe("DHT", func() {
 		})
 
 		Context("when initializing with some bootstrap addresses", func() {
-			FIt("should has have the bootstrap addresses inserted when initializing", func() {
+			It("should has have the bootstrap addresses inserted when initializing", func() {
 				test := func() bool {
 					me, bootstrapAddress := RandomAddress(), RandomAddresses(rand.Intn(32))
 					for ContainAddress(bootstrapAddress, me) {
