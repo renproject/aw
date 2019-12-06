@@ -51,17 +51,17 @@ var _ = Describe("DHT", func() {
 		})
 
 		Context("when initializing with some bootstrap addresses", func() {
-			It("should has have the bootstrap addresses inserted when initializing", func() {
+			FIt("should has have the bootstrap addresses inserted when initializing", func() {
 				test := func() bool {
 					me, bootstrapAddress := RandomAddress(), RandomAddresses(rand.Intn(32))
+					for ContainAddress(bootstrapAddress, me) {
+						me = RandomAddress()
+					}
 					dht := NewDHT(me, NewTable("dht"), bootstrapAddress)
 					Expect(dht.Me().Equal(me)).Should(BeTrue())
 
 					// All bootstrap addresses should be queryable.
 					for _, addr := range bootstrapAddress {
-						if addr.PeerID().Equal(me.ID) {
-							continue
-						}
 						stored, err := dht.PeerAddress(addr.PeerID())
 						Expect(err).ToNot(HaveOccurred())
 						Expect(stored.Equal(addr)).Should(BeTrue())
