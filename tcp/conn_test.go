@@ -23,12 +23,12 @@ var _ = Describe("Connection pool", func() {
 	Context("when initializing a ConnPool", func() {
 		It("should set the options to default if not provided", func() {
 			handshaker := handshake.New(NewMockSignVerifier(), handshake.NewGCMSessionManager())
-			_ = NewConnPool(logrus.New(), ConnPoolOptions{}, handshaker)
+			_ = NewConnPool(ConnPoolOptions{}, logrus.New(), handshaker)
 		})
 
 		It("should panic if providing a nil Hanshaker", func() {
 			Expect(func() {
-				_ = NewConnPool(logrus.New(), ConnPoolOptions{}, nil)
+				_ = NewConnPool(ConnPoolOptions{}, logrus.New(), nil)
 			}).Should(Panic())
 		})
 	})
@@ -46,7 +46,7 @@ var _ = Describe("Connection pool", func() {
 					// Initialize a connPool
 					clientSignVerifier := NewMockSignVerifier()
 					handshaker := handshake.New(clientSignVerifier, handshake.NewGCMSessionManager())
-					pool := NewConnPool(logrus.New(), ConnPoolOptions{}, handshaker)
+					pool := NewConnPool(ConnPoolOptions{}, logrus.New(), handshaker)
 
 					// Initialize a server
 					serverAddr, err := net.ResolveTCPAddr("tcp", ":8080")
@@ -81,7 +81,7 @@ var _ = Describe("Connection pool", func() {
 					// Initialize a connPool
 					clientSignVerifier := NewMockSignVerifier()
 					handshaker := handshake.New(clientSignVerifier, handshake.NewGCMSessionManager())
-					pool := NewConnPool(logrus.New(), ConnPoolOptions{MaxConnections: 1}, handshaker)
+					pool := NewConnPool(ConnPoolOptions{MaxConnections: 1}, logrus.New(), handshaker)
 
 					// Initialize two servers
 					serverAddr1, err := net.ResolveTCPAddr("tcp", ":8080")
@@ -115,7 +115,7 @@ var _ = Describe("Connection pool", func() {
 					// Initialize a connPool
 					clientSignVerifier := NewMockSignVerifier()
 					handshaker := handshake.New(clientSignVerifier, handshake.NewGCMSessionManager())
-					pool := NewConnPool(logrus.New(), ConnPoolOptions{TimeToLive: 100 * time.Millisecond}, handshaker)
+					pool := NewConnPool(ConnPoolOptions{TimeToLive: 100 * time.Millisecond}, logrus.New(), handshaker)
 
 					// Initialize a server
 					serverAddr, err := net.ResolveTCPAddr("tcp", ":8080")
@@ -160,7 +160,7 @@ var _ = Describe("Connection pool", func() {
 					// Initialize a connPool
 					clientSignVerifier := NewMockSignVerifier()
 					handshaker := handshake.New(clientSignVerifier, handshake.NewGCMSessionManager())
-					pool := NewConnPool(logrus.New(), ConnPoolOptions{Timeout: 200 * time.Millisecond}, handshaker)
+					pool := NewConnPool(ConnPoolOptions{Timeout: 200 * time.Millisecond}, logrus.New(), handshaker)
 
 					// Initialize a server
 					serverAddr, err := net.ResolveTCPAddr("tcp", ":8080")

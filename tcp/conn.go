@@ -60,7 +60,7 @@ type conn struct {
 
 // NewConnPool returns a ConnPool with no existing connections. It is safe for
 // concurrent use.
-func NewConnPool(logger logrus.FieldLogger, options ConnPoolOptions, handshaker handshake.Handshaker) ConnPool {
+func NewConnPool(options ConnPoolOptions, logger logrus.FieldLogger, handshaker handshake.Handshaker) ConnPool {
 	if logger == nil {
 		logger = logrus.New()
 	}

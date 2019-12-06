@@ -32,7 +32,7 @@ var _ = Describe("TCP client and server", func() {
 	Context("when initializing a server", func() {
 		It("should panic if providing a nil handshaker", func() {
 			Expect(func() {
-				_ = NewServer(logrus.New(), ServerOptions{}, nil)
+				_ = NewServer(ServerOptions{}, logrus.New(), nil)
 			}).Should(Panic())
 		})
 	})

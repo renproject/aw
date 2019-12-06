@@ -62,7 +62,7 @@ func NewConnection(port string) (io.ReadWriter, io.ReadWriter, func() error, err
 func NewTCPClient(ctx context.Context, options tcp.ConnPoolOptions, verifier protocol.SignVerifier) protocol.MessageSender {
 	messages := make(chan protocol.MessageOnTheWire, 128)
 	handshaker := handshake.New(verifier, handshake.NewGCMSessionManager())
-	client := tcp.NewClient(logrus.StandardLogger(), tcp.NewConnPool(logrus.New(), options, handshaker))
+	client := tcp.NewClient(logrus.New(), tcp.NewConnPool(options, logrus.New(), handshaker))
 
 	go client.Run(ctx, messages)
 	return messages
@@ -71,7 +71,7 @@ func NewTCPClient(ctx context.Context, options tcp.ConnPoolOptions, verifier pro
 func NewMaliciousTCPClient(ctx context.Context, options tcp.ConnPoolOptions, verifier protocol.SignVerifier) protocol.MessageSender {
 	messages := make(chan protocol.MessageOnTheWire, 128)
 	handshaker := NewMalHanshaker(verifier, handshake.NewGCMSessionManager())
-	client := tcp.NewClient(logrus.StandardLogger(), tcp.NewConnPool(logrus.New(), options, handshaker))
+	client := tcp.NewClient(logrus.StandardLogger(), tcp.NewConnPool(options, logrus.New(), handshaker))
 
 	go client.Run(ctx, messages)
 	return messages
@@ -85,7 +85,7 @@ func NewTCPServer(ctx context.Context, options tcp.ServerOptions, clientSignVeri
 	}
 
 	handshaker := handshake.New(signVerifier, handshake.NewGCMSessionManager())
-	server := tcp.NewServer(logrus.New(), options, handshaker)
+	server := tcp.NewServer(options, logrus.New(), handshaker)
 	messageSender := make(chan protocol.MessageOnTheWire, 128)
 	go server.Run(ctx, messageSender)
 	time.Sleep(50 * time.Millisecond)
@@ -101,7 +101,7 @@ func NewMaliciousTCPServer(ctx context.Context, options tcp.ServerOptions, clien
 	}
 
 	handshaker := NewMalHanshaker(signVerifier, handshake.NewGCMSessionManager())
-	server := tcp.NewServer(logrus.New(), options, handshaker)
+	server := tcp.NewServer(options, logrus.New(), handshaker)
 	messageSender := make(chan protocol.MessageOnTheWire, 128)
 	go server.Run(ctx, messageSender)
 	time.Sleep(50 * time.Millisecond)

@@ -71,15 +71,16 @@ func (options *ServerOptions) setZerosToDefaults() {
 }
 
 type Server struct {
-	logger     logrus.FieldLogger
-	options    ServerOptions
-	handshaker handshake.Handshaker
+	logger      logrus.FieldLogger
+	options     ServerOptions
+	handshaker  handshake.Handshaker
+	connections int64
 
 	lastConnAttemptsMu *sync.RWMutex
 	lastConnAttempts   map[string]time.Time
 }
 
-func NewServer(logger logrus.FieldLogger, options ServerOptions, handshaker handshake.Handshaker) *Server {
+func NewServer(options ServerOptions, logger logrus.FieldLogger, handshaker handshake.Handshaker) *Server {
 	if logger == nil {
 		logger = logrus.New()
 	}
@@ -88,9 +89,10 @@ func NewServer(logger logrus.FieldLogger, options ServerOptions, handshaker hand
 		panic("handshaker cannot be nil")
 	}
 	return &Server{
-		logger:     logger,
-		options:    options,
-		handshaker: handshaker,
+		logger:      logger,
+		options:     options,
+		handshaker:  handshaker,
+		connections: 0,
 
 		lastConnAttemptsMu: new(sync.RWMutex),
 		lastConnAttempts:   map[string]time.Time{},
@@ -117,7 +119,6 @@ func (server *Server) Run(ctx context.Context, messages protocol.MessageSender) 
 		}
 	}()
 
-	var connections int64
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -132,22 +133,22 @@ func (server *Server) Run(ctx context.Context, messages protocol.MessageSender) 
 			server.logger.Errorf("error accepting connection: %v", err)
 			continue
 		}
-		if atomic.LoadInt64(&connections) >= int64(server.options.MaxConnections) {
+		if atomic.LoadInt64(&server.connections) >= int64(server.options.MaxConnections) {
 			server.logger.Info("tcp server reaches max number of connections")
 			conn.Close()
 			continue
 		}
-		atomic.AddInt64(&connections, 1)
+		atomic.AddInt64(&server.connections, 1)
 
 		// Spawn background goroutine to handle this connection so that it does
 		// not block other connections.
 
-		go server.handle(ctx, conn, messages, &connections)
+		go server.handle(ctx, conn, messages)
 	}
 }
 
-func (server *Server) handle(ctx context.Context, conn net.Conn, messages protocol.MessageSender, connections *int64) {
-	defer atomic.AddInt64(connections, -1)
+func (server *Server) handle(ctx context.Context, conn net.Conn, messages protocol.MessageSender) {
+	defer atomic.AddInt64(&server.connections, -1)
 	defer conn.Close()
 
 	// Reject connections from IP addresses that have attempted to connect too recently.
@@ -183,7 +184,6 @@ func (server *Server) handle(ctx context.Context, conn net.Conn, messages protoc
 		case <-ctx.Done():
 			return
 		case messages <- messageOtw:
-			server.logger.Debugf("receive a %v message from %v", messageOtw.Message.Variant, messageOtw.From.String())
 		}
 	}
 }

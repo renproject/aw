@@ -95,9 +95,9 @@ func NewTCP(logger logrus.FieldLogger, codec protocol.PeerAddressCodec, options 
 		panic(fmt.Errorf("pre-condition violation: fail to initialize dht, err = %v", err))
 	}
 	handshaker := handshake.New(signVerifier, handshake.NewGCMSessionManager())
-	connPool := tcp.NewConnPool(logger, poolOptions, handshaker)
+	connPool := tcp.NewConnPool(poolOptions, logger, handshaker)
 	client := tcp.NewClient(logger, connPool)
-	server := tcp.NewServer(logger, serverOptions, handshaker)
+	server := tcp.NewServer(serverOptions, logger, handshaker)
 	return New(logger, codec, options, dht, handshaker, client, server, events)
 }
 
