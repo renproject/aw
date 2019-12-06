@@ -32,7 +32,6 @@ type Peer interface {
 type peer struct {
 	// General
 	logger     logrus.FieldLogger
-	codec      protocol.PeerAddressCodec
 	options    Options
 	dht        dht.DHT
 	handshaker handshake.Handshaker
@@ -71,7 +70,6 @@ func New(logger logrus.FieldLogger, codec protocol.PeerAddressCodec, options Opt
 
 	return &peer{
 		logger:         logger,
-		codec:          codec,
 		options:        options,
 		dht:            dht,
 		handshaker:     handshaker,
