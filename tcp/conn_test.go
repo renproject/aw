@@ -40,7 +40,7 @@ var _ = Describe("Connection pool", func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer func() {
 						cancel()
-						time.Sleep(10 * time.Millisecond)
+						time.Sleep(100 * time.Millisecond)
 					}()
 
 					// Initialize a connPool
@@ -70,12 +70,12 @@ var _ = Describe("Connection pool", func() {
 		})
 
 		Context("when reaching max connection limit", func() {
-			FIt("return an error when trying to send messages to new receiver", func() {
+			It("return an error when trying to send messages to new receiver", func() {
 				test := func() bool {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer func() {
 						cancel()
-						time.Sleep(10 * time.Millisecond)
+						time.Sleep(100 * time.Millisecond)
 					}()
 
 					// Initialize a connPool
@@ -99,7 +99,7 @@ var _ = Describe("Connection pool", func() {
 					return true
 				}
 
-				Expect(quick.Check(test, &quick.Config{MaxCount: 100})).NotTo(HaveOccurred())
+				Expect(quick.Check(test, &quick.Config{MaxCount: 10})).NotTo(HaveOccurred())
 			})
 		})
 
@@ -109,7 +109,7 @@ var _ = Describe("Connection pool", func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer func() {
 						cancel()
-						time.Sleep(10 * time.Millisecond)
+						time.Sleep(100 * time.Millisecond)
 					}()
 
 					// Initialize a connPool
@@ -154,7 +154,7 @@ var _ = Describe("Connection pool", func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer func() {
 						cancel()
-						time.Sleep(10 * time.Millisecond)
+						time.Sleep(100 * time.Millisecond)
 					}()
 
 					// Initialize a connPool
