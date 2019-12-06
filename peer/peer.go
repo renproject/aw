@@ -88,6 +88,22 @@ func New(logger logrus.FieldLogger, codec protocol.PeerAddressCodec, options Opt
 	}
 }
 
+func NewTCP(logger logrus.FieldLogger, codec protocol.PeerAddressCodec, options Options, events protocol.EventSender, signVerifier protocol.SignVerifier, poolOptions tcp.ConnPoolOptions, serverOptions tcp.ServerOptions) Peer {
+	if err := options.SetZeroToDefault(); err != nil {
+		panic(fmt.Errorf("pre-condition violation: invalid peer option, err = %v", err))
+	}
+	store := kv.NewTable(kv.NewMemDB(kv.JSONCodec), "dht")
+	dht, err := dht.New(options.Me, codec, store, options.BootstrapAddresses...)
+	if err != nil {
+		panic(fmt.Errorf("pre-condition violation: fail to initialize dht, err = %v", err))
+	}
+	handshaker := handshake.New(signVerifier, handshake.NewGCMSessionManager())
+	connPool := tcp.NewConnPool(logger, poolOptions, handshaker)
+	client := tcp.NewClient(logger, connPool)
+	server := tcp.NewServer(logger, serverOptions, handshaker)
+	return New(logger, codec, options, dht, handshaker, client, server, events)
+}
+
 func (peer *peer) Run(ctx context.Context) {
 	// Start both the client and server before bootstrapping
 	go peer.client.Run(ctx, peer.clientMessages)
@@ -233,20 +249,4 @@ func (peer *peer) receiveMessageOnTheWire(ctx context.Context, messageOtw protoc
 	default:
 		return protocol.NewErrMessageVariantIsNotSupported(messageOtw.Message.Variant)
 	}
-}
-
-func NewTCP(logger logrus.FieldLogger, codec protocol.PeerAddressCodec, options Options, events protocol.EventSender, signVerifier protocol.SignVerifier, poolOptions tcp.ConnPoolOptions, serverOptions tcp.ServerOptions) Peer {
-	if err := options.SetZeroToDefault(); err != nil {
-		panic(fmt.Errorf("pre-condition violation: invalid peer option, err = %v", err))
-	}
-	store := kv.NewTable(kv.NewMemDB(kv.JSONCodec), "dht")
-	dht, err := dht.New(options.Me, codec, store, options.BootstrapAddresses...)
-	if err != nil {
-		panic(fmt.Errorf("pre-condition violation: fail to initialize dht, err = %v", err))
-	}
-	handshaker := handshake.New(signVerifier, handshake.NewGCMSessionManager())
-	connPool := tcp.NewConnPool(logger, poolOptions, handshaker)
-	client := tcp.NewClient(logger, connPool)
-	server := tcp.NewServer(logger, serverOptions, handshaker)
-	return New(logger, codec, options, dht, handshaker, client, server, events)
 }

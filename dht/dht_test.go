@@ -59,6 +59,9 @@ var _ = Describe("DHT", func() {
 
 					// All bootstrap addresses should be queryable.
 					for _, addr := range bootstrapAddress {
+						if addr.PeerID().Equal(me.ID){
+							continue
+						}
 						stored, err := dht.PeerAddress(addr.PeerID())
 						Expect(err).ToNot(HaveOccurred())
 						Expect(stored.Equal(addr)).Should(BeTrue())

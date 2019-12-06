@@ -70,7 +70,7 @@ var _ = Describe("Connection pool", func() {
 		})
 
 		Context("when reaching max connection limit", func() {
-			It("return an error when trying to send messages to new receiver", func() {
+			FIt("return an error when trying to send messages to new receiver", func() {
 				test := func() bool {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer func() {
@@ -99,7 +99,7 @@ var _ = Describe("Connection pool", func() {
 					return true
 				}
 
-				Expect(quick.Check(test, &quick.Config{MaxCount: 10})).NotTo(HaveOccurred())
+				Expect(quick.Check(test, &quick.Config{MaxCount: 100})).NotTo(HaveOccurred())
 			})
 		})
 
