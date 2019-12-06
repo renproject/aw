@@ -89,6 +89,9 @@ var _ = Describe("DHT", func() {
 			It("should load the address from store into cache for fast io", func() {
 				test := func() bool {
 					me, bootstrapAddress := RandomAddress(), RandomAddresses(rand.Intn(32)+1)
+					for ContainAddress(bootstrapAddress, me){
+						me = RandomAddress()
+					}
 					store := NewTable("dht")
 					_ = NewDHT(me, store, bootstrapAddress[:len(bootstrapAddress)-1])
 
