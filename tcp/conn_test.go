@@ -40,7 +40,7 @@ var _ = Describe("Connection pool", func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer func() {
 						cancel()
-						time.Sleep(100 * time.Millisecond)
+						time.Sleep(200 * time.Millisecond)
 					}()
 
 					// Initialize a connPool
@@ -75,7 +75,7 @@ var _ = Describe("Connection pool", func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer func() {
 						cancel()
-						time.Sleep(100 * time.Millisecond)
+						time.Sleep(200 * time.Millisecond)
 					}()
 
 					// Initialize a connPool
@@ -109,13 +109,13 @@ var _ = Describe("Connection pool", func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer func() {
 						cancel()
-						time.Sleep(100 * time.Millisecond)
+						time.Sleep(200 * time.Millisecond)
 					}()
 
 					// Initialize a connPool
 					clientSignVerifier := NewMockSignVerifier()
 					handshaker := handshake.New(clientSignVerifier, handshake.NewGCMSessionManager())
-					pool := NewConnPool(ConnPoolOptions{TimeToLive: 100 * time.Millisecond}, logrus.New(), handshaker)
+					pool := NewConnPool(ConnPoolOptions{TimeToLive: 200 * time.Millisecond}, logrus.New(), handshaker)
 
 					// Initialize a server
 					serverAddr, err := net.ResolveTCPAddr("tcp", ":8080")
@@ -154,7 +154,7 @@ var _ = Describe("Connection pool", func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer func() {
 						cancel()
-						time.Sleep(100 * time.Millisecond)
+						time.Sleep(200 * time.Millisecond)
 					}()
 
 					// Initialize a connPool
