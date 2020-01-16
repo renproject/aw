@@ -235,6 +235,10 @@ func (dht *dht) PeerGroupAddresses(groupID protocol.PeerGroupID) (protocol.PeerA
 	dht.inMemCacheMu.RLock()
 	defer dht.inMemCacheMu.RUnlock()
 	for _, id := range ids {
+		if id.Equal(dht.me.PeerID()) {
+			addrs = append(addrs, dht.me)
+			continue
+		}
 		addr, ok := dht.inMemCache[id.String()]
 		if !ok {
 			continue
