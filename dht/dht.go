@@ -27,7 +27,8 @@ type DHT interface {
 	// PeerAddresses returns all the PeerAddresses stored in the DHT.
 	PeerAddresses() (protocol.PeerAddresses, error)
 
-	// RandomPeerAddresses returns (at max) n random PeerAddresses in the given peer group.
+	// RandomPeerAddresses returns (at max) n random PeerAddresses in the given
+	// peer group.
 	RandomPeerAddresses(id protocol.GroupID, n int) (protocol.PeerAddresses, error)
 
 	// AddPeerAddress adds a PeerAddress into the DHT.
@@ -41,17 +42,17 @@ type DHT interface {
 	// It wouldn't return any error if the PeerAddress doesn't exist.
 	RemovePeerAddress(protocol.PeerID) error
 
-	// AddGroup creates a new Group in the dht with given name and PeerIDs.
+	// AddGroup creates a new group in the DHT with given ID and PeerIDs.
 	AddGroup(protocol.GroupID, protocol.PeerIDs) error
 
-	// GroupIDs returns the PeerIDs of the given GroupID
+	// GroupIDs returns the PeerIDs in the group with the given ID.
 	GroupIDs(protocol.GroupID) (protocol.PeerIDs, error)
 
-	// GroupAddresses returns the PeerAddresses of the given GroupID. It
-	// will not return Peers which we don't have the PeerAddresses.
+	// GroupAddresses returns the PeerAddresses in the group with the given ID.
+	// It will not return peers for which we do not have the PeerAddresses.
 	GroupAddresses(protocol.GroupID) (protocol.PeerAddresses, error)
 
-	// Remove a Group with given name from the DHT.
+	// Remove a group from the DHT with the given ID.
 	RemoveGroup(protocol.GroupID)
 }
 
