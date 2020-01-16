@@ -40,23 +40,23 @@ type PeerIDCodec interface {
 	Decode([]byte) (PeerID, error)
 }
 
-// PeerGroup uniquely identifies a group of PeerIDs.
-type PeerGroupID [32]byte
+// GroupID uniquely identifies a group of PeerIDs.
+type GroupID [32]byte
 
-// NilPeerGroupID is a reserved GroupID and usually represents all known PeerIDs.
-var NilPeerGroupID = PeerGroupID{}
+// NilGroupID is a reserved GroupID and usually represents all known PeerIDs.
+var NilGroupID = GroupID{}
 
 // Equal compares two groupIDs and return if they are same.
-func (id PeerGroupID) Equal(another PeerGroupID) bool {
+func (id GroupID) Equal(another GroupID) bool {
 	return bytes.Equal(id[:], another[:])
 }
 
-// ValidatePeerGroupID checks if the PeerGroupID is valid under the given message
+// ValidateGroupID checks if the GroupID is valid under the given message
 // variant
-func ValidatePeerGroupID(groupID PeerGroupID, variant MessageVariant) error {
+func ValidateGroupID(groupID GroupID, variant MessageVariant) error {
 	if variant != Broadcast && variant != Multicast {
-		if groupID != NilPeerGroupID {
-			return ErrInvalidPeerGroupID
+		if groupID != NilGroupID {
+			return ErrInvalidGroupID
 		}
 	}
 	return nil

@@ -28,7 +28,7 @@ type DHT interface {
 	PeerAddresses() (protocol.PeerAddresses, error)
 
 	// RandomPeerAddresses returns (at max) n random PeerAddresses in the given peer group.
-	RandomPeerAddresses(id protocol.PeerGroupID, n int) (protocol.PeerAddresses, error)
+	RandomPeerAddresses(id protocol.GroupID, n int) (protocol.PeerAddresses, error)
 
 	// AddPeerAddress adds a PeerAddress into the DHT.
 	AddPeerAddress(protocol.PeerAddress) error
@@ -41,18 +41,18 @@ type DHT interface {
 	// It wouldn't return any error if the PeerAddress doesn't exist.
 	RemovePeerAddress(protocol.PeerID) error
 
-	// AddPeerGroup creates a new PeerGroup in the dht with given name and PeerIDs.
-	AddPeerGroup(protocol.PeerGroupID, protocol.PeerIDs) error
+	// AddGroup creates a new Group in the dht with given name and PeerIDs.
+	AddGroup(protocol.GroupID, protocol.PeerIDs) error
 
-	// PeerGroupIDs returns the PeerIDs of the given PeerGroupID
-	PeerGroupIDs(protocol.PeerGroupID) (protocol.PeerIDs, error)
+	// GroupIDs returns the PeerIDs of the given GroupID
+	GroupIDs(protocol.GroupID) (protocol.PeerIDs, error)
 
-	// PeerGroupAddresses returns the PeerAddresses of the given PeerGroupID. It
+	// GroupAddresses returns the PeerAddresses of the given GroupID. It
 	// will not return Peers which we don't have the PeerAddresses.
-	PeerGroupAddresses(protocol.PeerGroupID) (protocol.PeerAddresses, error)
+	GroupAddresses(protocol.GroupID) (protocol.PeerAddresses, error)
 
-	// Remove a PeerGroup with given name from the DHT.
-	RemovePeerGroup(protocol.PeerGroupID)
+	// Remove a Group with given name from the DHT.
+	RemoveGroup(protocol.GroupID)
 }
 
 type dht struct {
@@ -61,7 +61,7 @@ type dht struct {
 	store kv.Table
 
 	groupsMu *sync.RWMutex
-	groups   map[protocol.PeerGroupID]protocol.PeerIDs
+	groups   map[protocol.GroupID]protocol.PeerIDs
 
 	inMemCacheMu *sync.RWMutex
 	inMemCache   map[string]protocol.PeerAddress
@@ -90,7 +90,7 @@ func New(me protocol.PeerAddress, codec protocol.PeerAddressCodec, store kv.Tabl
 		store: store,
 
 		groupsMu: new(sync.RWMutex),
-		groups:   map[protocol.PeerGroupID]protocol.PeerIDs{},
+		groups:   map[protocol.GroupID]protocol.PeerIDs{},
 
 		inMemCacheMu: new(sync.RWMutex),
 		inMemCache:   map[string]protocol.PeerAddress{},
@@ -125,8 +125,8 @@ func (dht *dht) PeerAddresses() (protocol.PeerAddresses, error) {
 	return peerAddrs, nil
 }
 
-func (dht *dht) RandomPeerAddresses(groupID protocol.PeerGroupID, n int) (protocol.PeerAddresses, error) {
-	addrs, err := dht.PeerGroupAddresses(groupID)
+func (dht *dht) RandomPeerAddresses(groupID protocol.GroupID, n int) (protocol.PeerAddresses, error) {
+	addrs, err := dht.GroupAddresses(groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -185,9 +185,9 @@ func (dht *dht) RemovePeerAddress(id protocol.PeerID) error {
 	return nil
 }
 
-func (dht *dht) AddPeerGroup(id protocol.PeerGroupID, ids protocol.PeerIDs) error {
-	if id.Equal(protocol.NilPeerGroupID) {
-		return protocol.ErrInvalidPeerGroupID
+func (dht *dht) AddGroup(id protocol.GroupID, ids protocol.PeerIDs) error {
+	if id.Equal(protocol.NilGroupID) {
+		return protocol.ErrInvalidGroupID
 	}
 
 	dht.groupsMu.Lock()
@@ -197,8 +197,8 @@ func (dht *dht) AddPeerGroup(id protocol.PeerGroupID, ids protocol.PeerIDs) erro
 	return nil
 }
 
-func (dht *dht) PeerGroupIDs(groupID protocol.PeerGroupID) (protocol.PeerIDs, error) {
-	if groupID.Equal(protocol.NilPeerGroupID) {
+func (dht *dht) GroupIDs(groupID protocol.GroupID) (protocol.PeerIDs, error) {
+	if groupID.Equal(protocol.NilGroupID) {
 		addrs, err := dht.PeerAddresses()
 		if err != nil {
 			return nil, err
@@ -215,19 +215,19 @@ func (dht *dht) PeerGroupIDs(groupID protocol.PeerGroupID) (protocol.PeerIDs, er
 
 	peerIDs, ok := dht.groups[groupID]
 	if !ok {
-		return nil, NewErrPeerGroupNotFound(groupID)
+		return nil, NewErrGroupNotFound(groupID)
 	}
 	peerIDsCopy := make([]protocol.PeerID, len(peerIDs))
 	copy(peerIDsCopy, peerIDs)
 	return peerIDsCopy, nil
 }
 
-func (dht *dht) PeerGroupAddresses(groupID protocol.PeerGroupID) (protocol.PeerAddresses, error) {
-	if groupID.Equal(protocol.NilPeerGroupID) {
+func (dht *dht) GroupAddresses(groupID protocol.GroupID) (protocol.PeerAddresses, error) {
+	if groupID.Equal(protocol.NilGroupID) {
 		return dht.PeerAddresses()
 	}
 
-	ids, err := dht.PeerGroupIDs(groupID)
+	ids, err := dht.GroupIDs(groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +248,7 @@ func (dht *dht) PeerGroupAddresses(groupID protocol.PeerGroupID) (protocol.PeerA
 	return addrs, nil
 }
 
-func (dht *dht) RemovePeerGroup(id protocol.PeerGroupID) {
+func (dht *dht) RemoveGroup(id protocol.GroupID) {
 	dht.groupsMu.Lock()
 	defer dht.groupsMu.Unlock()
 
@@ -311,14 +311,14 @@ func NewErrPeerNotFound(peerID protocol.PeerID) error {
 	}
 }
 
-type ErrPeerGroupNotFound struct {
+type ErrGroupNotFound struct {
 	error
-	protocol.PeerGroupID
+	protocol.GroupID
 }
 
-func NewErrPeerGroupNotFound(groupID protocol.PeerGroupID) error {
-	return ErrPeerGroupNotFound{
-		error:       fmt.Errorf("peer group=%v not found", groupID),
-		PeerGroupID: groupID,
+func NewErrGroupNotFound(groupID protocol.GroupID) error {
+	return ErrGroupNotFound{
+		error:   fmt.Errorf("peer group=%v not found", groupID),
+		GroupID: groupID,
 	}
 }

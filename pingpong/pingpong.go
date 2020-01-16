@@ -53,7 +53,7 @@ func (pp *pingPonger) Ping(ctx context.Context, to protocol.PeerID) error {
 	}
 	messageWire := protocol.MessageOnTheWire{
 		To:      peerAddr,
-		Message: protocol.NewMessage(protocol.V1, protocol.Ping, protocol.NilPeerGroupID, me),
+		Message: protocol.NewMessage(protocol.V1, protocol.Ping, protocol.NilGroupID, me),
 	}
 
 	select {
@@ -123,7 +123,7 @@ func (pp *pingPonger) pong(ctx context.Context, to protocol.PeerAddress) error {
 	}
 	messageWire := protocol.MessageOnTheWire{
 		To:      to,
-		Message: protocol.NewMessage(protocol.V1, protocol.Pong, protocol.NilPeerGroupID, me),
+		Message: protocol.NewMessage(protocol.V1, protocol.Pong, protocol.NilGroupID, me),
 	}
 	select {
 	case <-ctx.Done():
@@ -134,7 +134,7 @@ func (pp *pingPonger) pong(ctx context.Context, to protocol.PeerAddress) error {
 }
 
 func (pp *pingPonger) propagatePing(ctx context.Context, sender protocol.PeerID, body protocol.MessageBody) error {
-	peerAddrs, err := pp.dht.RandomPeerAddresses(protocol.NilPeerGroupID, pp.options.Alpha)
+	peerAddrs, err := pp.dht.RandomPeerAddresses(protocol.NilGroupID, pp.options.Alpha)
 	if err != nil {
 		return err
 	}
@@ -145,7 +145,7 @@ func (pp *pingPonger) propagatePing(ctx context.Context, sender protocol.PeerID,
 		}
 		messageWire := protocol.MessageOnTheWire{
 			To:      addr,
-			Message: protocol.NewMessage(protocol.V1, protocol.Ping, protocol.NilPeerGroupID, body),
+			Message: protocol.NewMessage(protocol.V1, protocol.Ping, protocol.NilGroupID, body),
 		}
 		select {
 		case <-ctx.Done():

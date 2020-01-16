@@ -11,7 +11,7 @@ import (
 )
 
 type Multicaster interface {
-	Multicast(ctx context.Context, groupID protocol.PeerGroupID, body protocol.MessageBody) error
+	Multicast(ctx context.Context, groupID protocol.GroupID, body protocol.MessageBody) error
 	AcceptMulticast(ctx context.Context, from protocol.PeerID, message protocol.Message) error
 }
 
@@ -33,8 +33,8 @@ func NewMulticaster(logger logrus.FieldLogger, numWorkers int, messages protocol
 	}
 }
 
-func (multicaster *multicaster) Multicast(ctx context.Context, groupID protocol.PeerGroupID, body protocol.MessageBody) error {
-	addrs, err := multicaster.dht.PeerGroupAddresses(groupID)
+func (multicaster *multicaster) Multicast(ctx context.Context, groupID protocol.GroupID, body protocol.MessageBody) error {
+	addrs, err := multicaster.dht.GroupAddresses(groupID)
 	if err != nil {
 		return err
 	}
@@ -97,14 +97,14 @@ func (multicaster *multicaster) AcceptMulticast(ctx context.Context, from protoc
 }
 
 type ErrMulticasting struct {
-	protocol.PeerGroupID
+	protocol.GroupID
 	error
 }
 
-func newErrMulticasting(err error, groupID protocol.PeerGroupID) error {
+func newErrMulticasting(err error, groupID protocol.GroupID) error {
 	return ErrMulticasting{
-		PeerGroupID: groupID,
-		error:       fmt.Errorf("error multicasting to group %v: %v", groupID, err),
+		GroupID: groupID,
+		error:   fmt.Errorf("error multicasting to group %v: %v", groupID, err),
 	}
 }
 

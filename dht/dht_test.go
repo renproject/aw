@@ -226,36 +226,36 @@ var _ = Describe("DHT", func() {
 		})
 	})
 
-	Context("when creating, querying and deleting PeerGroups", func() {
+	Context("when creating, querying and deleting Groups", func() {
 		It("should be able to adding new group and delete a existing group", func() {
 			test := func() bool {
 				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				groupID, peerAddrs := RandomPeerGroupID(), RandomAddresses(rand.Intn(32))
+				groupID, peerAddrs := RandomGroupID(), RandomAddresses(rand.Intn(32))
 				for _, peerAddr := range peerAddrs {
 					Expect(dht.AddPeerAddress(peerAddr)).NotTo(HaveOccurred())
 				}
 				peerIDs := FromAddressesToIDs(peerAddrs)
 
 				// Before adding the peer group
-				ids, err := dht.PeerGroupIDs(groupID)
+				ids, err := dht.GroupIDs(groupID)
 				Expect(err).To(HaveOccurred())
-				_, err = dht.PeerGroupAddresses(groupID)
+				_, err = dht.GroupAddresses(groupID)
 				Expect(err).To(HaveOccurred())
 
 				// Adding the peer group
-				Expect(dht.AddPeerGroup(groupID, peerIDs)).NotTo(HaveOccurred())
-				ids, err = dht.PeerGroupIDs(groupID)
+				Expect(dht.AddGroup(groupID, peerIDs)).NotTo(HaveOccurred())
+				ids, err = dht.GroupIDs(groupID)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(len(ids)).Should(Equal(len(peerIDs)))
-				addrs, err := dht.PeerGroupAddresses(groupID)
+				addrs, err := dht.GroupAddresses(groupID)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(len(addrs)).Should(Equal(len(peerIDs)))
 
 				// After removing the peer group
-				dht.RemovePeerGroup(groupID)
-				ids, err = dht.PeerGroupIDs(groupID)
+				dht.RemoveGroup(groupID)
+				ids, err = dht.GroupIDs(groupID)
 				Expect(err).To(HaveOccurred())
-				_, err = dht.PeerGroupAddresses(groupID)
+				_, err = dht.GroupAddresses(groupID)
 				Expect(err).To(HaveOccurred())
 				return true
 			}
@@ -266,7 +266,7 @@ var _ = Describe("DHT", func() {
 		It("should return an error when trying to add a group with nil id", func() {
 			test := func() bool {
 				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				Expect(dht.AddPeerGroup(protocol.NilPeerGroupID, RandomPeerIDs())).To(HaveOccurred())
+				Expect(dht.AddGroup(protocol.NilGroupID, RandomPeerIDs())).To(HaveOccurred())
 				return true
 			}
 
@@ -282,14 +282,14 @@ var _ = Describe("DHT", func() {
 					Expect(dht.AddPeerAddress(peerAddrs[i])).NotTo(HaveOccurred())
 				}
 
-				storedIDs, err := dht.PeerGroupIDs(protocol.NilPeerGroupID)
+				storedIDs, err := dht.GroupIDs(protocol.NilGroupID)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(len(ids)).Should(Equal(len(storedIDs)))
 				for _, id := range storedIDs {
 					Expect(ids).Should(ContainElement(id))
 				}
 
-				storedAddrs, err := dht.PeerGroupAddresses(protocol.NilPeerGroupID)
+				storedAddrs, err := dht.GroupAddresses(protocol.NilGroupID)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(len(peerAddrs)).Should(Equal(len(storedAddrs)))
 				for _, addr := range storedAddrs {
@@ -311,17 +311,17 @@ var _ = Describe("DHT", func() {
 				for i := range peerAddrs[:len(peerAddrs)-1] {
 					Expect(dht.AddPeerAddress(peerAddrs[i])).NotTo(HaveOccurred())
 				}
-				groupID := RandomPeerGroupID()
-				Expect(dht.AddPeerGroup(groupID, ids)).NotTo(HaveOccurred())
+				groupID := RandomGroupID()
+				Expect(dht.AddGroup(groupID, ids)).NotTo(HaveOccurred())
 
-				storedIDs, err := dht.PeerGroupIDs(groupID)
+				storedIDs, err := dht.GroupIDs(groupID)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(len(ids)).Should(Equal(len(storedIDs)))
 				for _, id := range storedIDs {
 					Expect(ids).Should(ContainElement(id))
 				}
 
-				storedAddrs, err := dht.PeerGroupAddresses(groupID)
+				storedAddrs, err := dht.GroupAddresses(groupID)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(len(storedAddrs)).Should(Equal(len(peerAddrs) - 1))
 				for _, addr := range storedAddrs {
@@ -333,14 +333,14 @@ var _ = Describe("DHT", func() {
 			Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
 		})
 
-		It("should be concurrent safe to use PeerGroup", func() {
+		It("should be concurrent safe to use Group", func() {
 			test := func() bool {
 				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				groupID, peerAddrs := RandomPeerGroupID(), RandomAddresses(rand.Intn(32))
+				groupID, peerAddrs := RandomGroupID(), RandomAddresses(rand.Intn(32))
 				peerIDs := FromAddressesToIDs(peerAddrs)
-				Expect(dht.AddPeerGroup(groupID, peerIDs)).NotTo(HaveOccurred())
+				Expect(dht.AddGroup(groupID, peerIDs)).NotTo(HaveOccurred())
 
-				// Try to add and query PeerGroups at the same time
+				// Try to add and query Groups at the same time
 				var err1, err2 error
 				phi.ParBegin(func() {
 					for _, peerAddr := range peerAddrs {
@@ -349,7 +349,7 @@ var _ = Describe("DHT", func() {
 						}
 					}
 				}, func() {
-					_, err2 = dht.PeerGroupAddresses(groupID)
+					_, err2 = dht.GroupAddresses(groupID)
 				})
 				Expect(err1).NotTo(HaveOccurred())
 				Expect(err2).NotTo(HaveOccurred())
@@ -372,14 +372,14 @@ var _ = Describe("DHT", func() {
 					}
 
 					n := rand.Intn(len(addrs)) + 1
-					randAddrs, err := dht.RandomPeerAddresses(protocol.NilPeerGroupID, n)
+					randAddrs, err := dht.RandomPeerAddresses(protocol.NilGroupID, n)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(len(randAddrs)).Should(Equal(n))
 					for _, addr := range randAddrs {
 						Expect(addrs).Should(ContainElement(addr))
 					}
 
-					randAddrs, err = dht.RandomPeerAddresses(protocol.NilPeerGroupID, len(addrs)+1+rand.Int())
+					randAddrs, err = dht.RandomPeerAddresses(protocol.NilGroupID, len(addrs)+1+rand.Int())
 					Expect(err).NotTo(HaveOccurred())
 					Expect(len(randAddrs)).Should(Equal(len(addrs)))
 					for _, addr := range randAddrs {
@@ -401,9 +401,9 @@ var _ = Describe("DHT", func() {
 					}
 
 					ids := FromAddressesToIDs(addrs)
-					groupID1, groupID2 := RandomPeerGroupID(), RandomPeerGroupID()
-					Expect(dht.AddPeerGroup(groupID1, ids[:32])).NotTo(HaveOccurred())
-					Expect(dht.AddPeerGroup(groupID2, ids[32:])).NotTo(HaveOccurred())
+					groupID1, groupID2 := RandomGroupID(), RandomGroupID()
+					Expect(dht.AddGroup(groupID1, ids[:32])).NotTo(HaveOccurred())
+					Expect(dht.AddGroup(groupID2, ids[32:])).NotTo(HaveOccurred())
 
 					randAddrs, err := dht.RandomPeerAddresses(groupID1, 64)
 					Expect(err).NotTo(HaveOccurred())

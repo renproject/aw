@@ -59,7 +59,7 @@ var _ = Describe("Protocol", func() {
 			test := func() bool {
 				variant := RandomMessageVariant()
 				body := RandomMessageBody()
-				Expect(NewMessage(V1, variant, NilPeerGroupID, body)).ToNot(BeNil())
+				Expect(NewMessage(V1, variant, NilGroupID, body)).ToNot(BeNil())
 
 				return true
 			}
@@ -71,19 +71,19 @@ var _ = Describe("Protocol", func() {
 	Context("when creating invalid messages", func() {
 		It("should panic for invalid versions", func() {
 			messageBody := RandomMessageBody()
-			Expect(func() { NewMessage(InvalidMessageVersion(), Cast, NilPeerGroupID, messageBody) }).To(Panic())
+			Expect(func() { NewMessage(InvalidMessageVersion(), Cast, NilGroupID, messageBody) }).To(Panic())
 		})
 
 		It("should panic for invalid variants", func() {
 			messageBody := RandomMessageBody()
-			Expect(func() { NewMessage(V1, InvalidMessageVariant(), NilPeerGroupID, messageBody) }).To(Panic())
+			Expect(func() { NewMessage(V1, InvalidMessageVariant(), NilGroupID, messageBody) }).To(Panic())
 		})
 
 		It("should panic for invalid groupID", func() {
 			messageBody := RandomMessageBody()
-			Expect(func() { NewMessage(V1, Ping, RandomPeerGroupID(), messageBody) }).To(Panic())
-			Expect(func() { NewMessage(V1, Pong, RandomPeerGroupID(), messageBody) }).To(Panic())
-			Expect(func() { NewMessage(V1, Ping, RandomPeerGroupID(), messageBody) }).To(Panic())
+			Expect(func() { NewMessage(V1, Ping, RandomGroupID(), messageBody) }).To(Panic())
+			Expect(func() { NewMessage(V1, Pong, RandomGroupID(), messageBody) }).To(Panic())
+			Expect(func() { NewMessage(V1, Ping, RandomGroupID(), messageBody) }).To(Panic())
 		})
 	})
 

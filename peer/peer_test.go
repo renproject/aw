@@ -40,7 +40,7 @@ var _ = Describe("Peer", func() {
 
 		sender := rand.Intn(len(peers))
 		messageBody := RandomMessageBody()
-		Expect(peers[sender].Multicast(multicastCtx, protocol.NilPeerGroupID, messageBody)).NotTo(HaveOccurred())
+		Expect(peers[sender].Multicast(multicastCtx, protocol.NilGroupID, messageBody)).NotTo(HaveOccurred())
 
 		for i, event := range events {
 			if i == sender {
@@ -58,7 +58,7 @@ var _ = Describe("Peer", func() {
 		defer broadcastCancel()
 
 		sender := rand.Intn(len(peers))
-		Expect(peers[sender].Broadcast(broadcastCtx, protocol.NilPeerGroupID, messageBody)).NotTo(HaveOccurred())
+		Expect(peers[sender].Broadcast(broadcastCtx, protocol.NilGroupID, messageBody)).NotTo(HaveOccurred())
 
 		for i, event := range events {
 			if i == sender {

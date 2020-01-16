@@ -40,7 +40,7 @@ type (
 	PeerOption       = peer.Options
 	PeerID           = protocol.PeerID
 	PeerIDs          = protocol.PeerIDs
-	PeerGroupID      = protocol.PeerGroupID
+	GroupID          = protocol.GroupID
 	PeerAddress      = protocol.PeerAddress
 	PeerAddresses    = protocol.PeerAddresses
 	PeerAddressCodec = protocol.PeerAddressCodec
@@ -60,7 +60,7 @@ type (
 )
 
 // Default values
-var NilPeerGroupID = protocol.NilPeerGroupID
+var NilGroupID = protocol.NilGroupID
 
 // Constructors
 var (

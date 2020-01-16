@@ -23,8 +23,8 @@ func NewTable(name string) kv.Table {
 	return kv.NewTable(db, name)
 }
 
-func NewGroup(dht dht.DHT) (protocol.PeerGroupID, protocol.PeerAddresses, error) {
-	groupID := RandomPeerGroupID()
+func NewGroup(dht dht.DHT) (protocol.GroupID, protocol.PeerAddresses, error) {
+	groupID := RandomGroupID()
 	addrs := RandomAddresses(rand.Intn(32))
 	ids := make([]protocol.PeerID, len(addrs))
 	for i := range addrs {
@@ -33,6 +33,6 @@ func NewGroup(dht dht.DHT) (protocol.PeerGroupID, protocol.PeerAddresses, error)
 			return groupID, nil, err
 		}
 	}
-	err := dht.AddPeerGroup(groupID, ids)
+	err := dht.AddGroup(groupID, ids)
 	return groupID, addrs, err
 }
