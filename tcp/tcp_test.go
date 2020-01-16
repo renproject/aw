@@ -108,18 +108,16 @@ var _ = Describe("TCP client and server", func() {
 			serverAddr := NewSimpleTCPPeerAddress(RandomPeerID().String(), "", "8080")
 			options := ServerOptions{
 				Host:      serverAddr.NetworkAddress().String(),
-				RateLimit: 2 * time.Second,
+				RateLimit: 500 * time.Millisecond,
 			}
 			messageReceiver := NewTCPServer(ctx, options, clientSignVerifier)
 
 			// Try to connect and send a message to server
 			_ = sendRandomMessage(messageSender, serverAddr)
-			Eventually(messageReceiver, 3*time.Second).Should(Receive())
+			Eventually(messageReceiver, 600*time.Millisecond).Should(Receive())
 
 			// Cancel the ctx which close the connection
-			time.Sleep(100 * time.Millisecond)
 			clientCancel()
-			time.Sleep(100 * time.Millisecond)
 
 			// Create a new client and send a message and expect it to be rejected.
 			messageSender = NewTCPClient(ctx, ConnPoolOptions{}, clientSignVerifier)
@@ -127,7 +125,7 @@ var _ = Describe("TCP client and server", func() {
 			Eventually(messageReceiver).ShouldNot(Receive())
 
 			// Wait for the rate limit expire
-			time.Sleep(3 * time.Second)
+			time.Sleep(600 * time.Millisecond)
 
 			// Expect the connection to be accepted by the server
 			message := sendRandomMessage(messageSender, serverAddr)
