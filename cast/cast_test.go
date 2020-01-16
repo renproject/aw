@@ -79,7 +79,7 @@ var _ = Describe("Caster", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
-				message := protocol.NewMessage(protocol.V1, protocol.Cast, protocol.NilPeerGroupID, messageBody)
+				message := protocol.NewMessage(protocol.V1, protocol.Cast, protocol.NilGroupID, messageBody)
 				Expect(caster.AcceptCast(ctx, RandomPeerID(), message)).NotTo(HaveOccurred())
 
 				var event protocol.EventMessageReceived
@@ -103,7 +103,7 @@ var _ = Describe("Caster", func() {
 					ctx, cancel := context.WithCancel(context.Background())
 					cancel()
 
-					message := protocol.NewMessage(protocol.V1, protocol.Cast, protocol.NilPeerGroupID, messageBody)
+					message := protocol.NewMessage(protocol.V1, protocol.Cast, protocol.NilGroupID, messageBody)
 					Expect(caster.AcceptCast(ctx, RandomPeerID(), message)).Should(HaveOccurred())
 
 					return true
@@ -124,7 +124,7 @@ var _ = Describe("Caster", func() {
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
 
-					message := protocol.NewMessage(protocol.V1, protocol.Cast, protocol.NilPeerGroupID, messageBody)
+					message := protocol.NewMessage(protocol.V1, protocol.Cast, protocol.NilGroupID, messageBody)
 					message.Version = InvalidMessageVersion()
 					Expect(caster.AcceptCast(ctx, RandomPeerID(), message)).Should(HaveOccurred())
 
@@ -146,7 +146,7 @@ var _ = Describe("Caster", func() {
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
 
-					message := protocol.NewMessage(protocol.V1, protocol.Cast, protocol.NilPeerGroupID, messageBody)
+					message := protocol.NewMessage(protocol.V1, protocol.Cast, protocol.NilGroupID, messageBody)
 					message.Variant = InvalidMessageVariant(protocol.Cast)
 
 					Expect(caster.AcceptCast(ctx, RandomPeerID(), message)).Should(HaveOccurred())

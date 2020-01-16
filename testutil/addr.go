@@ -62,9 +62,9 @@ func RandomPeerID() protocol.PeerID {
 	return SimplePeerID(RandomString())
 }
 
-func RandomPeerGroupID() protocol.PeerGroupID {
-	id := protocol.PeerGroupID{}
-	for id.Equal(protocol.NilPeerGroupID) {
+func RandomGroupID() protocol.GroupID {
+	id := protocol.GroupID{}
+	for id.Equal(protocol.NilGroupID) {
 		_, err := rand.Read(id[:])
 		if err != nil {
 			panic(fmt.Sprintf("cannot create random id, err = %v", err))

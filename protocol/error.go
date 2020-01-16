@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	ErrInvalidPeerGroupID = errors.New("invalid peer group id")
+	ErrInvalidGroupID = errors.New("invalid group id")
 
 	ErrInvalidMessageLength = errors.New("invalid message length")
 )

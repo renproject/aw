@@ -112,7 +112,7 @@ var _ = Describe("Pingpong", func() {
 					data, err := codec.Encode(sender)
 					Expect(err).NotTo(HaveOccurred())
 
-					ping := protocol.NewMessage(protocol.V1, protocol.Ping, protocol.NilPeerGroupID, data)
+					ping := protocol.NewMessage(protocol.V1, protocol.Ping, protocol.NilGroupID, data)
 					Expect(pingpong.AcceptPing(ctx, ping)).NotTo(HaveOccurred())
 					Eventually(events).ShouldNot(Receive())
 					Eventually(messages).ShouldNot(Receive())
@@ -145,7 +145,7 @@ var _ = Describe("Pingpong", func() {
 					data, err := codec.Encode(sender)
 					Expect(err).NotTo(HaveOccurred())
 
-					ping := protocol.NewMessage(protocol.V1, protocol.Ping, protocol.NilPeerGroupID, data)
+					ping := protocol.NewMessage(protocol.V1, protocol.Ping, protocol.NilGroupID, data)
 					Expect(pingpong.AcceptPing(ctx, ping)).NotTo(HaveOccurred())
 
 					// Expect a pong message
@@ -205,11 +205,11 @@ var _ = Describe("Pingpong", func() {
 					data, err := codec.Encode(sender)
 					Expect(err).NotTo(HaveOccurred())
 
-					ping := protocol.NewMessage(protocol.V1, protocol.Ping, protocol.NilPeerGroupID, data)
+					ping := protocol.NewMessage(protocol.V1, protocol.Ping, protocol.NilGroupID, data)
 					ping.Variant = InvalidMessageVariant(protocol.Ping)
 					Expect(pingpong.AcceptPing(ctx, ping)).To(HaveOccurred())
 
-					ping = protocol.NewMessage(protocol.V1, protocol.Ping, protocol.NilPeerGroupID, data)
+					ping = protocol.NewMessage(protocol.V1, protocol.Ping, protocol.NilGroupID, data)
 					ping.Version = InvalidMessageVersion()
 					Expect(pingpong.AcceptPing(ctx, ping)).To(HaveOccurred())
 					return true
@@ -234,7 +234,7 @@ var _ = Describe("Pingpong", func() {
 					data, err := codec.Encode(me)
 					Expect(err).NotTo(HaveOccurred())
 
-					ping := protocol.NewMessage(protocol.V1, protocol.Ping, protocol.NilPeerGroupID, data)
+					ping := protocol.NewMessage(protocol.V1, protocol.Ping, protocol.NilGroupID, data)
 					Expect(pingpong.AcceptPing(ctx, ping)).NotTo(HaveOccurred())
 					return true
 				}
@@ -262,7 +262,7 @@ var _ = Describe("Pingpong", func() {
 					data, err := codec.Encode(sender)
 					Expect(err).NotTo(HaveOccurred())
 
-					pong := protocol.NewMessage(protocol.V1, protocol.Pong, protocol.NilPeerGroupID, data)
+					pong := protocol.NewMessage(protocol.V1, protocol.Pong, protocol.NilGroupID, data)
 					Expect(pingpong.AcceptPong(ctx, pong)).NotTo(HaveOccurred())
 					Eventually(events).ShouldNot(Receive())
 					return true
@@ -288,7 +288,7 @@ var _ = Describe("Pingpong", func() {
 					data, err := codec.Encode(sender)
 					Expect(err).NotTo(HaveOccurred())
 
-					pong := protocol.NewMessage(protocol.V1, protocol.Pong, protocol.NilPeerGroupID, data)
+					pong := protocol.NewMessage(protocol.V1, protocol.Pong, protocol.NilGroupID, data)
 					Expect(pingpong.AcceptPong(ctx, pong)).NotTo(HaveOccurred())
 
 					// Should receive EventPeerChanged event
@@ -323,11 +323,11 @@ var _ = Describe("Pingpong", func() {
 					data, err := codec.Encode(sender)
 					Expect(err).NotTo(HaveOccurred())
 
-					pong := protocol.NewMessage(protocol.V1, protocol.Pong, protocol.NilPeerGroupID, data)
+					pong := protocol.NewMessage(protocol.V1, protocol.Pong, protocol.NilGroupID, data)
 					pong.Variant = InvalidMessageVariant(protocol.Pong)
 					Expect(pingpong.AcceptPong(ctx, pong)).To(HaveOccurred())
 
-					pong = protocol.NewMessage(protocol.V1, protocol.Pong, protocol.NilPeerGroupID, data)
+					pong = protocol.NewMessage(protocol.V1, protocol.Pong, protocol.NilGroupID, data)
 					pong.Version = InvalidMessageVersion()
 					Expect(pingpong.AcceptPong(ctx, pong)).To(HaveOccurred())
 					return true

@@ -107,10 +107,10 @@ var _ = Describe("Broadcaster", func() {
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
 					broadcaster := NewBroadcaster(logrus.New(), 8, messages, events, dht)
 
-					groupID, addrs := RandomPeerGroupID(), RandomAddresses(rand.Intn(32))
+					groupID, addrs := RandomGroupID(), RandomAddresses(rand.Intn(32))
 					last := RandomAddress()
 					addrs = append(addrs, last)
-					Expect(dht.AddPeerGroup(groupID, FromAddressesToIDs(addrs))).NotTo(HaveOccurred())
+					Expect(dht.AddGroup(groupID, FromAddressesToIDs(addrs))).NotTo(HaveOccurred())
 					for i := 0; i < len(addrs)-1; i++ {
 						Expect(dht.AddPeerAddress(addrs[i])).NotTo(HaveOccurred())
 					}
@@ -145,11 +145,11 @@ var _ = Describe("Broadcaster", func() {
 				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
 				broadcaster := NewBroadcaster(logrus.New(), 8, messages, events, dht)
 
-				groupID, addrs := RandomPeerGroupID(), RandomAddresses(rand.Intn(32))
+				groupID, addrs := RandomGroupID(), RandomAddresses(rand.Intn(32))
 				for _, addr := range addrs {
 					Expect(dht.AddPeerAddress(addr)).NotTo(HaveOccurred())
 				}
-				Expect(dht.AddPeerGroup(groupID, FromAddressesToIDs(addrs))).NotTo(HaveOccurred())
+				Expect(dht.AddGroup(groupID, FromAddressesToIDs(addrs))).NotTo(HaveOccurred())
 
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
@@ -184,7 +184,7 @@ var _ = Describe("Broadcaster", func() {
 
 					ctx, cancel := context.WithCancel(context.Background())
 					cancel()
-					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, RandomPeerGroupID(), messageBody)
+					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, RandomGroupID(), messageBody)
 					Expect(broadcaster.AcceptBroadcast(ctx, RandomPeerID(), message)).To(HaveOccurred())
 
 					return true
@@ -204,7 +204,7 @@ var _ = Describe("Broadcaster", func() {
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
-					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, RandomPeerGroupID(), messageBody)
+					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, RandomGroupID(), messageBody)
 					message.Version = InvalidMessageVersion()
 					Expect(broadcaster.AcceptBroadcast(ctx, RandomPeerID(), message)).To(HaveOccurred())
 
@@ -225,7 +225,7 @@ var _ = Describe("Broadcaster", func() {
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
-					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, RandomPeerGroupID(), messageBody)
+					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, RandomGroupID(), messageBody)
 					message.Variant = InvalidMessageVariant(protocol.Broadcast)
 					Expect(broadcaster.AcceptBroadcast(ctx, RandomPeerID(), message)).To(HaveOccurred())
 
@@ -245,11 +245,11 @@ var _ = Describe("Broadcaster", func() {
 					broadcaster := NewBroadcaster(logrus.New(), 8, messages, events, dht)
 
 					// Intentionally not inserting the last peer address to the dht.
-					groupID, addrs := RandomPeerGroupID(), RandomAddresses(rand.Intn(32))
+					groupID, addrs := RandomGroupID(), RandomAddresses(rand.Intn(32))
 					for _, addr := range addrs {
 						Expect(dht.AddPeerAddress(addr)).NotTo(HaveOccurred())
 					}
-					Expect(dht.AddPeerGroup(groupID, FromAddressesToIDs(addrs))).NotTo(HaveOccurred())
+					Expect(dht.AddGroup(groupID, FromAddressesToIDs(addrs))).NotTo(HaveOccurred())
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()

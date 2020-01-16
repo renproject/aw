@@ -22,7 +22,7 @@ import (
 // the message to all known peers.
 type Broadcaster interface {
 	// Broadcast a message to all peers in the network.
-	Broadcast(ctx context.Context, groupID protocol.PeerGroupID, body protocol.MessageBody) error
+	Broadcast(ctx context.Context, groupID protocol.GroupID, body protocol.MessageBody) error
 
 	// AcceptBroadcast message from another peer in the network.
 	AcceptBroadcast(ctx context.Context, from protocol.PeerID, message protocol.Message) error
@@ -54,7 +54,7 @@ func NewBroadcaster(logger logrus.FieldLogger, numWorkers int, messages protocol
 
 // Broadcast a message to multiple remote servers in an attempt to saturate the
 // network.
-func (broadcaster *broadcaster) Broadcast(ctx context.Context, groupID protocol.PeerGroupID, body protocol.MessageBody) error {
+func (broadcaster *broadcaster) Broadcast(ctx context.Context, groupID protocol.GroupID, body protocol.MessageBody) error {
 	// Ignore message if it already been sent.
 	message := protocol.NewMessage(protocol.V1, protocol.Broadcast, groupID, body)
 	ok, err := broadcaster.messageHashAlreadySeen(message.Hash())
@@ -65,8 +65,8 @@ func (broadcaster *broadcaster) Broadcast(ctx context.Context, groupID protocol.
 		return nil
 	}
 
-	// Get all peer details of the Group ID.
-	addrs, err := broadcaster.dht.PeerGroupAddresses(groupID)
+	// Get all addresses in the group with the given ID.
+	addrs, err := broadcaster.dht.GroupAddresses(groupID)
 	if err != nil {
 		return err
 	}
@@ -176,7 +176,7 @@ type ErrBroadcasting struct {
 	error
 }
 
-func newErrBroadcasting(err error, groupID protocol.PeerGroupID) error {
+func newErrBroadcasting(err error, groupID protocol.GroupID) error {
 	return ErrBroadcasting{
 		error: fmt.Errorf("error broadcasting to group [%v] : %v", groupID, err),
 	}

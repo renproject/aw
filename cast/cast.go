@@ -38,7 +38,7 @@ func (caster *caster) Cast(ctx context.Context, to protocol.PeerID, body protoco
 	}
 	message := protocol.MessageOnTheWire{
 		To:      toAddr,
-		Message: protocol.NewMessage(protocol.V1, protocol.Cast, protocol.NilPeerGroupID, body),
+		Message: protocol.NewMessage(protocol.V1, protocol.Cast, protocol.NilGroupID, body),
 	}
 
 	// Check if context is already expired

@@ -75,7 +75,7 @@ var _ = Describe("Multicaster", func() {
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
-					Expect(multicaster.Multicast(ctx, RandomPeerGroupID(), messageBody)).Should(HaveOccurred())
+					Expect(multicaster.Multicast(ctx, RandomGroupID(), messageBody)).Should(HaveOccurred())
 					return true
 				}
 
@@ -93,8 +93,8 @@ var _ = Describe("Multicaster", func() {
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
-					groupID := RandomPeerGroupID()
-					Expect(dht.AddPeerGroup(groupID, RandomPeerIDs())).NotTo(HaveOccurred())
+					groupID := RandomGroupID()
+					Expect(dht.AddGroup(groupID, RandomPeerIDs())).NotTo(HaveOccurred())
 					Expect(multicaster.Multicast(ctx, groupID, messageBody)).ShouldNot(HaveOccurred())
 					return true
 				}
@@ -114,7 +114,7 @@ var _ = Describe("Multicaster", func() {
 
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
-				message := protocol.NewMessage(protocol.V1, protocol.Multicast, RandomPeerGroupID(), messageBody)
+				message := protocol.NewMessage(protocol.V1, protocol.Multicast, RandomGroupID(), messageBody)
 				Expect(multicaster.AcceptMulticast(ctx, RandomPeerID(), message)).ToNot(HaveOccurred())
 
 				var event protocol.EventMessageReceived
@@ -135,7 +135,7 @@ var _ = Describe("Multicaster", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				cancel()
 
-				message := protocol.NewMessage(protocol.V1, protocol.Multicast, RandomPeerGroupID(), protocol.MessageBody{})
+				message := protocol.NewMessage(protocol.V1, protocol.Multicast, RandomGroupID(), protocol.MessageBody{})
 				Expect(multicaster.AcceptMulticast(ctx, RandomPeerID(), message)).To(HaveOccurred())
 			})
 		})
@@ -150,7 +150,7 @@ var _ = Describe("Multicaster", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
-				message := protocol.NewMessage(protocol.V1, protocol.Multicast, RandomPeerGroupID(), protocol.MessageBody{})
+				message := protocol.NewMessage(protocol.V1, protocol.Multicast, RandomGroupID(), protocol.MessageBody{})
 				message.Version = InvalidMessageVersion()
 				Expect(multicaster.AcceptMulticast(ctx, RandomPeerID(), message)).To(HaveOccurred())
 			})
@@ -166,7 +166,7 @@ var _ = Describe("Multicaster", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
-				message := protocol.NewMessage(protocol.V1, protocol.Multicast, RandomPeerGroupID(), protocol.MessageBody{})
+				message := protocol.NewMessage(protocol.V1, protocol.Multicast, RandomGroupID(), protocol.MessageBody{})
 				message.Variant = InvalidMessageVariant(protocol.Multicast)
 				Expect(multicaster.AcceptMulticast(ctx, RandomPeerID(), message)).To(HaveOccurred())
 			})

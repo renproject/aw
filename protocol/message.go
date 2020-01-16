@@ -96,7 +96,7 @@ func (variant MessageVariant) String() string {
 }
 
 // Returns the message length (ex-messageBody) which equals to
-// len(MessageLength) + len(MessageVersion) + len(MessageVariant) + len(PeerGroupID)
+// len(MessageLength) + len(MessageVersion) + len(MessageVariant) + len(GroupID)
 func (variant MessageVariant) NonBodyLength() int {
 	switch variant {
 	case Ping, Pong, Cast:
@@ -131,19 +131,19 @@ type Message struct {
 	Length  MessageLength
 	Version MessageVersion
 	Variant MessageVariant
-	GroupID PeerGroupID
+	GroupID GroupID
 	Body    MessageBody
 }
 
 // NewMessage returns a new message with given version, variant and body.
-func NewMessage(version MessageVersion, variant MessageVariant, groupID PeerGroupID, body MessageBody) Message {
+func NewMessage(version MessageVersion, variant MessageVariant, groupID GroupID, body MessageBody) Message {
 	if err := ValidateMessageVersion(version); err != nil {
 		panic(err)
 	}
 	if err := ValidateMessageVariant(variant); err != nil {
 		panic(err)
 	}
-	if err := ValidatePeerGroupID(groupID, variant); err != nil {
+	if err := ValidateGroupID(groupID, variant); err != nil {
 		panic(err)
 	}
 	length := MessageLength(variant.NonBodyLength() + len(body))

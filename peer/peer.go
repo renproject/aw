@@ -24,9 +24,9 @@ type Peer interface {
 
 	Cast(context.Context, protocol.PeerID, protocol.MessageBody) error
 
-	Multicast(context.Context, protocol.PeerGroupID, protocol.MessageBody) error
+	Multicast(context.Context, protocol.GroupID, protocol.MessageBody) error
 
-	Broadcast(context.Context, protocol.PeerGroupID, protocol.MessageBody) error
+	Broadcast(context.Context, protocol.GroupID, protocol.MessageBody) error
 }
 
 type peer struct {
@@ -139,7 +139,7 @@ func (peer *peer) PeerAddresses() (protocol.PeerAddresses, error) {
 	return peer.dht.PeerAddresses()
 }
 
-func (peer *peer) RandomPeerAddresses(id protocol.PeerGroupID, n int) (protocol.PeerAddresses, error) {
+func (peer *peer) RandomPeerAddresses(id protocol.GroupID, n int) (protocol.PeerAddresses, error) {
 	return peer.dht.RandomPeerAddresses(id, n)
 }
 
@@ -155,31 +155,31 @@ func (peer *peer) RemovePeerAddress(id protocol.PeerID) error {
 	return peer.dht.RemovePeerAddress(id)
 }
 
-func (peer *peer) AddPeerGroup(groupID protocol.PeerGroupID, ids protocol.PeerIDs) error {
-	return peer.dht.AddPeerGroup(groupID, ids)
+func (peer *peer) AddGroup(groupID protocol.GroupID, ids protocol.PeerIDs) error {
+	return peer.dht.AddGroup(groupID, ids)
 }
 
-func (peer *peer) PeerGroupIDs(groupID protocol.PeerGroupID) (protocol.PeerIDs, error) {
-	return peer.PeerGroupIDs(groupID)
+func (peer *peer) GroupIDs(groupID protocol.GroupID) (protocol.PeerIDs, error) {
+	return peer.GroupIDs(groupID)
 }
 
-func (peer *peer) PeerGroupAddresses(groupID protocol.PeerGroupID) (protocol.PeerAddresses, error) {
-	return peer.PeerGroupAddresses(groupID)
+func (peer *peer) GroupAddresses(groupID protocol.GroupID) (protocol.PeerAddresses, error) {
+	return peer.GroupAddresses(groupID)
 }
 
-func (peer *peer) RemovePeerGroup(groupID protocol.PeerGroupID) {
-	peer.dht.RemovePeerGroup(groupID)
+func (peer *peer) RemoveGroup(groupID protocol.GroupID) {
+	peer.dht.RemoveGroup(groupID)
 }
 
 func (peer *peer) Cast(ctx context.Context, to protocol.PeerID, data protocol.MessageBody) error {
 	return peer.caster.Cast(ctx, to, data)
 }
 
-func (peer *peer) Multicast(ctx context.Context, groupID protocol.PeerGroupID, data protocol.MessageBody) error {
+func (peer *peer) Multicast(ctx context.Context, groupID protocol.GroupID, data protocol.MessageBody) error {
 	return peer.multicaster.Multicast(ctx, groupID, data)
 }
 
-func (peer *peer) Broadcast(ctx context.Context, groupID protocol.PeerGroupID, data protocol.MessageBody) error {
+func (peer *peer) Broadcast(ctx context.Context, groupID protocol.GroupID, data protocol.MessageBody) error {
 	return peer.broadcaster.Broadcast(ctx, groupID, data)
 }
 

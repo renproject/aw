@@ -44,7 +44,7 @@ func (client *Client) handleMessageOnTheWire(message protocol.MessageOnTheWire) 
 			return
 		}
 		client.logger.Debugf("error send %v message to %v: %v", message.Message.Variant, message.To.NetworkAddress(), err)
-		time.Sleep(5 * time.Second)
+		time.Sleep(time.Second)
 	}
 }
 

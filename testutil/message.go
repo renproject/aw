@@ -62,10 +62,10 @@ func RandomMessageVariant() protocol.MessageVariant {
 
 func RandomMessage(version protocol.MessageVersion, variant protocol.MessageVariant) protocol.Message {
 	body := RandomMessageBody()
-	groupID := protocol.NilPeerGroupID
+	groupID := protocol.NilGroupID
 	length := 8
 	if variant == protocol.Multicast || variant == protocol.Broadcast {
-		groupID = RandomPeerGroupID()
+		groupID = RandomGroupID()
 		length = 40
 	}
 	return protocol.Message{
