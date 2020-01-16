@@ -55,8 +55,8 @@ type (
 	Handshaker     = handshake.Handshaker
 
 	// Options
-	TcpConnPoolOptions = tcp.ConnPoolOptions
-	TcpServerOptions   = tcp.ServerOptions
+	TCPConnPoolOptions = tcp.ConnPoolOptions
+	TCPServerOptions   = tcp.ServerOptions
 )
 
 // Default values
@@ -67,8 +67,8 @@ var (
 	NewMessage   = protocol.NewMessage
 	NewPeer      = peer.New
 	NewDHT       = dht.New
-	NewTcpPeer   = peer.NewTCP
+	NewTCPPeer   = peer.NewTCP
 	NewConnPool  = tcp.NewConnPool
-	NewTcpClient = tcp.NewClient
-	NewTcpServer = tcp.NewServer
+	NewTCPClient = tcp.NewClient
+	NewTCPServer = tcp.NewServer
 )
