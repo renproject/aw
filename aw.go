@@ -37,7 +37,7 @@ type (
 
 	// Peers
 	Peer             = peer.Peer
-	PeerOption       = peer.Options
+	PeerOptions      = peer.Options
 	PeerID           = protocol.PeerID
 	PeerIDs          = protocol.PeerIDs
 	GroupID          = protocol.GroupID
@@ -55,8 +55,8 @@ type (
 	Handshaker     = handshake.Handshaker
 
 	// Options
-	TcpConnPoolOption = tcp.ConnPoolOptions
-	TcpServerOption   = tcp.ServerOptions
+	TcpConnPoolOptions = tcp.ConnPoolOptions
+	TcpServerOptions   = tcp.ServerOptions
 )
 
 // Default values
