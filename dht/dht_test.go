@@ -229,20 +229,24 @@ var _ = Describe("DHT", func() {
 	Context("when creating, querying and deleting Groups", func() {
 		It("should be able to adding new group and delete a existing group", func() {
 			test := func() bool {
-				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+				self := RandomAddress()
+				dht := NewDHT(self, NewTable("dht"), nil)
 				groupID, peerAddrs := RandomGroupID(), RandomAddresses(rand.Intn(32))
 				for _, peerAddr := range peerAddrs {
 					Expect(dht.AddPeerAddress(peerAddr)).NotTo(HaveOccurred())
 				}
+				// Append ourself to the group afterwards as we may not be in
+				// the list of peer addresses.
+				peerAddrs = append(peerAddrs, self)
 				peerIDs := FromAddressesToIDs(peerAddrs)
 
-				// Before adding the peer group
+				// Ensure no error occurs prior to adding the group.
 				ids, err := dht.GroupIDs(groupID)
 				Expect(err).To(HaveOccurred())
 				_, err = dht.GroupAddresses(groupID)
 				Expect(err).To(HaveOccurred())
 
-				// Adding the peer group
+				// Add the group and verify lengths.
 				Expect(dht.AddGroup(groupID, peerIDs)).NotTo(HaveOccurred())
 				ids, err = dht.GroupIDs(groupID)
 				Expect(err).NotTo(HaveOccurred())
@@ -251,7 +255,7 @@ var _ = Describe("DHT", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(len(addrs)).Should(Equal(len(peerIDs)))
 
-				// After removing the peer group
+				// Remove the group and ensure no error occurs.
 				dht.RemoveGroup(groupID)
 				ids, err = dht.GroupIDs(groupID)
 				Expect(err).To(HaveOccurred())
