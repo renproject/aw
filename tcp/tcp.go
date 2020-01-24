@@ -14,40 +14,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type Client struct {
-	logger logrus.FieldLogger
-	pool   ConnPool
-}
-
-func NewClient(logger logrus.FieldLogger, pool ConnPool) *Client {
-	return &Client{
-		logger: logger,
-		pool:   pool,
-	}
-}
-
-func (client *Client) Run(ctx context.Context, messages protocol.MessageReceiver) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case messageOtw := <-messages:
-			go client.handleMessageOnTheWire(messageOtw)
-		}
-	}
-}
-
-func (client *Client) handleMessageOnTheWire(message protocol.MessageOnTheWire) {
-	for i := 0; i < 5; i++ {
-		err := client.pool.Send(message.To.NetworkAddress(), message.Message)
-		if err == nil {
-			return
-		}
-		client.logger.Debugf("error send %v message to %v: %v", message.Message.Variant, message.To.NetworkAddress(), err)
-		time.Sleep(time.Second)
-	}
-}
-
 type ServerOptions struct {
 	Host           string        // Host address
 	Timeout        time.Duration // Timeout when establish a connection
