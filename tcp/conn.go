@@ -98,7 +98,11 @@ func (pool *connPool) Send(to net.Addr, m protocol.Message) error {
 		go pool.closeConn(toStr)
 	}
 
-	return c.session.WriteMessage(c.conn, m)
+	if err := c.session.WriteMessage(c.conn, m); err != nil {
+		pool.logger.Errorf("error in session: %v, closing connection...", err)
+		pool.closeConnImmediately(toStr)
+	}
+	return nil
 }
 
 func (pool *connPool) connect(to net.Addr) (conn, error) {
@@ -137,6 +141,16 @@ func (pool *connPool) connect(to net.Addr) (conn, error) {
 
 func (pool *connPool) closeConn(to string) {
 	<-time.After(pool.options.TimeToLive)
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	if err := pool.conns[to].conn.Close(); err != nil {
+		pool.logger.Errorf("error closing connection to %v: %v", to, err)
+	}
+	delete(pool.conns, to)
+}
+
+func (pool *connPool) closeConnImmediately(to string) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
