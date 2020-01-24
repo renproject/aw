@@ -65,7 +65,7 @@ type Client interface {
 	Send(context.Context, net.Addr, message.Message) error
 }
 
-type clientConn struct {
+type killableConn struct {
 	kill     chan<- struct{}
 	messages chan<- message.Message
 }
@@ -83,7 +83,7 @@ func NewClient(opts ClientOptions) Client {
 
 		mu: new(sync.Mutex),
 		conns: bound.NewMapWithRecover(opts.MaxConns, bound.DropLRU(func(k, v interface{}) {
-			close(v.(clientConn).kill)
+			close(v.(killableConn).kill)
 		})),
 	}
 	return client
@@ -101,7 +101,7 @@ func (client *client) Send(ctx context.Context, to net.Addr, m message.Message) 
 	conn, ok := client.conns.Get(address)
 	if !ok {
 		kill := make(chan struct{})
-		conn = clientConn{
+		conn = killableConn{
 			kill:     kill,
 			messages: dial(client.opts, address, client.shutdown, client.errorf, kill),
 		}
@@ -112,7 +112,7 @@ func (client *client) Send(ctx context.Context, to net.Addr, m message.Message) 
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case conn.(clientConn).messages <- m:
+	case conn.(killableConn).messages <- m:
 		return nil
 	}
 }
