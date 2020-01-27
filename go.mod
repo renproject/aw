@@ -7,7 +7,7 @@ require (
 	github.com/google/go-cmp v0.3.1
 	github.com/onsi/ginkgo v1.11.0
 	github.com/onsi/gomega v1.8.1
-	github.com/renproject/bound v0.1.0
+	github.com/renproject/bound v0.2.0
 	github.com/renproject/id v0.1.1
 	github.com/renproject/kv v1.1.2
 	github.com/renproject/phi v0.1.0

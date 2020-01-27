@@ -133,6 +133,8 @@ github.com/prometheus/procfs v0.0.0-20181005140218-185b4288413d/go.mod h1:c3At6R
 github.com/prometheus/tsdb v0.6.2-0.20190402121629-4f204dcbc150/go.mod h1:qhTCs0VvXwvX/y3TZrWD7rabWM+ijKTux40TwIPHuXU=
 github.com/renproject/bound v0.1.0 h1:NtdKbuRS2Cv5X4XSY11WS4+Heuyc9RMlwOY5kqmNKvI=
 github.com/renproject/bound v0.1.0/go.mod h1:e74I55/lPysHDLkzMs1uSMAiYIARDtMtojihUb4uW4Y=
+github.com/renproject/bound v0.2.0 h1:CzSzl7g330UXd+xw7+DwMzplplGZT+axEXuPcz1dLj0=
+github.com/renproject/bound v0.2.0/go.mod h1:e74I55/lPysHDLkzMs1uSMAiYIARDtMtojihUb4uW4Y=
 github.com/renproject/id v0.1.1 h1:KaV31Xp7SSlyUs5O0vHIw9rhhzrJ0lTOkQXVgbgyPEU=
 github.com/renproject/id v0.1.1/go.mod h1:i4OJzgjl4XLcU7nfU9UshX7PaBVpnTk3gEVj8dKa6f8=
 github.com/renproject/kv v1.1.2 h1:P18yHdDVJTEZ9yeyx6o82ICY1m6f+VdtAt/ouZez+AU=
