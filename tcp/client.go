@@ -18,12 +18,20 @@ var (
 	DefaultClientMaxConns    = 256
 )
 
+// ClientOptions are used to parameterize the behaviour of the Client.
 type ClientOptions struct {
-	Logger      logrus.FieldLogger
-	Timeout     time.Duration
-	TimeToLive  time.Duration
+	// Logger for all information/debugging/error output.
+	Logger logrus.FieldLogger
+	// Timeout used when dialing new connections.
+	Timeout time.Duration
+	// TimeToLive for maintaining connections for re-use.
+	TimeToLive time.Duration
+	// MaxCapacity of messages that can be bufferred while waiting for a
+	// connection to dial successfully.
 	MaxCapacity int
-	MaxConns    int
+	// MaxConns that can be open at any time. When it is exceeded, the least
+	// recently used connections are closed.
+	MaxConns int
 }
 
 func DefaultClientOptions() ClientOptions {
