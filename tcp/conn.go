@@ -151,9 +151,6 @@ func (pool *connPool) closeConn(to string) {
 }
 
 func (pool *connPool) closeConnImmediately(to string) {
-	pool.mu.Lock()
-	defer pool.mu.Unlock()
-
 	if err := pool.conns[to].conn.Close(); err != nil {
 		pool.logger.Errorf("error closing connection to %v: %v", to, err)
 	}
