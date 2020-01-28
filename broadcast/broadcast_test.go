@@ -241,12 +241,13 @@ var _ = Describe("Broadcaster", func() {
 				check := func(messageBody []byte) bool {
 					messages := make(chan protocol.MessageOnTheWire, 128)
 					events := make(chan protocol.Event, 16)
-					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
+					addrs := RandomAddresses(rand.Intn(32) + 1)
+					dht := NewDHT(addrs[0], NewTable("dht"), nil)
 					broadcaster := NewBroadcaster(logrus.New(), 8, messages, events, dht)
 
-					// Intentionally not inserting the last peer address to the dht.
-					groupID, addrs := RandomGroupID(), RandomAddresses(rand.Intn(32))
-					for _, addr := range addrs {
+					// Insert a new group of addresses into the dht
+					groupID := RandomGroupID()
+					for _, addr := range addrs[1:] {
 						Expect(dht.AddPeerAddress(addr)).NotTo(HaveOccurred())
 					}
 					Expect(dht.AddGroup(groupID, FromAddressesToIDs(addrs))).NotTo(HaveOccurred())
@@ -254,7 +255,7 @@ var _ = Describe("Broadcaster", func() {
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
 					message := protocol.NewMessage(protocol.V1, protocol.Broadcast, groupID, messageBody)
-					Expect(broadcaster.AcceptBroadcast(ctx, RandomPeerID(), message)).ToNot(HaveOccurred())
+					Expect(broadcaster.AcceptBroadcast(ctx, RandomPeerID(), message)).NotTo(HaveOccurred())
 
 					var event protocol.EventMessageReceived
 					Eventually(events).Should(Receive(&event))
@@ -274,7 +275,7 @@ var _ = Describe("Broadcaster", func() {
 					return true
 				}
 
-				Expect(quick.Check(check, nil)).Should(BeNil())
+				Expect(quick.Check(check, &quick.Config{MaxCount: 5000})).Should(BeNil())
 			})
 		})
 	})
