@@ -27,7 +27,7 @@ func NewGroup(dht dht.DHT) (protocol.GroupID, protocol.PeerAddresses, error) {
 	groupID := RandomGroupID()
 	addrs := RandomAddresses(rand.Intn(32))
 
-	// Replace the addr iff the random addresses array contains the dht address.
+	// Replace with dht address if the addresses array contains the dht address.
 	if ContainAddress(addrs, dht.Me()) {
 		for i := range addrs {
 			if addrs[i].PeerID().Equal(dht.Me().PeerID()) {
