@@ -6,12 +6,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/message"
 	"github.com/renproject/bound"
 	"github.com/sirupsen/logrus"
 )
 
 var (
+	DefaultHandshaker        = handshake.NewInsecure()
 	DefaultClientTimeout     = 10 * time.Second
 	DefaultClientTimeToLive  = 24 * time.Hour
 	DefaultClientMaxCapacity = 1024
@@ -22,6 +24,11 @@ var (
 type ClientOptions struct {
 	// Logger for all information/debugging/error output.
 	Logger logrus.FieldLogger
+	// Handshaker for establishing an authenticated and encrypted session with
+	// the server. Typically, assymetric authentication and encryption is used
+	// to establish ephemeral symmetric authenticatoin and encryption for the
+	// life of the connection.
+	Handshaker handshake.Handshaker
 	// Timeout used when dialing new connections.
 	Timeout time.Duration
 	// TimeToLive for maintaining connections for re-use.
@@ -37,6 +44,7 @@ type ClientOptions struct {
 func DefaultClientOptions() ClientOptions {
 	return ClientOptions{
 		Logger:      logrus.New(),
+		Handshaker:  DefaultHandshaker,
 		Timeout:     DefaultClientTimeout,
 		TimeToLive:  DefaultClientTimeToLive,
 		MaxCapacity: DefaultClientMaxCapacity,
@@ -46,6 +54,11 @@ func DefaultClientOptions() ClientOptions {
 
 func (opts ClientOptions) WithLogger(logger logrus.FieldLogger) ClientOptions {
 	opts.Logger = logger
+	return opts
+}
+
+func (opts ClientOptions) WithHandshaker(handshaker handshake.Handshaker) ClientOptions {
+	opts.Handshaker = handshaker
 	return opts
 }
 
@@ -123,6 +136,7 @@ func (client *client) Send(ctx context.Context, to net.Addr, m message.Message) 
 			cancel: cancel, // Store the cancel function. We must guarantee that it is always called.
 			messages: dial(
 				ctx,                     // Parent context that can cancel the connection.
+				client.opts.Handshaker,  // Handshaker for establishing authentication/encryption.
 				client.opts.Timeout,     // Maximum time that the connection will wait for an initial connection attempt to succeed.
 				client.opts.TimeToLive,  // Maximum time that the connection will stay alive.
 				client.opts.MaxCapacity, // Maximum number of messages that will be buffered on the connection before it starts to drop new incoming messages.
@@ -182,7 +196,7 @@ func (client *client) errorf(format string, args ...interface{}) {
 	client.opts.Logger.Errorf(format, args)
 }
 
-func dial(ctx context.Context, timeout, ttl time.Duration, maxCap int, address string, shutdown func(string), errorf func(string, ...interface{})) chan<- message.Message {
+func dial(ctx context.Context, handshaker handshake.Handshaker, timeout, ttl time.Duration, maxCap int, address string, shutdown func(string), errorf func(string, ...interface{})) chan<- message.Message {
 	messages := make(chan message.Message, maxCap)
 
 	go func() {
@@ -205,6 +219,22 @@ func dial(ctx context.Context, timeout, ttl time.Duration, maxCap int, address s
 			}
 		}()
 
+		// Handshake with the server to establish authentication and encryption
+		// on the connection. This will return a decorated network connection —
+		// e.g. a session — that will automatically authenticate/encrypt
+		// messages. The original network connection should not be directly used
+		// after the handshake. Notice that the initial dialing timeout includes
+		// the time taken to complete the handshake.
+		session, err := handshaker.Handshake(innerCtx, conn)
+		if err != nil {
+			errorf("bad handshake: %v", err)
+			return
+		}
+		if session == nil {
+			errorf("bad session: nil")
+			return
+		}
+
 		// Read messages and write them to the connection until the context is
 		// cancelled.
 		innerCtx, cancel = context.WithTimeout(ctx, ttl)
@@ -220,7 +250,7 @@ func dial(ctx context.Context, timeout, ttl time.Duration, maxCap int, address s
 				errorf("kill connection: %v", innerCtx.Err())
 				return
 			case m := <-messages:
-				if err := m.Marshal(conn); err != nil {
+				if err := m.Marshal(session); err != nil {
 					errorf("write to connection: %v", err)
 					return
 				}
