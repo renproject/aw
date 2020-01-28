@@ -107,13 +107,12 @@ var _ = Describe("Broadcaster", func() {
 					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
 					broadcaster := NewBroadcaster(logrus.New(), 8, messages, events, dht)
 
-					groupID, addrs := RandomGroupID(), RandomAddresses(rand.Intn(32))
-					last := RandomAddress()
-					addrs = append(addrs, last)
-					Expect(dht.AddGroup(groupID, FromAddressesToIDs(addrs))).NotTo(HaveOccurred())
-					for i := 0; i < len(addrs)-1; i++ {
-						Expect(dht.AddPeerAddress(addrs[i])).NotTo(HaveOccurred())
+					groupID, addrs, err := NewGroup(dht)
+					Expect(err).NotTo(HaveOccurred())
+					if addrs[0].PeerID().Equal(dht.Me().PeerID()) {
+						return true
 					}
+					Expect(dht.RemovePeerAddress(addrs[0].PeerID())).NotTo(HaveOccurred())
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()

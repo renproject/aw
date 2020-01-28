@@ -144,14 +144,22 @@ func (pool *connPool) closeConn(to string) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	if err := pool.conns[to].conn.Close(); err != nil {
+	c, ok := pool.conns[to]
+	if !ok {
+		return
+	}
+	if err := c.conn.Close(); err != nil {
 		pool.logger.Errorf("error closing connection to %v: %v", to, err)
 	}
 	delete(pool.conns, to)
 }
 
 func (pool *connPool) closeConnImmediately(to string) {
-	if err := pool.conns[to].conn.Close(); err != nil {
+	c, ok := pool.conns[to]
+	if !ok {
+		return
+	}
+	if err := c.conn.Close(); err != nil {
 		pool.logger.Errorf("error closing connection to %v: %v", to, err)
 	}
 	delete(pool.conns, to)
