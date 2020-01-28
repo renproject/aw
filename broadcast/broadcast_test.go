@@ -241,16 +241,11 @@ var _ = Describe("Broadcaster", func() {
 				check := func(messageBody []byte) bool {
 					messages := make(chan protocol.MessageOnTheWire, 128)
 					events := make(chan protocol.Event, 16)
-					addrs := RandomAddresses(rand.Intn(32) + 1)
-					dht := NewDHT(addrs[0], NewTable("dht"), nil)
+					dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
 					broadcaster := NewBroadcaster(logrus.New(), 8, messages, events, dht)
 
-					// Insert a new group of addresses into the dht
-					groupID := RandomGroupID()
-					for _, addr := range addrs[1:] {
-						Expect(dht.AddPeerAddress(addr)).NotTo(HaveOccurred())
-					}
-					Expect(dht.AddGroup(groupID, FromAddressesToIDs(addrs))).NotTo(HaveOccurred())
+					groupID, addrs, err := NewGroup(dht)
+					Expect(err).NotTo(HaveOccurred())
 
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
@@ -275,7 +270,7 @@ var _ = Describe("Broadcaster", func() {
 					return true
 				}
 
-				Expect(quick.Check(check, &quick.Config{MaxCount: 5000})).Should(BeNil())
+				Expect(quick.Check(check, nil)).Should(BeNil())
 			})
 		})
 	})

@@ -26,6 +26,16 @@ func NewTable(name string) kv.Table {
 func NewGroup(dht dht.DHT) (protocol.GroupID, protocol.PeerAddresses, error) {
 	groupID := RandomGroupID()
 	addrs := RandomAddresses(rand.Intn(32))
+
+	// Replace the addr iff the random addresses array contains the dht address.
+	if ContainAddress(addrs, dht.Me()) {
+		for i := range addrs {
+			if addrs[i].PeerID().Equal(dht.Me().PeerID()) {
+				addrs[i] = dht.Me()
+				break
+			}
+		}
+	}
 	ids := make([]protocol.PeerID, len(addrs))
 	for i := range addrs {
 		ids[i] = addrs[i].PeerID()
