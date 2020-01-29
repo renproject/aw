@@ -63,7 +63,7 @@ func (options *ServerOptions) setZerosToDefaults() {
 		options.Timeout = 20 * time.Second
 	}
 	if options.RateLimit == 0 {
-		options.RateLimit = time.Minute
+		options.RateLimit = time.Second
 	}
 	if options.MaxConnections == 0 {
 		options.MaxConnections = 256

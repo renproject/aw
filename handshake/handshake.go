@@ -126,7 +126,7 @@ func (hs *handshaker) writePublicKey(w io.Writer, key *ecdsa.PrivateKey) error {
 func (hs *handshaker) readPublicKey(r io.Reader) (*ecdsa.PublicKey, protocol.PeerID, error) {
 	remotePubKeyBytes, err := read(r)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error reading ecdsa.PublicKey from io.Reader: %v", err)
+		return nil, nil, fmt.Errorf("error reading ecdsa.PublicKey from io.Reader (potential rate limit): %v", err)
 	}
 	remotePublicKey, err := crypto.UnmarshalPubkey(remotePubKeyBytes)
 	if err != nil {
