@@ -3,7 +3,6 @@ package broadcast_test
 import (
 	"bytes"
 	"context"
-	"math/rand"
 	"testing/quick"
 
 	. "github.com/onsi/ginkgo"
@@ -144,11 +143,8 @@ var _ = Describe("Broadcaster", func() {
 				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
 				broadcaster := NewBroadcaster(logrus.New(), 8, messages, events, dht)
 
-				groupID, addrs := RandomGroupID(), RandomAddresses(rand.Intn(32))
-				for _, addr := range addrs {
-					Expect(dht.AddPeerAddress(addr)).NotTo(HaveOccurred())
-				}
-				Expect(dht.AddGroup(groupID, FromAddressesToIDs(addrs))).NotTo(HaveOccurred())
+				groupID, addrs, err := NewGroup(dht)
+				Expect(err).NotTo(HaveOccurred())
 
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
