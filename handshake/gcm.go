@@ -7,97 +7,51 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
-
-	"github.com/renproject/aw/protocol"
 )
 
-type gcmSessionManager struct{}
+type GCMSession struct {
+	inner io.ReadWriter
 
-func NewGCMSessionManager() protocol.SessionManager {
-	return gcmSessionManager{}
+	gcm         cipher.AEAD
+	nonceRand   *rand.Rand
+	nonceBuffer []byte
 }
 
-func (gcmSessionManager) NewSession(peerID protocol.PeerID, key []byte) protocol.Session {
-	key32 := [32]byte{}
-	copy(key32[:], key)
-	return NewGCMSession(peerID, key32)
-}
-
-func (gcmSessionManager) NewSessionKey() []byte {
-	key := [32]byte{}
-	n, err := rand.Read(key[:])
-	if n != 32 {
-		panic(fmt.Errorf("invariant violation: cannot generate session key: expected n=32, got n=%v", n))
+func NewGCMSession(inner io.ReadWriter, key []byte, maxSize int) (Session, error) {
+	if len(key) < 8 {
+		return GCMSession{}, fmt.Errorf("key is too small: expected>8, got=%v", len(key))
 	}
+	block, err := aes.NewCipher(key)
 	if err != nil {
-		panic(fmt.Errorf("invariant violation: cannot generate session key: %v", err))
-	}
-	return key[:]
-}
-
-type gcmSession struct {
-	peerID protocol.PeerID
-	key    [32]byte
-	gcm    cipher.AEAD
-	rand   *rand.Rand
-}
-
-func NewGCMSession(peerID protocol.PeerID, key [32]byte) protocol.Session {
-	block, err := aes.NewCipher(key[:])
-	if err != nil {
-		panic(fmt.Errorf("invariant violation: cannot create cipher: %v", err))
+		return GCMSession{}, fmt.Errorf("creating new key cipher: %v", err)
 	}
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		panic(fmt.Errorf("invariant violation: cannot create galios/counter mode: %v", err))
+		return GCMSession{}, fmt.Errorf("creating new gcm aead: %v", err)
 	}
-	seed := binary.BigEndian.Uint64(key[:8])
-	return &gcmSession{
-		peerID: peerID,
-		key:    key,
-		gcm:    gcm,
-		rand:   rand.New(rand.NewSource(int64(seed))),
-	}
+
+	return GCMSession{
+		inner: inner,
+
+		gcm:         gcm,
+		nonceRand:   rand.New(rand.NewSource(int64(binary.BigEndian.Uint64(key[:8])))),
+		nonceBuffer: make([]byte, gcm.NonceSize()),
+	}, nil
 }
 
-func (session *gcmSession) ReadMessageOnTheWire(r io.Reader) (protocol.MessageOnTheWire, error) {
-	otw := protocol.MessageOnTheWire{}
-	otw.From = session.peerID
-	if err := otw.Message.UnmarshalReader(r); err != nil {
-		return otw, err
+func (session GCMSession) Encrypt(p []byte) ([]byte, error) {
+	_, err := session.nonceRand.Read(session.nonceBuffer)
+	if err != nil {
+		return nil, err
 	}
 
-	nonce := make([]byte, session.gcm.NonceSize())
-	_, err := session.rand.Read(nonce)
-	if err != nil {
-		return otw, err
-	}
-	otw.Message.Body, err = session.gcm.Open(nil, nonce, otw.Message.Body, nil)
-	if err != nil {
-		return otw, err
-	}
-	length := otw.Message.Variant.NonBodyLength()
-	otw.Message.Length = protocol.MessageLength(len(otw.Message.Body) + length)
-	return otw, nil
+	return session.gcm.Seal(nil, session.nonceBuffer, p, nil), nil
 }
 
-func (session *gcmSession) WriteMessage(w io.Writer, message protocol.Message) error {
-	nonce := make([]byte, session.gcm.NonceSize())
-	_, err := session.rand.Read(nonce)
-	if err != nil {
-		return err
+func (session GCMSession) Decrypt(p []byte) ([]byte, error) {
+	if _, err := session.nonceRand.Read(session.nonceBuffer); err != nil {
+		return nil, err
 	}
-	message.Body = session.gcm.Seal(nil, nonce, message.Body, nil)
-	length := message.Variant.NonBodyLength()
-	message.Length = protocol.MessageLength(len(message.Body) + length)
 
-	data, err := message.MarshalBinary()
-	if err != nil {
-		return fmt.Errorf("error writing message: %v", err)
-	}
-	n, err := w.Write(data)
-	if n != len(data) {
-		return fmt.Errorf("error writing message: expected n=%v, got n=%v", len(data), n)
-	}
-	return err
+	return session.gcm.Open(nil, session.nonceBuffer, p, nil)
 }
