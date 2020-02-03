@@ -1,6 +1,7 @@
 package tcp
 
 import (
+	"bytes"
 	"context"
 	"net"
 	"sync"
@@ -8,12 +9,11 @@ import (
 
 	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/message"
-	"github.com/renproject/bound"
 	"github.com/sirupsen/logrus"
 )
 
 var (
-	DefaultHandshaker        = handshake.NewInsecure()
+	DefaultClientHandshaker  = handshake.NewInsecure()
 	DefaultClientTimeout     = 10 * time.Second
 	DefaultClientTimeToLive  = 24 * time.Hour
 	DefaultClientMaxCapacity = 1024
@@ -44,7 +44,7 @@ type ClientOptions struct {
 func DefaultClientOptions() ClientOptions {
 	return ClientOptions{
 		Logger:      logrus.New(),
-		Handshaker:  DefaultHandshaker,
+		Handshaker:  DefaultClientHandshaker,
 		Timeout:     DefaultClientTimeout,
 		TimeToLive:  DefaultClientTimeToLive,
 		MaxCapacity: DefaultClientMaxCapacity,
@@ -84,11 +84,11 @@ func (opts ClientOptions) WithMaxConns(maxConns int) ClientOptions {
 
 type Client interface {
 	// Send a message to the network address.
-	Send(context.Context, net.Addr, message.Message) error
+	Send(context.Context, string, message.Message) error
 	// Close all connections to the network address.
-	Close(net.Addr)
-	// Reset the client by closing all connections to all network addresses.
-	Reset()
+	Close(string)
+	// CloseAll all connections to all network addresses.
+	CloseAll()
 }
 
 type cancelConn struct {
@@ -100,7 +100,7 @@ type client struct {
 	opts ClientOptions
 
 	connMu *sync.Mutex
-	conns  *bound.Map
+	conns  map[string]cancelConn
 }
 
 func NewClient(opts ClientOptions) Client {
@@ -108,15 +108,12 @@ func NewClient(opts ClientOptions) Client {
 		opts: opts,
 
 		connMu: new(sync.Mutex),
-		conns: bound.NewMap(
-			opts.MaxConns, // Maximum key/value pairs that can be stored in the map.
-			func(_, conn interface{}) { conn.(cancelConn).cancel() }, // Callback for when LRU key/value pairs are automatically removed from the map.
-		),
+		conns:  make(map[string]cancelConn, opts.MaxConns),
 	}
 	return client
 }
 
-func (client *client) Send(ctx context.Context, to net.Addr, m message.Message) error {
+func (client *client) Send(ctx context.Context, address string, m message.Message) error {
 	client.connMu.Lock()
 	defer client.connMu.Unlock()
 
@@ -124,8 +121,7 @@ func (client *client) Send(ctx context.Context, to net.Addr, m message.Message) 
 	// connection is non-blocking, and will immediately return a messaging
 	// channel that can be used to buffer messages until the connection is
 	// successfully dialed.
-	address := to.String()
-	conn, ok := client.conns.Get(address)
+	conn, ok := client.conns[address]
 	if !ok {
 		// Notice that the context used for dialing the connection is disjoint
 		// from the context used for sending the message. This is intentional,
@@ -145,33 +141,32 @@ func (client *client) Send(ctx context.Context, to net.Addr, m message.Message) 
 				client.errorf,           // Callback for formatting and logging errors.
 			),
 		}
+		client.conns[address] = conn
 	}
-	// Always set the connection, so that it is updated in the LRU map. This
-	// prevents connections that are long-lived, but actively used, from being
-	// dropped.
-	client.conns.Set(address, conn)
 
 	// Send the message to the dialed connection.
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case conn.(cancelConn).messages <- m:
+	case conn.messages <- m:
 		return nil
 	}
 }
 
-func (client *client) Close(to net.Addr) {
-	client.shutdown(to.String())
+func (client *client) Close(address string) {
+	client.shutdown(address)
 }
 
-func (client *client) Reset() {
+func (client *client) CloseAll() {
 	client.connMu.Lock()
 	defer client.connMu.Unlock()
 
 	// Cancel all connections and then remove all of them from the map. This is
 	// more efficient than removing them one-by-one.
-	client.conns.ForEach(func(_, conn interface{}) { conn.(cancelConn).cancel() })
-	client.conns.RemoveAll()
+	for address, conn := range client.conns {
+		conn.cancel()
+		delete(client.conns, address)
+	}
 }
 
 func (client *client) shutdown(address string) {
@@ -180,15 +175,9 @@ func (client *client) shutdown(address string) {
 
 	// Remove the connection from the connection pool and cancel its context, to
 	// make sure that it exits its loop.
-	conn := client.conns.Remove(address)
-
-	// Calling cancel here and in the drop callback (see initialisation of the
-	// connections map) gaurantee that cancel is always called. This prevents
-	// memory leaks from the associated context.
-	if conn != nil {
-		// We check for nil first, because we do not want to assume that the
-		// address passed is always an address with an associated connection.
-		conn.(cancelConn).cancel()
+	if conn, ok := client.conns[address]; ok {
+		conn.cancel()
+		delete(client.conns, address)
 	}
 }
 
@@ -244,15 +233,30 @@ func dial(ctx context.Context, handshaker handshake.Handshaker, timeout, ttl tim
 		// network connection. Any errors that are encountered will result in
 		// the shutdown of the connection, and the loss of all bufferred
 		// messages.
+		buf := new(bytes.Buffer)
+		buf.Grow(1024 * 1024) // Pre-allocate 1MB of space for message writing.
 		for {
 			select {
 			case <-innerCtx.Done():
 				errorf("kill connection: %v", innerCtx.Err())
 				return
 			case m := <-messages:
-				if err := m.Marshal(session); err != nil {
+				// Encrypt message body.
+				m.Data, err = session.Encrypt(m.Data)
+				if err != nil {
+					errorf("encrypt: %v", err)
+					continue
+				}
+
+				// Write encrypted message to connection.
+				buf.Reset()
+				if err := m.Marshal(buf); err != nil {
+					errorf("write to buffer: %v", err)
+					continue
+				}
+				if _, err := conn.Write(buf.Bytes()); err != nil {
 					errorf("write to connection: %v", err)
-					return
+					continue
 				}
 			}
 		}
