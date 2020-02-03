@@ -9,7 +9,7 @@ import (
 type Message struct {
 	Version uint16
 	Variant uint16
-	To      string
+	To      []byte
 	Data    []byte
 }
 
@@ -48,6 +48,6 @@ func (m *Message) Unmarshal(r io.Reader) error {
 }
 
 // SizeHint implements the surge.SizeHinter interface.
-func (m *Message) SizeHint(r io.Reader) int {
+func (m Message) SizeHint() int {
 	return surge.SizeHint(m.Version) + surge.SizeHint(m.Variant) + surge.SizeHint(m.To) + surge.SizeHint(m.Data)
 }
