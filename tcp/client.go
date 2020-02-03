@@ -82,29 +82,20 @@ func (opts ClientOptions) WithMaxConns(maxConns int) ClientOptions {
 	return opts
 }
 
-type Client interface {
-	// Send a message to the network address.
-	Send(context.Context, string, message.Message) error
-	// Close all connections to the network address.
-	Close(string)
-	// CloseAll all connections to all network addresses.
-	CloseAll()
-}
-
 type cancelConn struct {
 	cancel   context.CancelFunc
 	messages chan<- message.Message
 }
 
-type client struct {
+type Client struct {
 	opts ClientOptions
 
 	connMu *sync.Mutex
 	conns  map[string]cancelConn
 }
 
-func NewClient(opts ClientOptions) Client {
-	client := &client{
+func NewClient(opts ClientOptions) *Client {
+	client := &Client{
 		opts: opts,
 
 		connMu: new(sync.Mutex),
@@ -113,7 +104,11 @@ func NewClient(opts ClientOptions) Client {
 	return client
 }
 
-func (client *client) Send(ctx context.Context, address string, m message.Message) error {
+func (client *Client) Options() ClientOptions {
+	return client.opts
+}
+
+func (client *Client) Send(ctx context.Context, address string, m message.Message) error {
 	client.connMu.Lock()
 	defer client.connMu.Unlock()
 
@@ -153,11 +148,11 @@ func (client *client) Send(ctx context.Context, address string, m message.Messag
 	}
 }
 
-func (client *client) Close(address string) {
+func (client *Client) Close(address string) {
 	client.shutdown(address)
 }
 
-func (client *client) CloseAll() {
+func (client *Client) CloseAll() {
 	client.connMu.Lock()
 	defer client.connMu.Unlock()
 
@@ -169,7 +164,7 @@ func (client *client) CloseAll() {
 	}
 }
 
-func (client *client) shutdown(address string) {
+func (client *Client) shutdown(address string) {
 	client.connMu.Lock()
 	defer client.connMu.Unlock()
 
@@ -181,7 +176,7 @@ func (client *client) shutdown(address string) {
 	}
 }
 
-func (client *client) errorf(format string, args ...interface{}) {
+func (client *Client) errorf(format string, args ...interface{}) {
 	client.opts.Logger.Errorf(format, args)
 }
 

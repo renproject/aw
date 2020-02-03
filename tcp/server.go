@@ -100,6 +100,10 @@ func NewServer(opts ServerOptions, output chan<- message.Message) *Server {
 	}
 }
 
+func (server *Server) Options() ServerOptions {
+	return server.opts
+}
+
 // Listen for client connection until the context is done. The server will
 // accept new connections and spawning each one into a background goroutine.
 func (server *Server) Listen(ctx context.Context) {
