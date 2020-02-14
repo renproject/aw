@@ -154,6 +154,9 @@ func (dht *dht) PeerAddress(id protocol.PeerID) (protocol.PeerAddress, error) {
 	dht.inMemCacheMu.RLock()
 	defer dht.inMemCacheMu.RUnlock()
 
+	if id.Equal(dht.me.PeerID()){
+		return dht.me, nil
+	}
 	peerAddr, ok := dht.inMemCache[id.String()]
 	if !ok {
 		return nil, NewErrPeerNotFound(id)
