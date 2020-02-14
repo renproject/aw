@@ -307,8 +307,8 @@ var _ = Describe("DHT", func() {
 
 		It("should only return the PeerAddresses we have when querying with a groupID", func() {
 			test := func() bool {
-				dht := NewDHT(RandomAddress(), NewTable("dht"), nil)
-				peerAddrs := RandomAddresses(rand.Intn(32) + 1)
+				peerAddrs := RandomAddresses(rand.Intn(32) + 2)
+				dht := NewDHT(peerAddrs[0], NewTable("dht"), nil)
 				ids := FromAddressesToIDs(peerAddrs)
 
 				// Purposely not adding the last PeerAddress
