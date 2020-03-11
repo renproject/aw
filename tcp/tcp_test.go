@@ -2,6 +2,8 @@ package tcp_test
 
 import (
 	"context"
+	"fmt"
+	"runtime"
 	"testing"
 	"time"
 
@@ -38,6 +40,32 @@ var _ = Describe("TCP", func() {
 })
 
 func BenchmarkSend(b *testing.B) {
+	benchSend(b, func(ctx context.Context, client *Client, server *Server) {
+		address := fmt.Sprintf("%v:%v", server.Options().Host, server.Options().Port)
+		for i := 0; i < b.N; i++ {
+			if err := client.Send(ctx, address, message.Message{Data: []byte("hello, Ryan!")}); err != nil {
+				b.Fatalf("send: err=%v", err)
+			}
+			runtime.Gosched()
+		}
+	})
+}
+
+func BenchmarkSendParallel(b *testing.B) {
+	benchSend(b, func(ctx context.Context, client *Client, server *Server) {
+		address := fmt.Sprintf("%v:%v", server.Options().Host, server.Options().Port)
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				if err := client.Send(ctx, address, message.Message{}); err != nil {
+					b.Fatalf("send: err=%v", err)
+				}
+				runtime.Gosched()
+			}
+		})
+	})
+}
+
+func benchSend(b *testing.B, run func(ctx context.Context, client *Client, server *Server)) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -76,12 +104,7 @@ func BenchmarkSend(b *testing.B) {
 	client.Send(ctx, address, message.Message{})
 
 	// Reset benchmark to isolate performance of sending messages.
+	b.ReportAllocs()
 	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			if err := client.Send(ctx, address, message.Message{}); err != nil {
-				b.Fatalf("send: err=%v", err)
-			}
-		}
-	})
+	run(ctx, client, server)
 }
