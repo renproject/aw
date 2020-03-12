@@ -170,7 +170,8 @@ func (server *Server) handle(ctx context.Context, conn net.Conn, messages protoc
 	server.logger.Debugf("new connection with %v takes %v", conn.RemoteAddr().String(), time.Now().Sub(now))
 
 	for {
-		messageOtw, err := session.ReadMessageOnTheWire(conn)
+		sizeLimitedReader := io.LimitReader(conn, 10*1024*1024) // Limit incoming connection reads to 10 MB.
+		messageOtw, err := session.ReadMessageOnTheWire(sizeLimitedReader)
 
 		if err != nil {
 			if err != io.EOF {
