@@ -24,8 +24,12 @@ type MessageReceiver <-chan MessageOnTheWire
 // MessageLength indicates the length of the entire message.
 type MessageLength uint32
 
-// ValidateMessageVersion checks if the length is valid.
+// ValidateMessageLength checks if the length is valid.
 func ValidateMessageLength(length MessageLength, variant MessageVariant) error {
+	if length > 10*1024*1024 {
+		// TODO: Allow length restriction to be specified as an option.
+		return fmt.Errorf("message length=%v is too big", length)
+	}
 	switch variant {
 	case Cast, Ping, Pong:
 		if int(length) < variant.NonBodyLength() {
