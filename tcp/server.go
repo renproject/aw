@@ -6,19 +6,19 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/renproject/aw/handshake"
-	"github.com/renproject/aw/message"
-	"github.com/renproject/bound"
+	"github.com/renproject/aw/listen"
+	"github.com/renproject/aw/wire"
 	"github.com/renproject/surge"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
 )
 
 var (
-	DefaultServerHandshaker = handshake.NewInsecure()
 	DefaultServerTimeout    = 10 * time.Second
 	DefaultServerTimeToLive = 24 * time.Hour
 	DefaultServerMaxConns   = 256
@@ -30,7 +30,6 @@ var (
 
 type ServerOptions struct {
 	Logger         logrus.FieldLogger
-	Handshaker     handshake.Handshaker
 	Timeout        time.Duration
 	TimeToLive     time.Duration
 	MaxConns       int
@@ -42,8 +41,10 @@ type ServerOptions struct {
 
 func DefaultServerOptions() ServerOptions {
 	return ServerOptions{
-		Logger:         logrus.New(),
-		Handshaker:     DefaultServerHandshaker,
+		Logger: logrus.New().
+			WithField("lib", "airwave").
+			WithField("pkg", "tcp").
+			WithField("com", "server"),
 		Timeout:        DefaultServerTimeout,
 		TimeToLive:     DefaultServerTimeToLive,
 		MaxConns:       DefaultServerMaxConns,
@@ -54,21 +55,19 @@ func DefaultServerOptions() ServerOptions {
 	}
 }
 
+// WithLogger sets the logger.
 func (opts ServerOptions) WithLogger(logger logrus.FieldLogger) ServerOptions {
 	opts.Logger = logger
 	return opts
 }
 
-func (opts ServerOptions) WithHandshaker(hs handshake.Handshaker) ServerOptions {
-	opts.Handshaker = hs
-	return opts
-}
-
+// WithHost sets the host address that will be used for listening.
 func (opts ServerOptions) WithHost(host string) ServerOptions {
 	opts.Host = host
 	return opts
 }
 
+// WithPort sets the port that will be used for listening.
 func (opts ServerOptions) WithPort(port uint16) ServerOptions {
 	opts.Port = port
 	return opts
@@ -77,41 +76,52 @@ func (opts ServerOptions) WithPort(port uint16) ServerOptions {
 type Server struct {
 	opts ServerOptions
 
-	// Rate limiters for all IP address globally, and each IP address
-	// individually.
-	limitGlobal *rate.Limiter
-	limits      *bound.Map
+	handshaker handshake.Handshaker
+	listener   listen.Listener
 
-	// Number of connections must only be modified using atomic reads/writes.
+	// numConns must only be accessed atomically.
 	numConns int64
-	// Output for all messages received from all clients.
-	output chan<- message.Message
+
+	// rateLimits must only be accessed while the mutex is locked.
+	rateLimitsMu       *sync.Mutex
+	rateLimitsFront    map[string]*rate.Limiter // Front is used to add new limiters until the max capacity is reached.
+	rateLimitsBack     map[string]*rate.Limiter // Back is used to read old limiters that have been rotated from the front.
+	rateLimitsCapacity int
 }
 
-func NewServer(opts ServerOptions, output chan<- message.Message) *Server {
+func NewServer(opts ServerOptions, handshaker handshake.Handshaker, listener listen.Listener) *Server {
 	return &Server{
 		opts: opts,
 
-		limitGlobal: rate.NewLimiter(rate.Limit(opts.MaxConns)*opts.RateLimit, opts.RateLimitBurst),
-		limits:      bound.NewMap(opts.MaxConns),
+		handshaker: handshaker,
+		listener:   listener,
 
 		numConns: 0,
-		output:   output,
+
+		rateLimitsMu:       new(sync.Mutex),
+		rateLimitsFront:    make(map[string]*rate.Limiter, 65535),
+		rateLimitsBack:     make(map[string]*rate.Limiter, 0),
+		rateLimitsCapacity: 65535,
 	}
 }
 
+// Options returns the Options used to configure the Server. Changing the
+// Options returned by the method will have no affect on the behaviour of the
+// Server.
 func (server *Server) Options() ServerOptions {
 	return server.opts
 }
 
-// Listen for client connection until the context is done. The server will
-// accept new connections and spawning each one into a background goroutine.
-func (server *Server) Listen(ctx context.Context) {
-	server.opts.Logger.Infof("listening on %v:%v...", server.opts.Host, server.opts.Port)
+// Listen for incoming connections until the context is done. The Server will
+// accept spawn a background goroutine for every accepted connection, but will
+// not accept more connections than its configured maximum.
+func (server *Server) Listen(ctx context.Context) error {
+	// Attempt to listen for incoming connections on the configured host and
+	// port. Return any errors that occur.
+	server.opts.Logger.Infof("listening on %v:%v", server.opts.Host, server.opts.Port)
 	listener, err := net.Listen("tcp", fmt.Sprintf("%v:%v", server.opts.Host, server.opts.Port))
 	if err != nil {
-		server.opts.Logger.Fatalf("listen on %v: %v", server.opts.Host, err)
-		return
+		return fmt.Errorf("error listening on %v:%v: %v", server.opts.Host, server.opts.Port, err)
 	}
 
 	go func() {
@@ -119,7 +129,7 @@ func (server *Server) Listen(ctx context.Context) {
 		// does not block on waiting to accept a new connection.
 		<-ctx.Done()
 		if err := listener.Close(); err != nil {
-			server.opts.Logger.Errorf("closing listener: %v", err)
+			server.opts.Logger.Errorf("error closing listener: %v", err)
 		}
 	}()
 
@@ -130,16 +140,18 @@ func (server *Server) Listen(ctx context.Context) {
 			case <-ctx.Done():
 				// Do not log errors because returning from this canceling a
 				// context is the expected way to terminate the run loop.
-				return
+				return nil
 			default:
 			}
 
-			server.opts.Logger.Errorf("error accepting connection: %v", err)
+			server.opts.Logger.Errorf("accepting connection: %v", err)
 			continue
 		}
 		if atomic.LoadInt64(&server.numConns) >= int64(server.opts.MaxConns) {
-			server.opts.Logger.Warn("max connections exceeded")
-			conn.Close()
+			server.opts.Logger.Infof("closing connection: max connections exceeded")
+			if err := conn.Close(); err != nil {
+				server.opts.Logger.Errorf("closing connection: %v", err)
+			}
 			continue
 		}
 		atomic.AddInt64(&server.numConns, 1)
@@ -151,10 +163,12 @@ func (server *Server) Listen(ctx context.Context) {
 }
 
 func (server *Server) handle(ctx context.Context, conn net.Conn) {
+	server.opts.Logger.Infof("handling connection: remote=%v", conn.RemoteAddr().String())
+
 	defer atomic.AddInt64(&server.numConns, -1)
 	defer conn.Close()
 
-	// Reject connections from IP addresses that have attempted to connect too
+	// Reject connections from IP-addresses that have attempted to connect too
 	// recently.
 	if !server.allowRateLimit(conn) {
 		return
@@ -165,13 +179,13 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 
 	// Handshake with the client to establish an authenticated and encrypted
 	// session.
-	session, err := server.opts.Handshaker.AcceptHandshake(innerCtx, conn)
+	session, err := server.handshaker.AcceptHandshake(innerCtx, conn)
 	if err != nil {
-		server.opts.Logger.Errorf("bad handshake: %v", err)
+		server.opts.Logger.Errorf("accepting handshake: %v", err)
 		return
 	}
 	if session == nil {
-		server.opts.Logger.Errorf("bad session: nil")
+		server.opts.Logger.Errorf("accepting handshake: nil")
 		return
 	}
 
@@ -180,57 +194,115 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 
 	// Read messages from the client until the time-to-live expires, or an error
 	// is encountered when trying to read.
-	buf := bufio.NewReaderSize(conn, 1024*1024) // Pre-allocate 1MB
+	bufReader := bufio.NewReaderSize(conn, surge.MaxBytes)
+	bufWriter := bufio.NewWriterSize(conn, surge.MaxBytes)
 	for {
 		// Read message from connection.
-		m := message.Message{}
-		if err := surge.Unmarshal(&m, buf); err != nil {
+		msg := wire.Message{}
+		if _, err := msg.Unmarshal(bufReader, surge.MaxBytes); err != nil {
 			if err != io.EOF {
-				server.opts.Logger.Infof("read message: %v", err)
+				server.opts.Logger.Errorf("unmarshaling message: %v", err)
 				return
 			}
-			server.opts.Logger.Errorf("read message: %v", err)
+			server.opts.Logger.Infof("closing connectin: %v", err)
 			return
 		}
 
-		// Decrypt message body.
-		m.Data, err = session.Decrypt(m.Data)
+		// FIXME: Check rate-limiting from this connection to protect against
+		// spam. If the rate-limit is hit too many times, then the connection
+		// must be dropped, and the IP-address should be black-listed for a
+		// period of time.
+
+		// Check that the message version is supported.
+		switch msg.Version {
+		case wire.V1:
+			// Ok; do nothing.
+		default:
+			server.opts.Logger.Errorf("checking message: unsupported version=%v", msg.Version)
+			return
+		}
+		// Check that the message type is supported.
+		switch msg.Type {
+		case wire.Ping, wire.Push, wire.Pull:
+			// Ok; do nothing.
+		case wire.PingAck, wire.PushAck, wire.PullAck:
+			// Not ok; only clients expect to receive acks.
+			server.opts.Logger.Errorf("checking message: server does not expect ack=%v", msg.Type)
+			return
+		default:
+			server.opts.Logger.Errorf("checking message: unsupported type=%v", msg.Type)
+			return
+		}
+
+		// Decrypt message body. We do this after checking the version and the
+		// type so that we do not waste precious CPU cycles on unsupported
+		// messages.
+		msg.Data, err = session.Decrypt(msg.Data)
 		if err != nil {
-			server.opts.Logger.Errorf("decrypt: %v", err)
-			continue
+			server.opts.Logger.Errorf("decrypting message: %v", err)
+			return
 		}
 
-		select {
-		case <-ctx.Done():
+		var response wire.Message
+		var err error
+		switch msg.Type {
+		case wire.Ping:
+			response, err = server.listener.DidReceivePing(msg.Version, msg.Data, session.Signatory())
+		case wire.Push:
+			response, err = server.listener.DidReceivePush(msg.Version, msg.Data, session.Signatory())
+		case wire.Pull:
+			response, err = server.listener.DidReceivePull(msg.Version, msg.Data, session.Signatory())
+		default:
+			panic("unreachable")
+		}
+
+		if err != nil {
+			// An error returned from the listeners indicates that the
+			// connection should be killed immediately.
+			server.opts.Logger.Errorf("handling message: %v", err)
 			return
-		case server.output <- m:
+		}
+		// Ok returned from the listeners indicates that we should send a
+		// response to the client. We must encrypt the response before
+		// sending it.
+		response.Data, err = session.Encrypt(response.Data)
+		if err != nil {
+			server.opts.Logger.Errorf("encrypting response: %v", err)
+			return
+		}
+		if _, err := response.Marshal(bufWriter, surge.MaxBytes); err != nil {
+			server.opts.Logger.Errorf("marshaling response: %v", err)
+			return
+		}
+		if err := bufWriter.Flush(); err != nil {
+			server.opts.Logger.Errorf("flushing response: %v", err)
+			return
 		}
 	}
 }
 
 func (server *Server) allowRateLimit(conn net.Conn) bool {
-	// Get the remote address.
-	var address string
-	if addr, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
-		address = addr.IP.String()
+	var addr string
+	if tcpAddr, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
+		addr = tcpAddr.IP.String()
 	} else {
-		address = conn.RemoteAddr().String()
+		addr = conn.RemoteAddr().String()
 	}
 
-	// Check the global rate limiter. This is important because we can only
-	// store a bounded number of per-IP rate limiters.
-	if !server.limitGlobal.Allow() {
-		return false
+	server.rateLimitsMu.Lock()
+	defer server.rateLimitsMu.Unlock()
+
+	if limiter, ok := server.rateLimitsFront[addr]; ok {
+		return limiter.Allow()
+	}
+	if limiter, ok := server.rateLimitsBack[addr]; ok {
+		return limiter.Allow()
 	}
 
-	// Get the rate limiter for this IP address and set it in the map so that
-	// the LRU timestamps are reset for this IP address.
-	limiter, ok := server.limits.Get(address)
-	if !ok {
-		limiter = rate.NewLimiter(server.opts.RateLimit, server.opts.RateLimitBurst)
+	if len(server.rateLimitsFront) >= server.rateLimitsCapacity {
+		server.rateLimitsBack = server.rateLimitsFront
+		server.rateLimitsFront = make(map[string]*rate.Limiter, server.rateLimitsCapacity)
 	}
-	server.limits.Set(address, limiter)
-
-	// Check the per-IP rate limiter.
-	return limiter.(*rate.Limiter).Allow()
+	server.rateLimitsFront[addr] = rate.NewLimiter(server.opts.RateLimit, server.opts.RateLimitBurst)
+	return server.rateLimitsFront[addr].Allow()
 }

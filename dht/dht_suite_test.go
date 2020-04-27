@@ -9,5 +9,5 @@ import (
 
 func TestDht(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Dht Suite")
+	RunSpecs(t, "DHT Suite")
 }

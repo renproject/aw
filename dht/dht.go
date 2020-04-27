@@ -2,324 +2,314 @@ package dht
 
 import (
 	"fmt"
-	"math/rand"
+	"io"
+	"sort"
 	"sync"
 
-	"github.com/renproject/aw/protocol"
-	"github.com/renproject/kv"
+	"github.com/renproject/aw/wire"
+	"github.com/renproject/id"
+	"github.com/renproject/surge"
 )
 
-// A DHT is a distributed hash table. It is used for storing peer addresses. A
-// DHT is not required to be persistent and will often purge stale peer
-// addresses.
+// An Identifiable type is any type that is able to return a hash that uniquely
+// identifies it.
+type Identifiable interface {
+	Hash() id.Hash
+}
+
+// DHT defines a distributed hash table, used for storing addresses/content that
+// have been discovered in the network. All DHT implementations must be safe for
+// concurrent use. All DHT implementations must be able to marshal/unmarshal
+// to/from binary.
 type DHT interface {
+	surge.Surger
 
-	// Me returns self PeerAddress
-	Me() protocol.PeerAddress
+	// InsertAddr into the DHT. Returns true if the address is new, otherwise
+	// returns false.
+	InsertAddr(id.Signatory, wire.Address) bool
+	// DeleteAddr from the DHT.
+	DeleteAddr(id.Signatory)
+	// Addr returns the address associated with a signatory. If there is no
+	// associated address, it returns false. Otherwise, it returns true.
+	Addr(id.Signatory) (wire.Address, bool)
+	// Addrs returns a random number of addresses.
+	Addrs(int) map[id.Signatory]wire.Address
 
-	// NumPeers returns total number of PeerAddresses stored in the DHT.
-	NumPeers() (int, error)
+	// InsertContent into the DHT. This will override existing content, so it is
+	// important to call the HasContent method to check whether or not you are
+	// able to override existing content.
+	InsertContent(id.Hash, []byte)
+	// DeleteContent from the DHT.
+	DeleteContent(id.Hash)
+	// Content returns the content associated with a hash. If there is no
+	// associated content, it returns false. Otherwise, it returns true.
+	Content(id.Hash) ([]byte, bool)
+	// HasContent returns true when there is content associated with the given
+	// hash. Otherwise, it returns false. This is more efficiently for checking
+	// existence than the Content method, because no bytes are copied.
+	HasContent(id.Hash) bool
+	// HasContent returns true when there empty/nil content associated with the
+	// given hash. Otherwise, it returns false. This is more efficiently for
+	// checking existence than the Content method, because no bytes are copied.
+	// Note: not having content is different from having empty/nil content.
+	HasEmptyContent(id.Hash) bool
 
-	// PeerAddress returns the resolved protocol.PeerAddress of the given
-	// PeerID. It returns an ErrPeerNotFound if the PeerID cannot be found.
-	PeerAddress(protocol.PeerID) (protocol.PeerAddress, error)
-
-	// PeerAddresses returns all the PeerAddresses stored in the DHT.
-	PeerAddresses() (protocol.PeerAddresses, error)
-
-	// RandomPeerAddresses returns (at max) n random PeerAddresses in the given
-	// peer group.
-	RandomPeerAddresses(id protocol.GroupID, n int) (protocol.PeerAddresses, error)
-
-	// AddPeerAddress adds a PeerAddress into the DHT.
-	AddPeerAddress(protocol.PeerAddress) error
-
-	// UpdatePeerAddress tries to update the PeerAddress in the DHT. It returns
-	// true if the given peerAddr is newer than the one we stored.
-	UpdatePeerAddress(protocol.PeerAddress) (bool, error)
-
-	// RemovePeerAddress removes the PeerAddress of given PeerID from the DHT.
-	// It wouldn't return any error if the PeerAddress doesn't exist.
-	RemovePeerAddress(protocol.PeerID) error
-
-	// AddGroup creates a new group in the DHT with given ID and PeerIDs.
-	AddGroup(protocol.GroupID, protocol.PeerIDs) error
-
-	// GroupIDs returns the PeerIDs in the group with the given ID.
-	GroupIDs(protocol.GroupID) (protocol.PeerIDs, error)
-
-	// GroupAddresses returns the PeerAddresses in the group with the given ID.
-	// It will not return peers for which we do not have the PeerAddresses.
-	GroupAddresses(protocol.GroupID) (protocol.PeerAddresses, error)
-
-	// Remove a group from the DHT with the given ID.
-	RemoveGroup(protocol.GroupID)
+	AddSubnet([]id.Signatory) id.Hash
+	DeleteSubnet(id.Hash)
+	Subnet(id.Hash) []id.Signatory
 }
 
-type dht struct {
-	me    protocol.PeerAddress
-	codec protocol.PeerAddressCodec
-	store kv.Table
+type distributedHashTable struct {
+	self id.Signatory
 
-	groupsMu *sync.RWMutex
-	groups   map[protocol.GroupID]protocol.PeerIDs
+	addrsBySignatoryMu *sync.Mutex
+	addrsBySignatory   map[id.Signatory]wire.Address
 
-	inMemCacheMu *sync.RWMutex
-	inMemCache   map[string]protocol.PeerAddress
+	contentByHashMu *sync.Mutex
+	contentByHash   map[id.Hash][]byte
+
+	subnetsByHashMu *sync.Mutex
+	subnetsByHash   map[id.Hash][]id.Signatory
 }
 
-// New DHT that stores peer addresses in the given store. It will cache all
-// peer addresses in memory for fast access. It is safe for concurrent use,
-// regardless of the underlying store.
-func New(me protocol.PeerAddress, codec protocol.PeerAddressCodec, store kv.Table, bootstrapAddrs ...protocol.PeerAddress) (DHT, error) {
-	// Validate input parameters
-	if me == nil {
-		panic("pre-condition violation: self PeerAddress cannot be nil")
-	}
-	if codec == nil {
-		panic("pre-condition violation: PeerAddressCodec cannot be nil")
-	}
+// New returns an empty DHT.
+func New(self id.Signatory) DHT {
+	return &distributedHashTable{
+		self: self,
 
-	// Create a in-memory store if user doesn't provide one.
-	if store == nil {
-		store = kv.NewTable(kv.NewMemDB(kv.GobCodec), "dht")
+		addrsBySignatoryMu: new(sync.Mutex),
+		addrsBySignatory:   map[id.Signatory]wire.Address{},
+
+		contentByHashMu: new(sync.Mutex),
+		contentByHash:   map[id.Hash][]byte{},
+
+		subnetsByHashMu: new(sync.Mutex),
+		subnetsByHash:   map[id.Hash][]id.Signatory{},
 	}
-
-	dht := &dht{
-		me:    me,
-		codec: codec,
-		store: store,
-
-		groupsMu: new(sync.RWMutex),
-		groups:   map[protocol.GroupID]protocol.PeerIDs{},
-
-		inMemCacheMu: new(sync.RWMutex),
-		inMemCache:   map[string]protocol.PeerAddress{},
-	}
-
-	if err := dht.fillInMemCache(); err != nil {
-		return nil, err
-	}
-	return dht, dht.addBootstrapNodes(bootstrapAddrs)
 }
 
-func (dht *dht) Me() protocol.PeerAddress {
-	return dht.me
-}
+// InsertAddr into the DHT. Returns true if the address is new, otherwise
+// returns false.
+func (dht *distributedHashTable) InsertAddr(signatory id.Signatory, addr wire.Address) bool {
+	dht.addrsBySignatoryMu.Lock()
+	defer dht.addrsBySignatoryMu.Unlock()
 
-func (dht *dht) NumPeers() (int, error) {
-	dht.inMemCacheMu.RLock()
-	defer dht.inMemCacheMu.RUnlock()
-
-	return len(dht.inMemCache), nil
-}
-
-func (dht *dht) PeerAddresses() (protocol.PeerAddresses, error) {
-	dht.inMemCacheMu.RLock()
-	defer dht.inMemCacheMu.RUnlock()
-
-	peerAddrs := make(protocol.PeerAddresses, 0, len(dht.inMemCache))
-	for _, peerAddr := range dht.inMemCache {
-		peerAddrs = append(peerAddrs, peerAddr)
+	existingAddr, ok := dht.addrsBySignatory[signatory]
+	if ok {
+		if addr.Equal(&existingAddr) {
+			// If the addresses are the same, then the inserted address is not
+			// new.
+			return false
+		}
+		if addr.Nonce <= existingAddr.Nonce {
+			// If the inserted address does not have a greater nonce than the
+			// existing address, we ignore the inserted address. This means we
+			// have not inserted a new address, so we must return false.
+			return false
+		}
 	}
 
-	return peerAddrs, nil
+	dht.addrsBySignatory[signatory] = addr
+	return true
 }
 
-func (dht *dht) RandomPeerAddresses(groupID protocol.GroupID, n int) (protocol.PeerAddresses, error) {
-	addrs, err := dht.GroupAddresses(groupID)
-	if err != nil {
-		return nil, err
-	}
-	if len(addrs) < n {
-		n = len(addrs)
-	}
+// DeleteAddr from the DHT.
+func (dht *distributedHashTable) DeleteAddr(signatory id.Signatory) {
+	dht.addrsBySignatoryMu.Lock()
+	defer dht.addrsBySignatoryMu.Unlock()
 
-	indexes := rand.Perm(len(addrs))
-	randAddrs := make(protocol.PeerAddresses, n)
-	for i := range randAddrs {
-		randAddrs[i] = addrs[indexes[i]]
-	}
-	return randAddrs, nil
+	delete(dht.addrsBySignatory, signatory)
 }
 
-func (dht *dht) AddPeerAddress(peerAddr protocol.PeerAddress) error {
-	dht.inMemCacheMu.Lock()
-	defer dht.inMemCacheMu.Unlock()
+// Addr returns the address associated with a signatory. If there is no
+// associated address, it returns false. Otherwise, it returns true.
+func (dht *distributedHashTable) Addr(signatory id.Signatory) (wire.Address, bool) {
+	dht.addrsBySignatoryMu.Lock()
+	defer dht.addrsBySignatoryMu.Unlock()
 
-	return dht.addPeerAddressWithoutLock(peerAddr)
+	addr, ok := dht.addrsBySignatory[signatory] // This is safe, because addresses are cloned by default.
+	return addr, ok
 }
 
-func (dht *dht) PeerAddress(id protocol.PeerID) (protocol.PeerAddress, error) {
-	dht.inMemCacheMu.RLock()
-	defer dht.inMemCacheMu.RUnlock()
+// Addrs returns a random number of addresses.
+func (dht *distributedHashTable) Addrs(n int) map[id.Signatory]wire.Address {
+	dht.addrsBySignatoryMu.Lock()
+	defer dht.addrsBySignatoryMu.Unlock()
 
-	peerAddr, ok := dht.inMemCache[id.String()]
+	if n <= 0 {
+		// For values of n that are less than, or equal to, zero, return an
+		// empty map. We could panic instead, but this is a reasonable and
+		// unsurprising alternative.
+		return map[id.Signatory]wire.Address{}
+	}
+
+	addrsBySignatory := make(map[id.Signatory]wire.Address, n)
+	for signatory, addr := range dht.addrsBySignatory {
+		addrsBySignatory[signatory] = addr // This is safe, because addresses are cloned by default.
+		if n--; n == 0 {
+			break
+		}
+	}
+	return addrsBySignatory
+}
+
+// InsertContent into the DHT. Returns true if there is not already content
+// associated with this hash, otherwise returns false.
+func (dht *distributedHashTable) InsertContent(hash id.Hash, content []byte) {
+	dht.contentByHashMu.Lock()
+	defer dht.contentByHashMu.Unlock()
+
+	copied := make([]byte, len(content))
+	copy(copied, content)
+	dht.contentByHash[hash] = copied
+}
+
+// DeleteContent from the DHT.
+func (dht *distributedHashTable) DeleteContent(hash id.Hash) {
+	dht.contentByHashMu.Lock()
+	defer dht.contentByHashMu.Unlock()
+
+	delete(dht.contentByHash, hash)
+}
+
+// Content returns the content associated with a hash. If there is no
+// associated content, it returns false. Otherwise, it returns true.
+func (dht *distributedHashTable) Content(hash id.Hash) ([]byte, bool) {
+	dht.contentByHashMu.Lock()
+	defer dht.contentByHashMu.Unlock()
+
+	content, ok := dht.contentByHash[hash]
+	copied := make([]byte, len(content))
+	if content != nil {
+		copy(copied, content)
+	}
+
+	return content, ok
+}
+
+// HasContent returns the return when there is content associated with the
+// given hash. Otherwise, it returns false. This is more efficiently for
+// checking existence than the Content method, because no bytes are copied.
+func (dht *distributedHashTable) HasContent(hash id.Hash) bool {
+	dht.contentByHashMu.Lock()
+	defer dht.contentByHashMu.Unlock()
+
+	_, ok := dht.contentByHash[hash]
+	return ok
+}
+
+// HasContent returns true when there empty/nil content associated with the
+// given hash. Otherwise, it returns false. This is more efficiently for
+// checking existence than the Content method, because no bytes are copied.
+// Note: not having content is different from having empty/nil content.
+func (dht *distributedHashTable) HasEmptyContent(hash id.Hash) bool {
+	dht.contentByHashMu.Lock()
+	defer dht.contentByHashMu.Unlock()
+
+	content, ok := dht.contentByHash[hash]
+	return ok && len(content) == 0
+}
+
+func (dht *distributedHashTable) AddSubnet(signatories []id.Signatory) id.Hash {
+	copied := make([]id.Signatory, len(signatories))
+	copy(copied, signatories)
+	sort.Slice(copied, func(i, j int) bool {
+		for b := 0; b < 32; b++ {
+			d1 := dht.self[b] ^ copied[i][b]
+			d2 := dht.self[b] ^ copied[j][b]
+			if d1 < d2 {
+				return true
+			}
+			if d2 < d1 {
+				return false
+			}
+		}
+		return false
+	})
+	hash := id.NewMerkleHashFromSignatories(copied)
+
+	dht.subnetsByHashMu.Lock()
+	defer dht.subnetsByHashMu.Unlock()
+
+	dht.subnetsByHash[hash] = copied
+	return hash
+}
+
+func (dht *distributedHashTable) DeleteSubnet(hash id.Hash) {
+	dht.subnetsByHashMu.Lock()
+	defer dht.subnetsByHashMu.Unlock()
+
+	delete(dht.subnetsByHash, hash)
+}
+
+func (dht *distributedHashTable) Subnet(hash id.Hash) []id.Signatory {
+	dht.subnetsByHashMu.Lock()
+	defer dht.subnetsByHashMu.Unlock()
+
+	subnet, ok := dht.subnetsByHash[hash]
 	if !ok {
-		return nil, NewErrPeerNotFound(id)
+		return []id.Signatory{}
 	}
-	return peerAddr, nil
+	copied := make([]id.Signatory, len(subnet))
+	copy(copied, subnet)
+	return copied
 }
 
-func (dht *dht) UpdatePeerAddress(peerAddr protocol.PeerAddress) (bool, error) {
-	dht.inMemCacheMu.Lock()
-	defer dht.inMemCacheMu.Unlock()
+// SizeHint returns the number of bytes required to represent this
+// distributedHashTable in binary.
+func (dht *distributedHashTable) SizeHint() int {
+	dht.addrsBySignatoryMu.Lock()
+	defer dht.addrsBySignatoryMu.Unlock()
 
-	prevPeerAddr, ok := dht.inMemCache[peerAddr.PeerID().String()]
-	if ok && !peerAddr.IsNewer(prevPeerAddr) {
-		return false, nil
-	}
-
-	err := dht.addPeerAddressWithoutLock(peerAddr)
-	return err == nil, err
+	return surge.SizeHint(dht.addrsBySignatory) + surge.SizeHint(dht.contentByHash)
 }
 
-func (dht *dht) RemovePeerAddress(id protocol.PeerID) error {
-	dht.inMemCacheMu.Lock()
-	defer dht.inMemCacheMu.Unlock()
+// Marshal this distributedHashTable into binary.
+func (dht *distributedHashTable) Marshal(w io.Writer, m int) (int, error) {
+	dht.addrsBySignatoryMu.Lock()
+	dht.contentByHashMu.Lock()
+	dht.subnetsByHashMu.Lock()
+	defer dht.addrsBySignatoryMu.Unlock()
+	defer dht.contentByHashMu.Unlock()
+	defer dht.subnetsByHashMu.Unlock()
 
-	if err := dht.store.Delete(id.String()); err != nil {
-		return fmt.Errorf("error deleting peer=%v from dht: %v", id, err)
-	}
-
-	delete(dht.inMemCache, id.String())
-	return nil
-}
-
-func (dht *dht) AddGroup(id protocol.GroupID, ids protocol.PeerIDs) error {
-	if id.Equal(protocol.NilGroupID) {
-		return protocol.ErrInvalidGroupID
-	}
-
-	dht.groupsMu.Lock()
-	defer dht.groupsMu.Unlock()
-
-	dht.groups[id] = ids
-	return nil
-}
-
-func (dht *dht) GroupIDs(groupID protocol.GroupID) (protocol.PeerIDs, error) {
-	if groupID.Equal(protocol.NilGroupID) {
-		addrs, err := dht.PeerAddresses()
-		if err != nil {
-			return nil, err
-		}
-		ids := make([]protocol.PeerID, len(addrs))
-		for i := range ids {
-			ids[i] = addrs[i].PeerID()
-		}
-		return ids, nil
-	}
-
-	dht.groupsMu.RLock()
-	defer dht.groupsMu.RUnlock()
-
-	peerIDs, ok := dht.groups[groupID]
-	if !ok {
-		return nil, NewErrGroupNotFound(groupID)
-	}
-	peerIDsCopy := make([]protocol.PeerID, len(peerIDs))
-	copy(peerIDsCopy, peerIDs)
-	return peerIDsCopy, nil
-}
-
-func (dht *dht) GroupAddresses(groupID protocol.GroupID) (protocol.PeerAddresses, error) {
-	if groupID.Equal(protocol.NilGroupID) {
-		return dht.PeerAddresses()
-	}
-
-	ids, err := dht.GroupIDs(groupID)
+	m, err := surge.Marshal(w, dht.addrsBySignatory, m)
 	if err != nil {
-		return nil, err
+		return m, fmt.Errorf("marshaling addresses by signatory: %v", err)
 	}
-	addrs := make([]protocol.PeerAddress, 0, len(ids))
-	dht.inMemCacheMu.RLock()
-	defer dht.inMemCacheMu.RUnlock()
-	for _, id := range ids {
-		if id.Equal(dht.me.PeerID()) {
-			addrs = append(addrs, dht.me)
-			continue
-		}
-		addr, ok := dht.inMemCache[id.String()]
-		if !ok {
-			continue
-		}
-		addrs = append(addrs, addr)
-	}
-	return addrs, nil
-}
-
-func (dht *dht) RemoveGroup(id protocol.GroupID) {
-	dht.groupsMu.Lock()
-	defer dht.groupsMu.Unlock()
-
-	delete(dht.groups, id)
-}
-
-func (dht *dht) addPeerAddressWithoutLock(peerAddr protocol.PeerAddress) error {
-	data, err := dht.codec.Encode(peerAddr)
+	m, err = surge.Marshal(w, dht.contentByHash, m)
 	if err != nil {
-		return fmt.Errorf("error encoding peer address=%v: %v", peerAddr, err)
+		return m, fmt.Errorf("marshaling content by hash: %v", err)
 	}
-	if err := dht.store.Insert(peerAddr.PeerID().String(), data); err != nil {
-		return fmt.Errorf("error inserting peer address=%v into dht: %v", peerAddr, err)
+	m, err = surge.Marshal(w, dht.subnetsByHash, m)
+	if err != nil {
+		return m, fmt.Errorf("marshaling subnets by hash: %v", err)
 	}
-	dht.inMemCache[peerAddr.PeerID().String()] = peerAddr
-	return nil
+
+	return m, nil
 }
 
-func (dht *dht) fillInMemCache() error {
-	iter := dht.store.Iterator()
-	defer iter.Close()
+// Unmarshal from binary into this distributedHashTable.
+func (dht *distributedHashTable) Unmarshal(r io.Reader, m int) (int, error) {
+	dht.addrsBySignatoryMu.Lock()
+	dht.contentByHashMu.Lock()
+	dht.subnetsByHashMu.Lock()
+	defer dht.addrsBySignatoryMu.Unlock()
+	defer dht.contentByHashMu.Unlock()
+	defer dht.subnetsByHashMu.Unlock()
 
-	for iter.Next() {
-		var data []byte
-		if err := iter.Value(&data); err != nil {
-			return fmt.Errorf("error scanning dht iterator: %v", err)
-		}
-		peerAddr, err := dht.codec.Decode(data)
-		if err != nil {
-			return fmt.Errorf("error decoding peerAddress: %v", err)
-		}
-		dht.inMemCache[peerAddr.PeerID().String()] = peerAddr
+	m, err := surge.Unmarshal(r, &dht.addrsBySignatory, m)
+	if err != nil {
+		return m, fmt.Errorf("unmarshaling addresses by signatory: %v", err)
 	}
-	return nil
-}
-
-// addBootstrapNodes loops through all the bootstrap nodes, update the store if
-// it is newer than the stored addresses.
-func (dht *dht) addBootstrapNodes(addrs protocol.PeerAddresses) error {
-	for _, addr := range addrs {
-		if addr.PeerID().Equal(dht.Me().PeerID()) {
-			continue
-		}
-		if _, err := dht.UpdatePeerAddress(addr); err != nil {
-			return err
-		}
+	m, err = surge.Unmarshal(r, &dht.contentByHash, m)
+	if err != nil {
+		return m, fmt.Errorf("unmarshaling content by hash: %v", err)
 	}
-	return nil
-}
-
-type ErrPeerNotFound struct {
-	error
-	protocol.PeerID
-}
-
-func NewErrPeerNotFound(peerID protocol.PeerID) error {
-	return ErrPeerNotFound{
-		error:  fmt.Errorf("peer=%v not found", peerID),
-		PeerID: peerID,
+	m, err = surge.Unmarshal(r, &dht.subnetsByHash, m)
+	if err != nil {
+		return m, fmt.Errorf("unmarshaling subnets by hash: %v", err)
 	}
-}
 
-type ErrGroupNotFound struct {
-	error
-	protocol.GroupID
-}
-
-func NewErrGroupNotFound(groupID protocol.GroupID) error {
-	return ErrGroupNotFound{
-		error:   fmt.Errorf("peer group=%v not found", groupID),
-		GroupID: groupID,
-	}
+	return m, nil
 }

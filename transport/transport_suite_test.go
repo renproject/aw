@@ -1,4 +1,4 @@
-package peer_test
+package transport_test
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestPeer(t *testing.T) {
+func TestTransport(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Peer Suite")
+	RunSpecs(t, "Transport Suite")
 }

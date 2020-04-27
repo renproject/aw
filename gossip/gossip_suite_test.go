@@ -1,4 +1,4 @@
-package peer_test
+package gossip_test
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestPeer(t *testing.T) {
+func TestGossip(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Peer Suite")
+	RunSpecs(t, "Gossip Suite")
 }

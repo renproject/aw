@@ -19,15 +19,19 @@ type Handshaker interface {
 	AcceptHandshake(ctx context.Context, rw io.ReadWriter) (Session, error)
 }
 
-// A Verifier filters identities that are authenticated during a handshake.
-// Although the handshake may be successful, the actual identity may want to be
-// rejected because of some application-logic. Verifiers are a hook for
-// implementing such logic.
-type Verifier interface {
-	Verify(id.Signatory) bool
+// A Filter for identities that are established during a handshake. Although
+// the handshake may be successful, the actual identity may want to be rejected
+// because of some application-level logic. Filters are a hook for implementing
+// such logic.
+type Filter interface {
+	Filter(id.Signatory) bool
 }
 
 type Session interface {
+	// Encrypt data for the other Signatory.
 	Encrypt([]byte) ([]byte, error)
+	// Decrypt data from the other Signatory.
 	Decrypt([]byte) ([]byte, error)
+	// Signatory returns the pubkey hash of the other Signatory.
+	Signatory() id.Signatory
 }

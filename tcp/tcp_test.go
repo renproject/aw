@@ -3,17 +3,22 @@ package tcp_test
 import (
 	"context"
 	"fmt"
-	"runtime"
+	"io/ioutil"
+	"math/rand"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/renproject/aw/handshake"
+	"github.com/renproject/aw/listen"
+	"github.com/renproject/aw/tcp"
+	"github.com/renproject/aw/wire"
+	"github.com/sirupsen/logrus"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"github.com/renproject/aw/handshake"
-	"github.com/renproject/aw/message"
-	. "github.com/renproject/aw/tcp"
-	"github.com/sirupsen/logrus"
 )
 
 var _ = Describe("TCP", func() {
@@ -40,71 +45,103 @@ var _ = Describe("TCP", func() {
 })
 
 func BenchmarkSend(b *testing.B) {
-	benchSend(b, func(ctx context.Context, client *Client, server *Server) {
-		address := fmt.Sprintf("%v:%v", server.Options().Host, server.Options().Port)
+	runBenchmarkSend(b, func(ctx context.Context, client *tcp.Client, server *tcp.Server) {
+		addr := fmt.Sprintf("%v:%v", server.Options().Host, server.Options().Port)
+		data := [32]byte{}
+		for i := range data {
+			data[i] = byte(rand.Int())
+		}
 		for i := 0; i < b.N; i++ {
-			if err := client.Send(ctx, address, message.Message{Data: []byte("hello, Ryan!")}); err != nil {
-				b.Fatalf("send: err=%v", err)
+			if err := client.Send(ctx, addr, wire.Message{Version: wire.V1, Type: wire.Push, Data: data[:]}); err != nil {
+				b.Fatalf("sending: %v", err)
 			}
-			runtime.Gosched()
 		}
 	})
 }
 
 func BenchmarkSendParallel(b *testing.B) {
-	benchSend(b, func(ctx context.Context, client *Client, server *Server) {
-		address := fmt.Sprintf("%v:%v", server.Options().Host, server.Options().Port)
+	runBenchmarkSend(b, func(ctx context.Context, client *tcp.Client, server *tcp.Server) {
+		addr := fmt.Sprintf("%v:%v", server.Options().Host, server.Options().Port)
+		data := [32]byte{}
+		for i := range data {
+			data[i] = byte(rand.Int())
+		}
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				if err := client.Send(ctx, address, message.Message{}); err != nil {
-					b.Fatalf("send: err=%v", err)
+				if err := client.Send(ctx, addr, wire.Message{Version: wire.V1, Type: wire.Push, Data: data[:]}); err != nil {
+					b.Fatalf("sending: %v", err)
 				}
-				runtime.Gosched()
 			}
 		})
 	})
 }
 
-func benchSend(b *testing.B, run func(ctx context.Context, client *Client, server *Server)) {
+func runBenchmarkSend(b *testing.B, run func(ctx context.Context, client *tcp.Client, server *tcp.Server)) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	logger := logrus.New()
-	// logger.SetOutput(ioutil.Discard)
+	switch strings.ToLower(os.Getenv("LOG")) {
+	case "panic":
+		logger.SetLevel(logrus.PanicLevel)
+	case "fatal":
+		logger.SetLevel(logrus.FatalLevel)
+	case "error":
+		logger.SetLevel(logrus.ErrorLevel)
+	case "warn":
+		logger.SetLevel(logrus.WarnLevel)
+	case "info":
+		logger.SetLevel(logrus.InfoLevel)
+	case "debug":
+		logger.SetLevel(logrus.DebugLevel)
+	case "trace":
+		logger.SetLevel(logrus.TraceLevel)
+	default:
+		logger.SetOutput(ioutil.Discard)
+	}
 
 	clientPrivKey, err := crypto.GenerateKey()
 	if err != nil {
-		b.Errorf("keygen: %v", err)
+		b.Fatalf("generating key: %v", err)
 	}
 	serverPrivKey, err := crypto.GenerateKey()
 	if err != nil {
-		b.Errorf("keygen: %v", err)
+		b.Fatalf("generating key: %v", err)
 	}
 
-	serverOutput := make(chan message.Message, b.N)
-	server := NewServer(
-		DefaultServerOptions().
+	serverPort := 3000 + (rand.Int() % 7000)
+	serverListener := listen.Callbacks{}
+	server := tcp.NewServer(
+		tcp.DefaultServerOptions().
 			WithLogger(logger).
-			WithHandshaker(handshake.NewECDSA(serverPrivKey, nil, 1024*1024)).
 			WithHost("127.0.0.1").
-			WithPort(6000),
-		serverOutput)
+			WithPort(uint16(serverPort)),
+		handshake.NewECDSA(serverPrivKey, nil),
+		serverListener,
+	)
 	go server.Listen(ctx)
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(time.Millisecond)
 
-	client := NewClient(
-		DefaultClientOptions().
+	clientListener := listen.Callbacks{}
+	client := tcp.NewClient(
+		tcp.DefaultClientOptions().
 			WithLogger(logger).
-			WithHandshaker(handshake.NewECDSA(clientPrivKey, nil, 1024*1024)).
-			WithMaxCapacity(b.N))
-	defer client.CloseAll()
+			WithMaxCapacity(b.N),
+		handshake.NewECDSA(clientPrivKey, nil),
+		clientListener,
+	)
+	defer func() {
+		client.CloseAll()
+		time.Sleep(time.Millisecond)
+	}()
 
 	// Dial initial connection.
-	address := "127.0.0.1:6000"
-	client.Send(ctx, address, message.Message{})
+	addr := fmt.Sprintf("127.0.0.1:%v", serverPort)
+	client.Send(ctx, addr, wire.Message{Version: wire.V1, Type: wire.Ping})
 
 	// Reset benchmark to isolate performance of sending messages.
 	b.ReportAllocs()
 	b.ResetTimer()
 	run(ctx, client, server)
+	b.StopTimer()
 }

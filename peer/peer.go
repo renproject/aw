@@ -1,249 +1,203 @@
 package peer
 
 import (
+	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"fmt"
+	"math"
 	"time"
 
-	"github.com/renproject/aw/broadcast"
-	"github.com/renproject/aw/cast"
 	"github.com/renproject/aw/dht"
-	"github.com/renproject/aw/handshake"
-	"github.com/renproject/aw/multicast"
-	"github.com/renproject/aw/pingpong"
-	"github.com/renproject/aw/protocol"
-	"github.com/renproject/aw/tcp"
-	"github.com/renproject/kv"
-	"github.com/sirupsen/logrus"
+	"github.com/renproject/aw/transport"
+	"github.com/renproject/aw/wire"
+	"github.com/renproject/id"
+	"github.com/renproject/surge"
 )
 
-type Peer interface {
-	dht.DHT
+type Peer struct {
+	opts Options
 
-	Run(context.Context)
-
-	Cast(context.Context, protocol.PeerID, protocol.MessageBody) error
-
-	Multicast(context.Context, protocol.GroupID, protocol.MessageBody) error
-
-	Broadcast(context.Context, protocol.GroupID, protocol.MessageBody) error
+	dht     dht.DHT
+	trans   *transport.Transport
+	privKey *ecdsa.PrivateKey
 }
 
-type peer struct {
-	// General
-	logger     logrus.FieldLogger
-	options    Options
-	dht        dht.DHT
-	handshaker handshake.Handshaker
-	events     protocol.EventSender
+func New(opts Options, dht dht.DHT, trans *transport.Transport, privKey *ecdsa.PrivateKey) *Peer {
 
-	// network connections
-	client         protocol.Client
-	clientMessages chan protocol.MessageOnTheWire
-	server         protocol.Server
-	serverMessages chan protocol.MessageOnTheWire
-
-	// messengers
-	caster      cast.Caster
-	pingPonger  pingpong.PingPonger
-	multicaster multicast.Multicaster
-	broadcaster broadcast.Broadcaster
-}
-
-func New(options Options, logger logrus.FieldLogger, codec protocol.PeerAddressCodec, dht dht.DHT, handshaker handshake.Handshaker, client protocol.Client, server protocol.Server, events protocol.EventSender) Peer {
-	if err := options.SetZeroToDefault(); err != nil {
-		panic(fmt.Errorf("pre-condition violation: invalid peer option, err = %v", err))
+	// Sign the address. This address will be the address that the we will use
+	// to let other Peers know we exist. If we cannot sign the address, then we
+	// log a fatal error.
+	if err := opts.Addr.Sign(privKey); err != nil {
+		opts.Logger.Fatalf("signing address=%v: %v", opts.Addr, err)
 	}
 
-	serverMessages := make(chan protocol.MessageOnTheWire, options.Capacity)
-	clientMessages := make(chan protocol.MessageOnTheWire, options.Capacity)
-
-	pingpongOption := pingpong.Options{
-		Logger:     logger,
-		NumWorkers: options.NumWorkers,
-		Alpha:      options.Alpha,
+	// Given the number of parallel pings that can happen, the number of pings
+	// we will attempt at any one time, and the maximum time that a ping can
+	// take, we check that the interval between rounds of pinging is
+	// sufficiently long that we will not be attempting the next round of
+	// pinging before we have finished the previous round. We use a factor of 2,
+	// to make sure there is plenty of margin for error.
+	expectedPingInterval := 2 * time.Duration(math.Ceil(float64(opts.Alpha)/float64(opts.NumBackgroundWorkers))) * opts.PingTimeout
+	if opts.PingInterval < expectedPingInterval {
+		opts.Logger.Warnf("ping interval is too low: expected>=%v, got=%v", expectedPingInterval, opts.PingInterval)
 	}
-	caster := cast.NewCaster(logger, clientMessages, events, dht)
-	pingponger := pingpong.NewPingPonger(pingpongOption, dht, clientMessages, events, codec)
-	multicaster := multicast.NewMulticaster(logger, options.NumWorkers, clientMessages, events, dht)
-	broadcaster := broadcast.NewBroadcaster(logger, options.NumWorkers, clientMessages, events, dht)
 
-	return &peer{
-		logger:         logger,
-		options:        options,
-		dht:            dht,
-		handshaker:     handshaker,
-		events:         events,
-		client:         client,
-		clientMessages: clientMessages,
-		server:         server,
-		serverMessages: serverMessages,
-		caster:         caster,
-		pingPonger:     pingponger,
-		multicaster:    multicaster,
-		broadcaster:    broadcaster,
+	return &Peer{
+		opts: opts,
+
+		dht:     dht,
+		trans:   trans,
+		privKey: privKey,
 	}
 }
 
-func NewTCP(options Options, logger logrus.FieldLogger, codec protocol.PeerAddressCodec, events protocol.EventSender, signVerifier protocol.SignVerifier, poolOptions tcp.ConnPoolOptions, serverOptions tcp.ServerOptions) Peer {
-	if err := options.SetZeroToDefault(); err != nil {
-		panic(fmt.Errorf("pre-condition violation: invalid peer option, err = %v", err))
-	}
-	store := kv.NewTable(kv.NewMemDB(kv.JSONCodec), "dht")
-	dht, err := dht.New(options.Me, codec, store, options.BootstrapAddresses...)
-	if err != nil {
-		panic(fmt.Errorf("pre-condition violation: fail to initialize dht, err = %v", err))
-	}
-	handshaker := handshake.New(signVerifier, handshake.NewGCMSessionManager())
-	connPool := tcp.NewConnPool(poolOptions, logger, handshaker)
-	client := tcp.NewClient(logger, connPool)
-	server := tcp.NewServer(serverOptions, logger, handshaker)
-	return New(options, logger, codec, dht, handshaker, client, server, events)
-}
-
-func (peer *peer) Run(ctx context.Context) {
-	// Start both the client and server before bootstrapping
-	go peer.client.Run(ctx, peer.clientMessages)
-	go peer.server.Run(ctx, peer.serverMessages)
-	go peer.handleMessage(ctx)
-
-	// Start bootstrapping
-	peer.bootstrap(ctx)
-	ticker := time.NewTicker(peer.options.BootstrapDuration)
-	defer ticker.Stop()
-
+// Run the Peer. This will periodically attempt to Ping random addresses in the
+// DHT. If the Ping is not successful, the address will be removed from the DHT.
+func (peer *Peer) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-
-		case <-ticker.C:
-			peer.bootstrap(ctx)
+		case <-time.After(peer.opts.PingInterval):
+			peer.Ping(ctx)
 		}
 	}
 }
 
-func (peer *peer) Me() protocol.PeerAddress {
-	return peer.dht.Me()
-}
-
-func (peer *peer) NumPeers() (int, error) {
-	return peer.dht.NumPeers()
-}
-
-func (peer *peer) PeerAddress(id protocol.PeerID) (protocol.PeerAddress, error) {
-	return peer.dht.PeerAddress(id)
-}
-
-func (peer *peer) PeerAddresses() (protocol.PeerAddresses, error) {
-	return peer.dht.PeerAddresses()
-}
-
-func (peer *peer) RandomPeerAddresses(id protocol.GroupID, n int) (protocol.PeerAddresses, error) {
-	return peer.dht.RandomPeerAddresses(id, n)
-}
-
-func (peer *peer) AddPeerAddress(addrs protocol.PeerAddress) error {
-	return peer.dht.AddPeerAddress(addrs)
-}
-
-func (peer *peer) UpdatePeerAddress(addr protocol.PeerAddress) (bool, error) {
-	return peer.dht.UpdatePeerAddress(addr)
-}
-
-func (peer *peer) RemovePeerAddress(id protocol.PeerID) error {
-	return peer.dht.RemovePeerAddress(id)
-}
-
-func (peer *peer) AddGroup(groupID protocol.GroupID, ids protocol.PeerIDs) error {
-	return peer.dht.AddGroup(groupID, ids)
-}
-
-func (peer *peer) GroupIDs(groupID protocol.GroupID) (protocol.PeerIDs, error) {
-	return peer.GroupIDs(groupID)
-}
-
-func (peer *peer) GroupAddresses(groupID protocol.GroupID) (protocol.PeerAddresses, error) {
-	return peer.GroupAddresses(groupID)
-}
-
-func (peer *peer) RemoveGroup(groupID protocol.GroupID) {
-	peer.dht.RemoveGroup(groupID)
-}
-
-func (peer *peer) Cast(ctx context.Context, to protocol.PeerID, data protocol.MessageBody) error {
-	return peer.caster.Cast(ctx, to, data)
-}
-
-func (peer *peer) Multicast(ctx context.Context, groupID protocol.GroupID, data protocol.MessageBody) error {
-	return peer.multicaster.Multicast(ctx, groupID, data)
-}
-
-func (peer *peer) Broadcast(ctx context.Context, groupID protocol.GroupID, data protocol.MessageBody) error {
-	return peer.broadcaster.Broadcast(ctx, groupID, data)
-}
-
-func (peer *peer) bootstrap(ctx context.Context) {
-	if peer.options.DisablePeerDiscovery {
-		return
+// Ping a number of random Peers from the DHT. If the Peer is not responsive,
+// then it will be removed from the DHT.
+func (peer *Peer) Ping(ctx context.Context) {
+	// We use this local type to couple signatories with an address. This is
+	// useful for performance, since we can reduce the amount of times we have
+	// to explicitly compute the signatory from the address.
+	type SignatoryAndAddress struct {
+		Signatory id.Signatory
+		Addr      wire.Address
 	}
 
-	peerAddrs, err := peer.dht.PeerAddresses()
+	// Marshal our own address, so that we can ping it to other Peers.
+	marshaledPing, err := surge.ToBinary(wire.PingV1{Addr: peer.opts.Addr})
 	if err != nil {
-		peer.logger.Errorf("error bootstrapping: error loading peer addresses: %v", err)
-		return
+		peer.opts.Logger.Fatalf("marshaling ping: %v", err)
+	}
+	ping := wire.Message{
+		Version: wire.V1,
+		Type:    wire.Ping,
+		Data:    marshaledPing,
 	}
 
-	protocol.ParForAllAddresses(peerAddrs, peer.options.NumWorkers, func(peerAddr protocol.PeerAddress) {
-		// Timeout is computed to ensure that we are ready for the next
-		// bootstrap tick even if every single ping takes the maximum amount of
-		// time (with a minimum timeout of 1 second)
-		pingTimeout := time.Duration(int64(peer.options.NumWorkers) * int64(peer.options.BootstrapDuration) / int64(len(peerAddrs)))
-		if pingTimeout > peer.options.BootstrapDuration {
-			pingTimeout = peer.options.BootstrapDuration
-		}
-		if pingTimeout > peer.options.MaxPingTimeout {
-			pingTimeout = peer.options.MaxPingTimeout
-		}
-		if pingTimeout < peer.options.MinPingTimeout {
-			pingTimeout = peer.options.MinPingTimeout
-		}
+	// Create background workers so that we only consume a bounded number of
+	// goroutines to perform the round of pinging. We create the workers
+	// on-demand, because we generally do not expect pinging to be done often.
+	queue := make(chan SignatoryAndAddress, 2*peer.opts.Alpha)
+	for i := 0; i < peer.opts.NumBackgroundWorkers; i++ {
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case signatoryAndAddr := <-queue:
+					// Ping the address with our own address. If the Ping
+					// returns an error, then we remove the address from the
+					// DHT.
+					func() {
+						innerCtx, innerCancel := context.WithTimeout(ctx, peer.opts.PingTimeout)
+						defer innerCancel()
 
-		pingCtx, pingCancel := context.WithTimeout(ctx, pingTimeout)
-		defer pingCancel()
-		if err := peer.pingPonger.Ping(pingCtx, peerAddr.PeerID()); err != nil {
-			peer.logger.Errorf("error bootstrapping: error ping/ponging peer address=%v: %v", peerAddr, err)
-			return
-		}
-	})
-}
-
-func (peer *peer) handleMessage(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case messageOtw := <-peer.serverMessages:
-			if err := peer.receiveMessageOnTheWire(ctx, messageOtw); err != nil {
-				peer.logger.Error(err)
+						if err := peer.trans.Send(innerCtx, signatoryAndAddr.Addr, ping); err != nil {
+							peer.opts.Logger.Warnf("pinging address=%v: %v", signatoryAndAddr.Addr, err)
+							peer.opts.Logger.Infof("deleting address=%v", signatoryAndAddr.Addr)
+							peer.dht.DeleteAddr(signatoryAndAddr.Signatory)
+						}
+					}()
+				}
 			}
+		}()
+	}
+
+	// Periodically grab some random addresses from the DHT and add them
+	// to the queue for pinging.
+	addrsBySignatory := peer.dht.Addrs(peer.opts.Alpha)
+	for signatory, addr := range addrsBySignatory {
+		select {
+		case <-ctx.Done():
+			return
+		case queue <- SignatoryAndAddress{Signatory: signatory, Addr: addr}:
 		}
 	}
 }
 
-func (peer *peer) receiveMessageOnTheWire(ctx context.Context, messageOtw protocol.MessageOnTheWire) error {
-	switch messageOtw.Message.Variant {
-	case protocol.Ping:
-		return peer.pingPonger.AcceptPing(ctx, messageOtw.Message)
-	case protocol.Pong:
-		return peer.pingPonger.AcceptPong(ctx, messageOtw.Message)
-	case protocol.Broadcast:
-		return peer.broadcaster.AcceptBroadcast(ctx, messageOtw.From, messageOtw.Message)
-	case protocol.Multicast:
-		return peer.multicaster.AcceptMulticast(ctx, messageOtw.From, messageOtw.Message)
-	case protocol.Cast:
-		return peer.caster.AcceptCast(ctx, messageOtw.From, messageOtw.Message)
-	default:
-		return protocol.NewErrMessageVariantIsNotSupported(messageOtw.Message.Variant)
+func (peer *Peer) DidReceivePing(version uint8, data []byte) (wire.Message, error) {
+	if version != wire.V1 {
+		return wire.Message{}, fmt.Errorf("unsupported version=%v", version)
 	}
+
+	remoteAddr := wire.Address{}
+	if err := surge.FromBinary(data, &remoteAddr); err != nil {
+		return wire.Message{}, fmt.Errorf("unsupported remote address: %v", err)
+	}
+
+	addrsBySignatory := peer.dht.Addrs(peer.opts.Alpha)
+	pingAckV1 := wire.PingAckV1{
+		Addrs: make([]wire.Address, 0, len(addrsBySignatory)+1),
+	}
+	pingAckV1.Addrs = append(pingAckV1.Addrs, peer.opts.Addr)
+	for _, addr := range addrsBySignatory {
+		pingAckV1.Addrs = append(pingAckV1.Addrs, addr)
+	}
+	marshaledPingAckV1, err := surge.ToBinary(pingAckV1)
+	if err != nil {
+		// Being unable to marshal addresses is a fatal error. We should never
+		// admit addresses into the DHT that are invalid, or that cannot be
+		// marshaled.
+		peer.opts.Logger.Fatalf("marshaling ping ack: %v", len(pingAckV1.Addrs), err)
+	}
+
+	// Send a ping acknowledgemet, containing our own address, to the address in
+	// the ping. This may not be the same peer that sent us the ping, so we will
+	// also return this acknowledgement.
+	pingAck := wire.Message{
+		Version: wire.V1,
+		Type:    wire.PingAck,
+		Data:    marshaledPingAckV1,
+	}
+	return pingAck, nil
+}
+
+func (peer *Peer) DidReceivePingAck(version uint8, data []byte) error {
+	if version != wire.V1 {
+		return fmt.Errorf("unsupported version=%v", version)
+	}
+
+	// Unmarshal the remote addresses returned to us in the PingAck response,
+	// and limit the number of addreses to prevent spam.
+	pingAckV1 := wire.PingAckV1{}
+	if err := surge.FromBinary(data, &pingAckV1); err != nil {
+		return fmt.Errorf("unsupported remote address: %v", err)
+	}
+	if len(pingAckV1.Addrs) > peer.opts.Alpha {
+		pingAckV1.Addrs = pingAckV1.Addrs[:peer.opts.Alpha]
+	}
+
+	// Prepare a slice for all of the new addresses that we see for the first
+	// time.
+	newRemoteAddrs := make([]wire.Address, 0, len(pingAckV1.Addrs))
+
+	// Add all of the remote addresses to the DHT and keep track of the
+	// addresses that we are seeing for the first time.
+	buf := new(bytes.Buffer)
+	for _, addr := range pingAckV1.Addrs {
+		buf.Reset()
+		remoteSignatory, err := addr.SignatoryWithBuffer(buf)
+		if err != nil {
+			peer.opts.Logger.Warnf("identifying remote address=%v: %v", addr, err)
+			continue
+		}
+		if peer.dht.InsertAddr(remoteSignatory, addr) {
+			newRemoteAddrs = append(newRemoteAddrs, addr)
+		}
+	}
+
+	return nil
 }
