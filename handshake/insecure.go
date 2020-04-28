@@ -3,45 +3,60 @@ package handshake
 import (
 	"context"
 	"fmt"
-	"io"
+	"net"
+	"time"
 
 	"github.com/renproject/id"
 	"github.com/renproject/surge"
 )
 
 type insecureHandshaker struct {
-	self id.Signatory
+	self    id.Signatory
+	timeout time.Duration
 }
 
 // NewInsecure returns a new Handshaker that implements no authentication,
 // encryption, or restrictions on connections.
-func NewInsecure(self id.Signatory) Handshaker {
-	return &insecureHandshaker{self: self}
+func NewInsecure(self id.Signatory, timeout time.Duration) Handshaker {
+	return &insecureHandshaker{self: self, timeout: timeout}
 }
 
 // Handshake with a remote server. The input ReadWriter is returned without
 // modification.
-func (h *insecureHandshaker) Handshake(ctx context.Context, rw io.ReadWriter) (Session, error) {
-	if _, err := h.self.Marshal(rw, surge.MaxBytes); err != nil {
+func (h *insecureHandshaker) Handshake(ctx context.Context, conn net.Conn) (Session, error) {
+	conn.SetDeadline(time.Now().Add(10 * time.Second))
+	defer conn.SetDeadline(time.Time{})
+
+	other := id.Signatory{}
+
+	conn.SetWriteDeadline(time.Now().Add(h.timeout / 2))
+	if _, err := h.self.Marshal(conn, surge.MaxBytes); err != nil {
 		return nil, fmt.Errorf("marshaling self: %v", err)
 	}
-	other := id.Signatory{}
-	if _, err := other.Unmarshal(rw, surge.MaxBytes); err != nil {
+	conn.SetReadDeadline(time.Now().Add(h.timeout / 2))
+	if _, err := other.Unmarshal(conn, surge.MaxBytes); err != nil {
 		return nil, fmt.Errorf("unmarshaling other: %v", err)
 	}
+
 	return insecureSession{other: other}, nil
 }
 
 // AcceptHandshake from a remote client. The input ReadWriter is returned
 // without modification.
-func (h *insecureHandshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) (Session, error) {
+func (h *insecureHandshaker) AcceptHandshake(ctx context.Context, conn net.Conn) (Session, error) {
+	defer conn.SetDeadline(time.Time{})
+
 	other := id.Signatory{}
-	if _, err := other.Unmarshal(rw, surge.MaxBytes); err != nil {
+
+	conn.SetReadDeadline(time.Now().Add(h.timeout / 2))
+	if _, err := other.Unmarshal(conn, surge.MaxBytes); err != nil {
 		return nil, fmt.Errorf("unmarshaling other: %v", err)
 	}
-	if _, err := h.self.Marshal(rw, surge.MaxBytes); err != nil {
+	conn.SetWriteDeadline(time.Now().Add(h.timeout / 2))
+	if _, err := h.self.Marshal(conn, surge.MaxBytes); err != nil {
 		return nil, fmt.Errorf("marshaling self: %v", err)
 	}
+
 	return insecureSession{other: other}, nil
 }
 

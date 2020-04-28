@@ -2,7 +2,7 @@ package handshake
 
 import (
 	"context"
-	"io"
+	"net"
 
 	"github.com/renproject/id"
 )
@@ -11,12 +11,12 @@ type Handshaker interface {
 	// Handshake with a remote server by initiating, and then interactively
 	// completing, a handshake protocol. The remote server is accessed by
 	// reading/writing to the `io.ReaderWriter`.
-	Handshake(ctx context.Context, rw io.ReadWriter) (Session, error)
+	Handshake(ctx context.Context, c net.Conn) (Session, error)
 
 	// AcceptHandshake from a remote client by waiting for the initiation of,
 	// and then interactively completing, a handshake protocol. The remote
 	// client is accessed by reading/writing to the `io.ReaderWriter`.
-	AcceptHandshake(ctx context.Context, rw io.ReadWriter) (Session, error)
+	AcceptHandshake(ctx context.Context, c net.Conn) (Session, error)
 }
 
 // A Filter for identities that are established during a handshake. Although

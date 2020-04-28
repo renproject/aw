@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"net"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/ecies"
@@ -24,18 +25,18 @@ func NewECDSA(privKey *ecdsa.PrivateKey, filter Filter) Handshaker {
 	return &ecdsaHandshaker{privKey, filter}
 }
 
-func (handshaker *ecdsaHandshaker) Handshake(ctx context.Context, rw io.ReadWriter) (Session, error) {
+func (handshaker *ecdsaHandshaker) Handshake(ctx context.Context, conn net.Conn) (Session, error) {
 	//
 	// 1
 	//
-	if err := writePubKeyWithSignature(rw, &handshaker.privKey.PublicKey, handshaker.privKey); err != nil {
+	if err := writePubKeyWithSignature(conn, &handshaker.privKey.PublicKey, handshaker.privKey); err != nil {
 		return nil, fmt.Errorf("writing client pubkey with signature: %v", err)
 	}
 
 	//
 	// 2
 	//
-	serverPubKey, serverSignatory, err := readPubKeyWithSignature(rw)
+	serverPubKey, serverSignatory, err := readPubKeyWithSignature(conn)
 	if err != nil {
 		return nil, fmt.Errorf("reading server pubkey with signature: %v", err)
 	}
@@ -50,14 +51,14 @@ func (handshaker *ecdsaHandshaker) Handshake(ctx context.Context, rw io.ReadWrit
 	if _, err := rand.Read(clientKey[:]); err != nil {
 		return nil, fmt.Errorf("generating client key: %v", err)
 	}
-	if err := encryptAndWriteKey(rw, clientKey[:], serverPubKey); err != nil {
+	if err := encryptAndWriteKey(conn, clientKey[:], serverPubKey); err != nil {
 		return nil, fmt.Errorf("encrypting and writing client key: %v", err)
 	}
 
 	//
 	// 4
 	//
-	serverKey, err := readAndDecryptKey(rw, handshaker.privKey)
+	serverKey, err := readAndDecryptKey(conn, handshaker.privKey)
 	if err != nil {
 		return nil, fmt.Errorf("reading and decrypting server key: %v", err)
 	}
@@ -65,11 +66,11 @@ func (handshaker *ecdsaHandshaker) Handshake(ctx context.Context, rw io.ReadWrit
 	return NewGCMSession(xor(clientKey[:], serverKey), id.NewSignatory(serverPubKey))
 }
 
-func (handshaker *ecdsaHandshaker) AcceptHandshake(ctx context.Context, rw io.ReadWriter) (Session, error) {
+func (handshaker *ecdsaHandshaker) AcceptHandshake(ctx context.Context, conn net.Conn) (Session, error) {
 	//
 	// 1
 	//
-	clientPubKey, clientSignatory, err := readPubKeyWithSignature(rw)
+	clientPubKey, clientSignatory, err := readPubKeyWithSignature(conn)
 	if err != nil {
 		return nil, fmt.Errorf("reading client pubkey with signature: %v", err)
 	}
@@ -80,7 +81,7 @@ func (handshaker *ecdsaHandshaker) AcceptHandshake(ctx context.Context, rw io.Re
 	//
 	// 2
 	//
-	err = writePubKeyWithSignature(rw, &handshaker.privKey.PublicKey, handshaker.privKey)
+	err = writePubKeyWithSignature(conn, &handshaker.privKey.PublicKey, handshaker.privKey)
 	if err != nil {
 		return nil, fmt.Errorf("writing server pubkey with signature: %v", err)
 	}
@@ -88,7 +89,7 @@ func (handshaker *ecdsaHandshaker) AcceptHandshake(ctx context.Context, rw io.Re
 	//
 	// 3
 	//
-	clientKey, err := readAndDecryptKey(rw, handshaker.privKey)
+	clientKey, err := readAndDecryptKey(conn, handshaker.privKey)
 	if err != nil {
 		return nil, fmt.Errorf("reading and decrypting client key: %v", err)
 	}
@@ -100,7 +101,7 @@ func (handshaker *ecdsaHandshaker) AcceptHandshake(ctx context.Context, rw io.Re
 	if _, err := rand.Read(serverKey[:]); err != nil {
 		return nil, fmt.Errorf("generating server key: %v", err)
 	}
-	if err := encryptAndWriteKey(rw, serverKey[:], clientPubKey); err != nil {
+	if err := encryptAndWriteKey(conn, serverKey[:], clientPubKey); err != nil {
 		return nil, fmt.Errorf("writing server key: %v", err)
 	}
 
