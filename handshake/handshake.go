@@ -185,6 +185,9 @@ func read(r io.Reader) ([]byte, error) {
 	if err := binary.Read(r, binary.LittleEndian, &dataLen); err != nil {
 		return nil, fmt.Errorf("error reading data len=%v: %v", dataLen, err)
 	}
+	if dataLen > 1024*1024 {
+		return nil, fmt.Errorf("error reading data: len=%v is too big", dataLen)
+	}
 	data := make([]byte, dataLen)
 	if err := binary.Read(r, binary.LittleEndian, &data); err != nil {
 		return data, fmt.Errorf("error reading data: %v", err)
