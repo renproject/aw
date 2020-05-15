@@ -27,7 +27,7 @@ type AddressBuilder struct {
 func NewAddressBuilder(privKey *ecdsa.PrivateKey, r *rand.Rand) *AddressBuilder {
 	protocol := RandomOkAddrProtocol(r)
 	value := RandomOkAddrValue(r)
-	nonce := RandomOkAddrNonce(r)
+	nonce := RandomAddrNonce(r)
 	signature := RandomOkAddrSignature(protocol, value, nonce, privKey)
 	return &AddressBuilder{
 		protocol:  protocol,
@@ -91,6 +91,10 @@ func RandomAddrValue(r *rand.Rand) string {
 	}
 }
 
+func RandomAddrNonce(r *rand.Rand) uint64 {
+	return r.Uint64()
+}
+
 func RandomAddrSignature(protocol uint8, value string, nonce uint64, privKey *ecdsa.PrivateKey, r *rand.Rand) id.Signature {
 	switch r.Int() % 2 {
 	case 0:
@@ -98,6 +102,14 @@ func RandomAddrSignature(protocol uint8, value string, nonce uint64, privKey *ec
 	default:
 		return RandomBadAddrSignature(r)
 	}
+}
+
+func RandomPrivKey() *ecdsa.PrivateKey {
+	privKey, err := crypto.GenerateKey()
+	if err != nil {
+		panic(err)
+	}
+	return privKey
 }
 
 // ------
@@ -121,24 +133,12 @@ func RandomOkAddrValue(r *rand.Rand) string {
 	}
 }
 
-func RandomOkAddrNonce(r *rand.Rand) uint64 {
-	return r.Uint64()
-}
-
 func RandomOkAddrSignature(protocol uint8, value string, nonce uint64, privKey *ecdsa.PrivateKey) id.Signature {
 	addr := wire.NewUnsignedAddress(protocol, value, nonce)
 	if err := addr.Sign(privKey); err != nil {
 		panic(err)
 	}
 	return addr.Signature
-}
-
-func RandomOkPrivKey() *ecdsa.PrivateKey {
-	privKey, err := crypto.GenerateKey()
-	if err != nil {
-		panic(err)
-	}
-	return privKey
 }
 
 // ------

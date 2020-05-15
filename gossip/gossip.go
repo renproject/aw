@@ -13,84 +13,96 @@ import (
 	"github.com/renproject/surge"
 )
 
-type Receiver interface {
-	DidReceiveContent(hash id.Hash, content []byte)
-}
-
 type Gossiper struct {
 	opts Options
 
-	receiver Receiver
 	dht      dht.DHT
 	trans    *transport.Transport
+	listener Listener
 
-	r *rand.Rand
+	r        *rand.Rand
+	jobQueue chan struct {
+		wire.Address
+		wire.Message
+	}
 }
 
-func New(opts Options, receiver Receiver, dht dht.DHT, trans *transport.Transport) *Gossiper {
+func New(opts Options, dht dht.DHT, trans *transport.Transport, listener Listener) *Gossiper {
 	return &Gossiper{
 		opts: opts,
 
-		receiver: receiver,
 		dht:      dht,
 		trans:    trans,
+		listener: listener,
 
 		r: rand.New(rand.NewSource(time.Now().UnixNano())),
+		jobQueue: make(chan struct {
+			wire.Address
+			wire.Message
+		}, opts.Alpha*opts.Alpha),
 	}
 }
 
-// Gossip a message to members of a particular Subnet.
-func (g *Gossiper) Gossip(ctx context.Context, subnet, contentHash id.Hash) {
-	pushV1 := wire.PushV1{
-		Subnet: subnet,
-		Hash:   contentHash,
-	}
-	marshaledPushV1, err := surge.ToBinary(pushV1)
-	if err != nil {
-		g.opts.Logger.Fatalf("marshaling push: %v", err)
-	}
-	msg := wire.Message{
-		Version: wire.V1,
-		Type:    wire.Push,
-		Data:    marshaledPushV1,
-	}
+func (g *Gossiper) Run(ctx context.Context) {
+	g.opts.Logger.Infof("gossiping with alpha=%v", g.opts.Alpha)
 
-	subnetSignatories := g.dht.Subnet(subnet)
-	for a := 0; a < g.opts.Alpha; a++ {
-		for i := 0; i < len(subnetSignatories); i++ {
-			// We express an exponential bias for the signatories that are
-			// earlier in the queue (i.e. have pubkey hashes that are similar to
-			// our own).
-			//
-			// The smaller the bias, the more connections we are likely to be
-			// maintaining at any one time. However, if the bias is too small,
-			// we will not maintain any connections and are more likely to be
-			// constantly creating new ones on-demand.
-			if g.r.Float64() < g.opts.Bias {
-				// Get the associated address, and then remove this signatory
-				// from the slice so that we do not gossip to it multiple times.
-				addr, ok := g.dht.Addr(subnetSignatories[i])
-				subnetSignatories = append(subnetSignatories[:i], subnetSignatories[i+1:]...)
-				i--
-				if ok {
-					if err := g.trans.Send(ctx, addr, msg); err != nil {
-						g.opts.Logger.Warnf("pushing to address=%v: %v", addr, err)
-						g.opts.Logger.Infof("deleting address=%v", addr)
-						g.dht.DeleteAddr(subnetSignatories[i])
-					}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case job := <-g.jobQueue:
+			func() {
+				ctx, cancel := context.WithTimeout(ctx, g.opts.Timeout)
+				defer cancel()
+				if err := g.trans.Send(ctx, job.Address, job.Message); err != nil {
+					g.opts.Logger.Errorf("sending to address=%v: %v", job.Address, err)
 				}
-				break
-			}
+			}()
 		}
 	}
 }
 
-// Sync a message from members of a particular Subnet.
-func (g *Gossiper) Sync(ctx context.Context, subnet, contentHash id.Hash) {
-	pullV1 := wire.PullV1{
-		Subnet: subnet,
-		Hash:   contentHash,
+// Gossip a message throughout the network. The target can be the signatory in
+// the DHT, or it can be a subnet in the DHT. If the target is a subnet, then
+// the gossiper will attempt to deliver the message to all peers in the subnet.
+// If the target is a signatory, then the gossiper will attempt to deliver the
+// message to that specific peer. If the target is neither, the message will be
+// dropped.
+func (g *Gossiper) Gossip(target, hash id.Hash) {
+	addr, ok := g.dht.Addr(id.Signatory(target))
+	if ok {
+		marshaledPushV1, err := surge.ToBinary(wire.PushV1{
+			Subnet: id.Hash{},
+			Hash:   hash,
+		})
+		if err != nil {
+			g.opts.Logger.Fatalf("marshaling push: %v", err)
+		}
+		g.send(addr, wire.Message{
+			Version: wire.V1,
+			Type:    wire.Push,
+			Data:    marshaledPushV1,
+		})
+		return
 	}
+
+	marshaledPushV1, err := surge.ToBinary(wire.PushV1{
+		Subnet: target,
+		Hash:   hash,
+	})
+	if err != nil {
+		g.opts.Logger.Fatalf("marshaling push: %v", err)
+	}
+	g.sendToSubnet(target, wire.Message{
+		Version: wire.V1,
+		Type:    wire.Push,
+		Data:    marshaledPushV1,
+	})
+}
+
+// Sync a message from members of a particular Subnet.
+func (g *Gossiper) Sync(subnet, hash id.Hash) {
+	pullV1 := wire.PullV1{Subnet: subnet, Hash: hash}
 	marshaledPullV1, err := surge.ToBinary(pullV1)
 	if err != nil {
 		g.opts.Logger.Fatalf("marshaling pull: %v", err)
@@ -100,35 +112,7 @@ func (g *Gossiper) Sync(ctx context.Context, subnet, contentHash id.Hash) {
 		Type:    wire.Pull,
 		Data:    marshaledPullV1,
 	}
-
-	subnetSignatories := g.dht.Subnet(subnet)
-	for a := 0; a < g.opts.Alpha; a++ {
-		for i := 0; i < len(subnetSignatories); i++ {
-			// We express an exponential bias for the signatories that are
-			// earlier in the queue (i.e. have pubkey hashes that are similar to
-			// our own).
-			//
-			// The smaller the bias, the more connections we are likely to be
-			// maintaining at any one time. However, if the bias is too small,
-			// we will not maintain any connections and are more likely to be
-			// constantly creating new ones on-demand.
-			if g.r.Float64() < g.opts.Bias {
-				// Get the associated address, and then remove this signatory
-				// from the slice so that we do not gossip to it multiple times.
-				addr, ok := g.dht.Addr(subnetSignatories[i])
-				subnetSignatories = append(subnetSignatories[:i], subnetSignatories[i+1:]...)
-				i--
-				if ok {
-					if err := g.trans.Send(ctx, addr, msg); err != nil {
-						g.opts.Logger.Warnf("pushing to address=%v: %v", addr, err)
-						g.opts.Logger.Infof("deleting address=%v", addr)
-						g.dht.DeleteAddr(subnetSignatories[i])
-					}
-				}
-				break
-			}
-		}
-	}
+	g.sendToSubnet(subnet, msg)
 }
 
 func (g *Gossiper) DidReceivePush(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
@@ -169,7 +153,7 @@ func (g *Gossiper) DidReceivePush(version uint8, data []byte, from id.Signatory)
 				Type:    wire.Pull,
 				Data:    marshaledPullV1,
 			}
-			g.trans.Send(context.TODO(), fromAddr, msg)
+			g.send(fromAddr, msg)
 		}
 	}
 	return wire.Message{Version: wire.V1, Type: wire.PushAck, Data: []byte{}}, nil
@@ -230,7 +214,6 @@ func (g *Gossiper) DidReceivePull(version uint8, data []byte, from id.Signatory)
 	if err != nil {
 		g.opts.Logger.Fatalf("marshaling pull: %v", err)
 	}
-
 	return wire.Message{Version: wire.V1, Type: wire.PullAck, Data: pullAckV1Marshaled}, nil
 }
 
@@ -262,14 +245,46 @@ func (g *Gossiper) DidReceivePullAck(version uint8, data []byte, from id.Signato
 	// moment.
 	if !g.dht.HasContent(pullAckV1.Hash) || g.dht.HasEmptyContent(pullAckV1.Hash) {
 		g.dht.InsertContent(pullAckV1.Hash, pullAckV1.Content)
-		g.receiver.DidReceiveContent(pullAckV1.Hash, pullAckV1.Content)
-
-		go func() {
-			// Wait 1 millisecond before continuing the gossip (to increase the
-			// probability that we will successfully synchronise the data being
-			// gossiped).
-			g.Gossip(context.TODO(), pullAckV1.Subnet, pullAckV1.Hash)
-		}()
+		g.listener.DidReceiveContent(pullAckV1.Hash, pullAckV1.Content)
+		g.Gossip(pullAckV1.Subnet, pullAckV1.Hash)
 	}
 	return nil
+}
+
+func (g *Gossiper) sendToSubnet(subnet id.Hash, msg wire.Message) {
+	subnetSignatories := g.dht.Subnet(subnet)
+	for a := 0; a < g.opts.Alpha; a++ {
+		for i := 0; i < len(subnetSignatories); i++ {
+			// We express an exponential bias for the signatories that are
+			// earlier in the queue (i.e. have pubkey hashes that are similar to
+			// our own).
+			//
+			// The smaller the bias, the more connections we are likely to be
+			// maintaining at any one time. However, if the bias is too small,
+			// we will not maintain any connections and are more likely to be
+			// constantly creating new ones on-demand.
+			if g.r.Float64() < g.opts.Bias {
+				// Get the associated address, and then remove this signatory
+				// from the slice so that we do not gossip to it multiple times.
+				addr, ok := g.dht.Addr(subnetSignatories[i])
+				subnetSignatories = append(subnetSignatories[:i], subnetSignatories[i+1:]...)
+				i--
+				if ok {
+					g.send(addr, msg)
+				}
+				break
+			}
+		}
+	}
+}
+
+func (g *Gossiper) send(addr wire.Address, msg wire.Message) {
+	select {
+	case g.jobQueue <- struct {
+		wire.Address
+		wire.Message
+	}{addr, msg}:
+	default:
+		g.opts.Logger.Warnf("sending to address=%v: too much back-pressure", addr)
+	}
 }

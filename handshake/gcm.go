@@ -18,9 +18,6 @@ type GCMSession struct {
 }
 
 func NewGCMSession(key []byte, other id.Signatory) (Session, error) {
-	if len(key) < 8 {
-		return GCMSession{}, fmt.Errorf("expected key length>=8, got key length=%v", len(key))
-	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return GCMSession{}, fmt.Errorf("creating aes cipher: %v", err)
@@ -34,6 +31,7 @@ func NewGCMSession(key []byte, other id.Signatory) (Session, error) {
 		gcm:         gcm,
 		nonceRand:   rand.New(rand.NewSource(int64(binary.BigEndian.Uint64(key[:8])))),
 		nonceBuffer: make([]byte, gcm.NonceSize()),
+		other:       other,
 	}, nil
 }
 
@@ -52,6 +50,6 @@ func (session GCMSession) Decrypt(p []byte) ([]byte, error) {
 	return session.gcm.Open(nil, session.nonceBuffer, p, nil)
 }
 
-func (session GCMSession) Signatory() id.Signatory {
+func (session GCMSession) RemoteSignatory() id.Signatory {
 	return session.other
 }

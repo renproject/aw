@@ -70,7 +70,7 @@ func NewUnsignedAddress(protocol uint8, value string, nonce uint64) Address {
 
 // SizeHint returns the number of bytes needed to represent this Address in
 // binary.
-func (addr *Address) SizeHint() int {
+func (addr Address) SizeHint() int {
 	return surge.SizeHint(addr.Protocol) +
 		surge.SizeHint(addr.Value) +
 		surge.SizeHint(addr.Nonce) +
@@ -78,7 +78,7 @@ func (addr *Address) SizeHint() int {
 }
 
 // Marshal this Address into binary.
-func (addr *Address) Marshal(w io.Writer, m int) (int, error) {
+func (addr Address) Marshal(w io.Writer, m int) (int, error) {
 	m, err := surge.Marshal(w, addr.Protocol, m)
 	if err != nil {
 		return m, fmt.Errorf("marsahling timestamp: %v", err)
@@ -202,7 +202,7 @@ func (addr *Address) SignatoryWithBuffer(buf *bytes.Buffer) (id.Signatory, error
 
 // String returns a human-readable representation of the Address. The string
 // representation is safe for use in URLs and filenames.
-func (addr *Address) String() string {
+func (addr Address) String() string {
 	protocol := ""
 	switch addr.Protocol {
 	case TCP:

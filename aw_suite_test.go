@@ -1,4 +1,4 @@
-package listen_test
+package aw_test
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestListen(t *testing.T) {
+func TestAw(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Listen Suite")
+	RunSpecs(t, "Airwave Suite")
 }

@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	DefaultAddr                 = wire.NewUnsignedAddress(wire.TCP, "0.0.0.0", uint64(time.Now().Unix()))
+	DefaultAddr                 = wire.NewUnsignedAddress(wire.TCP, "0.0.0.0:18514", uint64(time.Now().Unix()))
 	DefaultAlpha                = 10
 	DefaultPingTimeout          = 10 * time.Second
 	DefaultPingInterval         = 10 * time.Minute
@@ -33,10 +33,11 @@ func DefaultOptions() Options {
 			WithField("pkg", "peer").
 			WithField("com", "peer"),
 
-		Addr:         DefaultAddr,
-		Alpha:        DefaultAlpha,
-		PingTimeout:  DefaultPingTimeout,
-		PingInterval: DefaultPingInterval,
+		Addr:                 DefaultAddr,
+		Alpha:                DefaultAlpha,
+		PingTimeout:          DefaultPingTimeout,
+		PingInterval:         DefaultPingInterval,
+		NumBackgroundWorkers: DefaultNumBackgroundWorkers,
 	}
 }
 

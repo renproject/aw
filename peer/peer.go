@@ -55,14 +55,30 @@ func New(opts Options, dht dht.DHT, trans *transport.Transport, privKey *ecdsa.P
 // Run the Peer. This will periodically attempt to Ping random addresses in the
 // DHT. If the Ping is not successful, the address will be removed from the DHT.
 func (peer *Peer) Run(ctx context.Context) {
+	peer.opts.Logger.Infof("peering with address=%v", peer.opts.Addr)
+
+	// Start by pinging some random addresses from the DHT.
+	peer.Ping(ctx)
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(peer.opts.PingInterval):
+			// Ping periodically.
 			peer.Ping(ctx)
 		}
 	}
+}
+
+// Identity returns the signatory of the peer.
+func (peer *Peer) Identity() id.Signatory {
+	return id.NewSignatory(&peer.privKey.PublicKey)
+}
+
+// Addr returns the network address of this peer.
+func (peer *Peer) Addr() wire.Address {
+	return peer.opts.Addr
 }
 
 // Ping a number of random Peers from the DHT. If the Peer is not responsive,
@@ -98,13 +114,14 @@ func (peer *Peer) Ping(ctx context.Context) {
 				case <-ctx.Done():
 					return
 				case signatoryAndAddr := <-queue:
+					peer.opts.Logger.Debugf("dequeuing signatory=%v at address=%v", signatoryAndAddr.Signatory, signatoryAndAddr.Addr)
+
 					// Ping the address with our own address. If the Ping
 					// returns an error, then we remove the address from the
 					// DHT.
 					func() {
 						innerCtx, innerCancel := context.WithTimeout(ctx, peer.opts.PingTimeout)
 						defer innerCancel()
-
 						if err := peer.trans.Send(innerCtx, signatoryAndAddr.Addr, ping); err != nil {
 							peer.opts.Logger.Warnf("pinging address=%v: %v", signatoryAndAddr.Addr, err)
 							peer.opts.Logger.Infof("deleting address=%v", signatoryAndAddr.Addr)
@@ -116,19 +133,20 @@ func (peer *Peer) Ping(ctx context.Context) {
 		}()
 	}
 
-	// Periodically grab some random addresses from the DHT and add them
-	// to the queue for pinging.
+	// Grab some random addresses from the DHT and add them to the queue for
+	// pinging.
 	addrsBySignatory := peer.dht.Addrs(peer.opts.Alpha)
 	for signatory, addr := range addrsBySignatory {
 		select {
 		case <-ctx.Done():
 			return
 		case queue <- SignatoryAndAddress{Signatory: signatory, Addr: addr}:
+			peer.opts.Logger.Debugf("pinging signatory=%v at address=%v", signatory, addr)
 		}
 	}
 }
 
-func (peer *Peer) DidReceivePing(version uint8, data []byte) (wire.Message, error) {
+func (peer *Peer) DidReceivePing(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
 	if version != wire.V1 {
 		return wire.Message{}, fmt.Errorf("unsupported version=%v", version)
 	}
@@ -136,6 +154,10 @@ func (peer *Peer) DidReceivePing(version uint8, data []byte) (wire.Message, erro
 	remoteAddr := wire.Address{}
 	if err := surge.FromBinary(data, &remoteAddr); err != nil {
 		return wire.Message{}, fmt.Errorf("unsupported remote address: %v", err)
+	}
+
+	if peer.dht.InsertAddr(from, remoteAddr) {
+		peer.opts.Logger.Infof("peer found with remote address=%v", remoteAddr)
 	}
 
 	addrsBySignatory := peer.dht.Addrs(peer.opts.Alpha)
@@ -165,7 +187,7 @@ func (peer *Peer) DidReceivePing(version uint8, data []byte) (wire.Message, erro
 	return pingAck, nil
 }
 
-func (peer *Peer) DidReceivePingAck(version uint8, data []byte) error {
+func (peer *Peer) DidReceivePingAck(version uint8, data []byte, from id.Signatory) error {
 	if version != wire.V1 {
 		return fmt.Errorf("unsupported version=%v", version)
 	}

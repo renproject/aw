@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/renproject/aw/handshake"
-	"github.com/renproject/aw/listen"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/surge"
 	"github.com/sirupsen/logrus"
@@ -77,7 +76,7 @@ type Server struct {
 	opts ServerOptions
 
 	handshaker handshake.Handshaker
-	listener   listen.Listener
+	listener   wire.Listener
 
 	// numConns must only be accessed atomically.
 	numConns int64
@@ -89,7 +88,7 @@ type Server struct {
 	rateLimitsCapacity int
 }
 
-func NewServer(opts ServerOptions, handshaker handshake.Handshaker, listener listen.Listener) *Server {
+func NewServer(opts ServerOptions, handshaker handshake.Handshaker, listener wire.Listener) *Server {
 	return &Server{
 		opts: opts,
 
@@ -247,11 +246,11 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		var err error
 		switch msg.Type {
 		case wire.Ping:
-			response, err = server.listener.DidReceivePing(msg.Version, msg.Data, session.Signatory())
+			response, err = server.listener.DidReceivePing(msg.Version, msg.Data, session.RemoteSignatory())
 		case wire.Push:
-			response, err = server.listener.DidReceivePush(msg.Version, msg.Data, session.Signatory())
+			response, err = server.listener.DidReceivePush(msg.Version, msg.Data, session.RemoteSignatory())
 		case wire.Pull:
-			response, err = server.listener.DidReceivePull(msg.Version, msg.Data, session.Signatory())
+			response, err = server.listener.DidReceivePull(msg.Version, msg.Data, session.RemoteSignatory())
 		default:
 			panic("unreachable")
 		}

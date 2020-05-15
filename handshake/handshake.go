@@ -32,6 +32,7 @@ type Session interface {
 	Encrypt([]byte) ([]byte, error)
 	// Decrypt data from the other Signatory.
 	Decrypt([]byte) ([]byte, error)
-	// Signatory returns the pubkey hash of the other Signatory.
-	Signatory() id.Signatory
+	// RemoteSignatory returns the pubkey hash of the Signatory that is on the
+	// remote end of the Session.
+	RemoteSignatory() id.Signatory
 }

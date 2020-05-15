@@ -3,9 +3,9 @@ package transport
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/renproject/aw/handshake"
-	"github.com/renproject/aw/listen"
 	"github.com/renproject/aw/tcp"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
@@ -14,24 +14,42 @@ import (
 type Transport struct {
 	opts Options
 
+	isRunningMu *sync.Mutex
+	isRunning   bool
+
 	tcpclient *tcp.Client
 	tcpserver *tcp.Server
 
-	pingListener listen.PingListener
-	pushListener listen.PushListener
-	pullListener listen.PullListener
+	pingListener wire.PingListener
+	pushListener wire.PushListener
+	pullListener wire.PullListener
 }
 
 func New(opts Options, handshaker handshake.Handshaker) *Transport {
 	trans := &Transport{
 		opts: opts,
+
+		isRunningMu: new(sync.Mutex),
+		isRunning:   false,
 	}
 	trans.tcpclient = tcp.NewClient(opts.TCPClientOpts, handshaker, trans)
 	trans.tcpserver = tcp.NewServer(opts.TCPServerOpts, handshaker, trans)
 	return trans
 }
 
+// Run the Transport until the context is done. This method must only be called
+// after the SetPingListener, SetPushListener, and SetPullListener methods have
+// been called (if necessary). Otherwise, this method will panic.
 func (trans *Transport) Run(ctx context.Context) {
+	trans.isRunningMu.Lock()
+	isAlreadyRunning := trans.isRunning
+	trans.isRunning = true
+	trans.isRunningMu.Unlock()
+
+	if isAlreadyRunning {
+		panic("transport is already running")
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -44,15 +62,18 @@ func (trans *Transport) Run(ctx context.Context) {
 					}
 				}()
 
-				trans.opts.Logger.Infof("running")
 				if err := trans.tcpserver.Listen(ctx); err != nil {
-					trans.opts.Logger.Errorf("running: %v", err)
+					trans.opts.Logger.Errorf("%v", err)
 				}
 			}()
 		}
 	}
 }
 
+// Send a message to an address. The Transport will select the appropriate
+// client implementation based on the protocol in the target address. If the
+// protocol is not supported, an error is returned. Otherwise, any error from
+// the selected client is returned.
 func (trans *Transport) Send(ctx context.Context, addr wire.Address, msg wire.Message) error {
 	switch addr.Protocol {
 	case wire.TCP:
@@ -64,6 +85,42 @@ func (trans *Transport) Send(ctx context.Context, addr wire.Address, msg wire.Me
 	default:
 		return fmt.Errorf("unsupported protocol=%v", addr.Protocol)
 	}
+}
+
+// SetPingListener must be called before calling the Run method. Otherwise, this
+// method will panic.
+func (trans *Transport) SetPingListener(listener wire.PingListener) {
+	trans.isRunningMu.Lock()
+	defer trans.isRunningMu.Unlock()
+
+	if trans.isRunning {
+		panic("transport is already running")
+	}
+	trans.pingListener = listener
+}
+
+// SetPushListener must be called before calling the Run method. Otherwise, this
+// method will panic.
+func (trans *Transport) SetPushListener(listener wire.PushListener) {
+	trans.isRunningMu.Lock()
+	defer trans.isRunningMu.Unlock()
+
+	if trans.isRunning {
+		panic("transport is already running")
+	}
+	trans.pushListener = listener
+}
+
+// SetPullListener must be called before calling the Run method. Otherwise, this
+// method will panic.
+func (trans *Transport) SetPullListener(listener wire.PullListener) {
+	trans.isRunningMu.Lock()
+	defer trans.isRunningMu.Unlock()
+
+	if trans.isRunning {
+		panic("transport is already running")
+	}
+	trans.pullListener = listener
 }
 
 func (trans *Transport) DidReceivePing(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
@@ -106,16 +163,4 @@ func (trans *Transport) DidReceivePullAck(version uint8, data []byte, from id.Si
 		return trans.pullListener.DidReceivePullAck(version, data, from)
 	}
 	return nil
-}
-
-func (trans *Transport) SetPingListener(listener listen.PingListener) {
-	trans.pingListener = listener
-}
-
-func (trans *Transport) SetPushListener(listener listen.PushListener) {
-	trans.pushListener = listener
-}
-
-func (trans *Transport) SetPullListener(listener listen.PullListener) {
-	trans.pullListener = listener
 }

@@ -12,7 +12,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/renproject/aw/handshake"
-	"github.com/renproject/aw/listen"
 	"github.com/renproject/aw/tcp"
 	"github.com/renproject/aw/wire"
 	"github.com/sirupsen/logrus"
@@ -110,24 +109,24 @@ func runBenchmarkSend(b *testing.B, run func(ctx context.Context, client *tcp.Cl
 	}
 
 	serverPort := 3000 + (rand.Int() % 7000)
-	serverListener := listen.Callbacks{}
+	serverListener := wire.Callbacks{}
 	server := tcp.NewServer(
 		tcp.DefaultServerOptions().
 			WithLogger(logger).
 			WithHost("127.0.0.1").
 			WithPort(uint16(serverPort)),
-		handshake.NewECDSA(serverPrivKey, nil),
+		handshake.NewECDSA(handshake.DefaultOptions().WithPrivKey(serverPrivKey)),
 		serverListener,
 	)
 	go server.Listen(ctx)
 	time.Sleep(time.Millisecond)
 
-	clientListener := listen.Callbacks{}
+	clientListener := wire.Callbacks{}
 	client := tcp.NewClient(
 		tcp.DefaultClientOptions().
 			WithLogger(logger).
 			WithMaxCapacity(b.N),
-		handshake.NewECDSA(clientPrivKey, nil),
+		handshake.NewECDSA(handshake.DefaultOptions().WithPrivKey(clientPrivKey)),
 		clientListener,
 	)
 	defer func() {

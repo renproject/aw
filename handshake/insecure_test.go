@@ -1,6 +1,7 @@
 package handshake_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math/rand"
@@ -21,23 +22,41 @@ var _ = Describe("Insecure handshake", func() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
 
+			//
+			// Client privkey
+			//
+			clientPrivKey, err := crypto.GenerateKey()
+			Expect(err).ToNot(HaveOccurred())
+
+			//
+			// Server connection
+			//
 			port := uint16(3000 + rand.Int()%3000)
 			listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%v", port))
 			Expect(err).ToNot(HaveOccurred())
 			defer listener.Close()
 
 			go func() {
+				defer GinkgoRecover()
+
 				_, err := listener.Accept()
 				Expect(err).ToNot(HaveOccurred())
 			}()
 
+			//
+			// Client connection
+			//
 			conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%v", port))
 			Expect(err).ToNot(HaveOccurred())
 
-			clientPrivKey, err := crypto.GenerateKey()
-			Expect(err).ToNot(HaveOccurred())
-			clientSignatory := id.NewSignatory(&clientPrivKey.PublicKey)
-			clientHandshake := handshake.NewInsecure(clientSignatory, time.Second)
+			//
+			// Client handshake
+			//
+			clientHandshake := handshake.NewInsecure(
+				handshake.DefaultOptions().
+					WithPrivKey(clientPrivKey).
+					WithTimeout(time.Second),
+			)
 			_, err = clientHandshake.Handshake(ctx, conn)
 			Expect(err).To(HaveOccurred())
 		})
@@ -48,23 +67,41 @@ var _ = Describe("Insecure handshake", func() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
 
+			//
+			// Server signatory
+			//
+			serverPrivKey, err := crypto.GenerateKey()
+			Expect(err).ToNot(HaveOccurred())
+
+			//
+			// Server connection
+			//
 			port := uint16(3000 + rand.Int()%3000)
 			listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%v", port))
 			Expect(err).ToNot(HaveOccurred())
 			defer listener.Close()
 
 			go func() {
+				defer GinkgoRecover()
+
 				conn, err := listener.Accept()
 				Expect(err).ToNot(HaveOccurred())
 
-				serverPrivKey, err := crypto.GenerateKey()
-				Expect(err).ToNot(HaveOccurred())
-				serverSignatory := id.NewSignatory(&serverPrivKey.PublicKey)
-				serverHandshake := handshake.NewInsecure(serverSignatory, time.Second)
-				_, err = serverHandshake.Handshake(ctx, conn)
+				//
+				// Server handshake
+				//
+				serverHandshake := handshake.NewInsecure(
+					handshake.DefaultOptions().
+						WithPrivKey(serverPrivKey).
+						WithTimeout(time.Second),
+				)
+				_, err = serverHandshake.AcceptHandshake(ctx, conn)
 				Expect(err).To(HaveOccurred())
 			}()
 
+			//
+			// Client connection
+			//
 			_, err = net.Dial("tcp", fmt.Sprintf("127.0.0.1:%v", port))
 			Expect(err).ToNot(HaveOccurred())
 		})
@@ -72,7 +109,161 @@ var _ = Describe("Insecure handshake", func() {
 
 	Context("when the client and server are online", func() {
 		It("should exchange signatories", func() {
-			Expect(func() { panic("unimplemented") }).ToNot(Panic())
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+
+			//
+			// Client signatory
+			//
+			clientPrivKey, err := crypto.GenerateKey()
+			Expect(err).ToNot(HaveOccurred())
+			clientSignatory := id.NewSignatory(&clientPrivKey.PublicKey)
+
+			//
+			// Server signatory
+			//
+			serverPrivKey, err := crypto.GenerateKey()
+			Expect(err).ToNot(HaveOccurred())
+			serverSignatory := id.NewSignatory(&serverPrivKey.PublicKey)
+
+			//
+			// Server connection
+			//
+			port := uint16(3000 + rand.Int()%3000)
+			listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%v", port))
+			Expect(err).ToNot(HaveOccurred())
+			defer listener.Close()
+
+			go func() {
+				defer GinkgoRecover()
+
+				conn, err := listener.Accept()
+				Expect(err).ToNot(HaveOccurred())
+
+				//
+				// Server handshake
+				//
+				serverHandshake := handshake.NewInsecure(
+					handshake.DefaultOptions().
+						WithPrivKey(serverPrivKey).
+						WithTimeout(time.Second),
+				)
+				serverSession, err := serverHandshake.AcceptHandshake(ctx, conn)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(serverSession.RemoteSignatory()).To(Equal(clientSignatory))
+			}()
+
+			//
+			// Client connection
+			//
+			conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%v", port))
+			Expect(err).ToNot(HaveOccurred())
+
+			//
+			// Client handshake
+			//
+			clientHandshake := handshake.NewInsecure(
+				handshake.DefaultOptions().
+					WithPrivKey(clientPrivKey).
+					WithTimeout(time.Second),
+			)
+			clientSession, err := clientHandshake.Handshake(ctx, conn)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(clientSession.RemoteSignatory()).To(Equal(serverSignatory))
+		})
+
+		It("should encrypt/decrypt using plain-text", func() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+
+			//
+			// Client signatory
+			//
+			clientPrivKey, err := crypto.GenerateKey()
+			Expect(err).ToNot(HaveOccurred())
+			clientSignatory := id.NewSignatory(&clientPrivKey.PublicKey)
+
+			//
+			// Server signatory
+			//
+			serverPrivKey, err := crypto.GenerateKey()
+			Expect(err).ToNot(HaveOccurred())
+			serverSignatory := id.NewSignatory(&serverPrivKey.PublicKey)
+
+			//
+			// Server connection
+			//
+			port := uint16(3000 + rand.Int()%3000)
+			listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%v", port))
+			Expect(err).ToNot(HaveOccurred())
+			defer listener.Close()
+
+			go func() {
+				defer GinkgoRecover()
+
+				conn, err := listener.Accept()
+				Expect(err).ToNot(HaveOccurred())
+
+				//
+				// Server handshake
+				//
+				serverHandshake := handshake.NewInsecure(
+					handshake.DefaultOptions().
+						WithPrivKey(serverPrivKey).
+						WithTimeout(time.Second),
+				)
+				serverSession, err := serverHandshake.AcceptHandshake(ctx, conn)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(serverSession.RemoteSignatory()).To(Equal(clientSignatory))
+
+				//
+				// Server encryption/decryption
+				//
+				plainText := make([]byte, 32)
+				for i := range plainText {
+					plainText[i] = byte(rand.Int())
+				}
+				cipherText, err := serverSession.Encrypt(plainText)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(bytes.Equal(plainText, cipherText)).To(BeTrue())
+
+				plainText, err = serverSession.Decrypt(cipherText)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(bytes.Equal(plainText, cipherText)).To(BeTrue())
+			}()
+
+			//
+			// Client connection
+			//
+			conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%v", port))
+			Expect(err).ToNot(HaveOccurred())
+
+			//
+			// Client handshake
+			//
+			clientHandshake := handshake.NewInsecure(
+				handshake.DefaultOptions().
+					WithPrivKey(clientPrivKey).
+					WithTimeout(time.Second),
+			)
+			clientSession, err := clientHandshake.Handshake(ctx, conn)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(clientSession.RemoteSignatory()).To(Equal(serverSignatory))
+
+			//
+			// Client encryption/decryption
+			//
+			plainText := make([]byte, 32)
+			for i := range plainText {
+				plainText[i] = byte(rand.Int())
+			}
+			cipherText, err := clientSession.Encrypt(plainText)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(bytes.Equal(plainText, cipherText)).To(BeTrue())
+
+			plainText, err = clientSession.Decrypt(cipherText)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(bytes.Equal(plainText, cipherText)).To(BeTrue())
 		})
 	})
 })

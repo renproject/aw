@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/renproject/aw/handshake"
-	"github.com/renproject/aw/listen"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/surge"
 	"github.com/sirupsen/logrus"
@@ -77,13 +76,13 @@ type Client struct {
 	opts ClientOptions
 
 	handshaker handshake.Handshaker
-	listener   listen.Listener
+	listener   wire.Listener
 
 	connsByAddrMu *sync.Mutex
 	connsByAddr   map[string]conn
 }
 
-func NewClient(opts ClientOptions, handshaker handshake.Handshaker, listener listen.Listener) *Client {
+func NewClient(opts ClientOptions, handshaker handshake.Handshaker, listener wire.Listener) *Client {
 	client := &Client{
 		opts: opts,
 
@@ -346,11 +345,11 @@ func (client *Client) write(session handshake.Session, rw *bufio.ReadWriter, msg
 
 	switch response.Type {
 	case wire.PingAck:
-		err = client.listener.DidReceivePingAck(response.Version, response.Data, session.Signatory())
+		err = client.listener.DidReceivePingAck(response.Version, response.Data, session.RemoteSignatory())
 	case wire.PushAck:
-		err = client.listener.DidReceivePushAck(response.Version, response.Data, session.Signatory())
+		err = client.listener.DidReceivePushAck(response.Version, response.Data, session.RemoteSignatory())
 	case wire.PullAck:
-		err = client.listener.DidReceivePullAck(response.Version, response.Data, session.Signatory())
+		err = client.listener.DidReceivePullAck(response.Version, response.Data, session.RemoteSignatory())
 	default:
 		panic("unreachable")
 	}
@@ -385,7 +384,7 @@ func (client *Client) dial(ctx context.Context, addr string) (net.Conn, handshak
 		// Attempt to dial a new connection for 30 seconds. If we are not
 		// successful, then wait until the end of the 30 second timeout and try
 		// again.
-		innerDialCtx, innerDialCancel := context.WithTimeout(dialCtx, 30*time.Second)
+		innerDialCtx, innerDialCancel := context.WithTimeout(dialCtx, time.Second)
 		conn, err := new(net.Dialer).DialContext(innerDialCtx, "tcp", addr)
 		if err != nil {
 			// Make sure to wait until the entire 30 seconds has passed,

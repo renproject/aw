@@ -1,6 +1,7 @@
 package wire
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 
@@ -65,16 +66,22 @@ type Message struct {
 	Data    []byte `json:"data"`
 }
 
+// Equal compares one Message to another. It returns true if they are equal,
+// otherwise it returns false.
+func (msg Message) Equal(other *Message) bool {
+	return msg.Version == other.Version && msg.Type == other.Type && bytes.Equal(msg.Data, other.Data)
+}
+
 // SizeHint returns the number of bytes required to represent this Message in
 // binary.
-func (msg *Message) SizeHint() int {
+func (msg Message) SizeHint() int {
 	return surge.SizeHint(msg.Version) +
 		surge.SizeHint(msg.Type) +
 		surge.SizeHint(msg.Data)
 }
 
 // Marshal this Message into binary.
-func (msg *Message) Marshal(w io.Writer, m int) (int, error) {
+func (msg Message) Marshal(w io.Writer, m int) (int, error) {
 	m, err := surge.Marshal(w, msg.Version, m)
 	if err != nil {
 		return m, fmt.Errorf("marshaling version: %v", err)

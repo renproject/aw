@@ -11,57 +11,78 @@ import (
 )
 
 type insecureHandshaker struct {
-	self    id.Signatory
-	timeout time.Duration
+	opts Options
 }
 
 // NewInsecure returns a new Handshaker that implements no authentication,
 // encryption, or restrictions on connections.
-func NewInsecure(self id.Signatory, timeout time.Duration) Handshaker {
-	return &insecureHandshaker{self: self, timeout: timeout}
+func NewInsecure(opts Options) Handshaker {
+	return &insecureHandshaker{opts: opts}
 }
 
 // Handshake with a remote server. The input ReadWriter is returned without
 // modification.
-func (h *insecureHandshaker) Handshake(ctx context.Context, conn net.Conn) (Session, error) {
+func (handshaker *insecureHandshaker) Handshake(ctx context.Context, conn net.Conn) (Session, error) {
 	conn.SetDeadline(time.Now().Add(10 * time.Second))
 	defer conn.SetDeadline(time.Time{})
 
-	other := id.Signatory{}
+	//
+	// Write own client identity.
+	//
 
-	conn.SetWriteDeadline(time.Now().Add(h.timeout / 2))
-	if _, err := h.self.Marshal(conn, surge.MaxBytes); err != nil {
-		return nil, fmt.Errorf("marshaling self: %v", err)
-	}
-	conn.SetReadDeadline(time.Now().Add(h.timeout / 2))
-	if _, err := other.Unmarshal(conn, surge.MaxBytes); err != nil {
-		return nil, fmt.Errorf("unmarshaling other: %v", err)
+	conn.SetWriteDeadline(time.Now().Add(handshaker.opts.Timeout / 2))
+	if _, err := id.NewSignatory(&handshaker.opts.PrivKey.PublicKey).Marshal(conn, surge.MaxBytes); err != nil {
+		return nil, fmt.Errorf("marshaling identity: %v", err)
 	}
 
-	return insecureSession{other: other}, nil
+	//
+	// Read remote server identity.
+	//
+
+	serverSignatory := id.Signatory{}
+	conn.SetReadDeadline(time.Now().Add(handshaker.opts.Timeout / 2))
+	if _, err := serverSignatory.Unmarshal(conn, surge.MaxBytes); err != nil {
+		return nil, fmt.Errorf("unmarshaling server identity: %v", err)
+	}
+	if handshaker.opts.Filter != nil && !handshaker.opts.Filter.Filter(serverSignatory) {
+		return nil, fmt.Errorf("filtering: bad server")
+	}
+
+	return insecureSession{remoteSignatory: serverSignatory}, nil
 }
 
 // AcceptHandshake from a remote client. The input ReadWriter is returned
 // without modification.
-func (h *insecureHandshaker) AcceptHandshake(ctx context.Context, conn net.Conn) (Session, error) {
+func (handshaker *insecureHandshaker) AcceptHandshake(ctx context.Context, conn net.Conn) (Session, error) {
 	defer conn.SetDeadline(time.Time{})
 
-	other := id.Signatory{}
+	//
+	// Read remote client identity.
+	//
 
-	conn.SetReadDeadline(time.Now().Add(h.timeout / 2))
-	if _, err := other.Unmarshal(conn, surge.MaxBytes); err != nil {
-		return nil, fmt.Errorf("unmarshaling other: %v", err)
+	clienSignatory := id.Signatory{}
+	conn.SetReadDeadline(time.Now().Add(handshaker.opts.Timeout / 2))
+	if _, err := clienSignatory.Unmarshal(conn, surge.MaxBytes); err != nil {
+		return nil, fmt.Errorf("unmarshaling client identity: %v", err)
 	}
-	conn.SetWriteDeadline(time.Now().Add(h.timeout / 2))
-	if _, err := h.self.Marshal(conn, surge.MaxBytes); err != nil {
-		return nil, fmt.Errorf("marshaling self: %v", err)
+	if handshaker.opts.Filter != nil && !handshaker.opts.Filter.Filter(clienSignatory) {
+		return nil, fmt.Errorf("filtering: bad server")
 	}
 
-	return insecureSession{other: other}, nil
+	//
+	// Write own server identity.
+	//
+
+	conn.SetWriteDeadline(time.Now().Add(handshaker.opts.Timeout / 2))
+	if _, err := id.NewSignatory(&handshaker.opts.PrivKey.PublicKey).Marshal(conn, surge.MaxBytes); err != nil {
+		return nil, fmt.Errorf("marshaling identity: %v", err)
+	}
+
+	return insecureSession{remoteSignatory: clienSignatory}, nil
 }
 
 type insecureSession struct {
-	other id.Signatory
+	remoteSignatory id.Signatory
 }
 
 func (session insecureSession) Encrypt(p []byte) ([]byte, error) {
@@ -72,6 +93,6 @@ func (session insecureSession) Decrypt(p []byte) ([]byte, error) {
 	return p, nil
 }
 
-func (session insecureSession) Signatory() id.Signatory {
-	return session.other
+func (session insecureSession) RemoteSignatory() id.Signatory {
+	return session.remoteSignatory
 }

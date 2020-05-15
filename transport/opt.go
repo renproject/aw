@@ -5,9 +5,16 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type Options struct {
-	Logger logrus.FieldLogger
+type TCPOptions struct {
+}
 
+type WSOptions struct {
+	tcp.ClientOptions
+	tcp.ServerOptions
+}
+
+type Options struct {
+	Logger        logrus.FieldLogger
 	TCPClientOpts tcp.ClientOptions
 	TCPServerOpts tcp.ServerOptions
 }
@@ -17,8 +24,7 @@ func DefaultOptions() Options {
 		Logger: logrus.New().
 			WithField("lib", "airwave").
 			WithField("pkg", "transport").
-			WithField("com", "trans"),
-
+			WithField("com", "transport"),
 		TCPClientOpts: tcp.DefaultClientOptions(),
 		TCPServerOpts: tcp.DefaultServerOptions(),
 	}
@@ -29,7 +35,12 @@ func (opts Options) WithLogger(logger logrus.FieldLogger) Options {
 	return opts
 }
 
-func (opts Options) WithTCPServerOptions(tcpServerOpts tcp.ServerOptions) Options {
-	opts.TCPServerOpts = tcpServerOpts
+func (opts Options) WithTCPClientOptions(clientOpts tcp.ClientOptions) Options {
+	opts.TCPClientOpts = clientOpts
+	return opts
+}
+
+func (opts Options) WithTCPServerOptions(serverOpts tcp.ServerOptions) Options {
+	opts.TCPServerOpts = serverOpts
 	return opts
 }

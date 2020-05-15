@@ -18,7 +18,7 @@ var _ = Describe("Address builder", func() {
 				f := func() bool {
 					r := rand.New(rand.NewSource(time.Now().UnixNano()))
 					protocol := wireutil.RandomAddrProtocol(r)
-					addr := wireutil.NewAddressBuilder(wireutil.RandomOkPrivKey(), r).WithProtocol(protocol).Build()
+					addr := wireutil.NewAddressBuilder(wireutil.RandomPrivKey(), r).WithProtocol(protocol).Build()
 					Expect(addr.Protocol).To(Equal(protocol))
 					return true
 				}
@@ -31,7 +31,7 @@ var _ = Describe("Address builder", func() {
 				f := func() bool {
 					r := rand.New(rand.NewSource(time.Now().UnixNano()))
 					value := wireutil.RandomAddrValue(r)
-					addr := wireutil.NewAddressBuilder(wireutil.RandomOkPrivKey(), r).WithValue(value).Build()
+					addr := wireutil.NewAddressBuilder(wireutil.RandomPrivKey(), r).WithValue(value).Build()
 					Expect(addr.Value).To(Equal(value))
 					return true
 				}
@@ -43,8 +43,8 @@ var _ = Describe("Address builder", func() {
 			It("should build a message with that nonce", func() {
 				f := func() bool {
 					r := rand.New(rand.NewSource(time.Now().UnixNano()))
-					nonce := wireutil.RandomOkAddrNonce(r)
-					addr := wireutil.NewAddressBuilder(wireutil.RandomOkPrivKey(), r).WithNonce(nonce).Build()
+					nonce := wireutil.RandomAddrNonce(r)
+					addr := wireutil.NewAddressBuilder(wireutil.RandomPrivKey(), r).WithNonce(nonce).Build()
 					Expect(addr.Nonce).To(Equal(nonce))
 					return true
 				}
@@ -59,11 +59,11 @@ var _ = Describe("Address builder", func() {
 					signature := wireutil.RandomAddrSignature(
 						wireutil.RandomOkAddrProtocol(r),
 						wireutil.RandomOkAddrValue(r),
-						wireutil.RandomOkAddrNonce(r),
-						wireutil.RandomOkPrivKey(),
+						wireutil.RandomAddrNonce(r),
+						wireutil.RandomPrivKey(),
 						r,
 					)
-					addr := wireutil.NewAddressBuilder(wireutil.RandomOkPrivKey(), r).WithSignature(signature).Build()
+					addr := wireutil.NewAddressBuilder(wireutil.RandomPrivKey(), r).WithSignature(signature).Build()
 					Expect(addr.Signature.Equal(&signature)).To(BeTrue())
 					return true
 				}

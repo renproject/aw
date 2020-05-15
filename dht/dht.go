@@ -54,13 +54,18 @@ type DHT interface {
 	// Note: not having content is different from having empty/nil content.
 	HasEmptyContent(id.Hash) bool
 
+	// AddSubnet to the DHT. Returns the merkle root hash of the subnet.
 	AddSubnet([]id.Signatory) id.Hash
+	// DeleteSubnet from the DHT by specifying its merkle root hash. Does
+	// nothing if the subnet is not in the DHT.
 	DeleteSubnet(id.Hash)
+	// Subnet returns the signatories associated with the specified subnet
+	// merkle root hash.
 	Subnet(id.Hash) []id.Signatory
 }
 
 type distributedHashTable struct {
-	self id.Signatory
+	identity id.Signatory
 
 	addrsBySignatoryMu *sync.Mutex
 	addrsBySignatory   map[id.Signatory]wire.Address
@@ -73,9 +78,9 @@ type distributedHashTable struct {
 }
 
 // New returns an empty DHT.
-func New(self id.Signatory) DHT {
+func New(identity id.Signatory) DHT {
 	return &distributedHashTable{
-		self: self,
+		identity: identity,
 
 		addrsBySignatoryMu: new(sync.Mutex),
 		addrsBySignatory:   map[id.Signatory]wire.Address{},
@@ -215,8 +220,8 @@ func (dht *distributedHashTable) AddSubnet(signatories []id.Signatory) id.Hash {
 	copy(copied, signatories)
 	sort.Slice(copied, func(i, j int) bool {
 		for b := 0; b < 32; b++ {
-			d1 := dht.self[b] ^ copied[i][b]
-			d2 := dht.self[b] ^ copied[j][b]
+			d1 := dht.identity[b] ^ copied[i][b]
+			d2 := dht.identity[b] ^ copied[j][b]
 			if d1 < d2 {
 				return true
 			}
