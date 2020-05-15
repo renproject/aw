@@ -70,7 +70,7 @@ var _ = Describe("Connection pool", func() {
 		})
 
 		Context("when reaching max connection limit", func() {
-			It("return an error when trying to send messages to new receiver", func() {
+			FIt("return an error when trying to send messages to new receiver", func() {
 				test := func() bool {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer func() {
@@ -91,6 +91,9 @@ var _ = Describe("Connection pool", func() {
 
 					_ = NewTCPServer(ctx, ServerOptions{Host: serverAddr1.String()}, clientSignVerifier)
 					_ = NewTCPServer(ctx, ServerOptions{Host: serverAddr2.String()}, clientSignVerifier)
+
+					// Wait for servers to start
+					time.Sleep(100 * time.Millisecond)
 
 					// Expect the second send operation failing due to reaching max number of connections
 					message := RandomMessage(protocol.V1, RandomMessageVariant())
