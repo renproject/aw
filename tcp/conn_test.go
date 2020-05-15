@@ -70,7 +70,7 @@ var _ = Describe("Connection pool", func() {
 		})
 
 		Context("when reaching max connection limit", func() {
-			FIt("return an error when trying to send messages to new receiver", func() {
+			It("return an error when trying to send messages to new receiver", func() {
 				test := func() bool {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer func() {
