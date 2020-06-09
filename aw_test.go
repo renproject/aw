@@ -64,7 +64,7 @@ var _ = Describe("Airwave", func() {
 					).
 					Build()
 
-				node1.DHT().InsertAddr(node2.Identity(), node2.Addr())
+				node1.DHT().InsertAddr(node2.Addr())
 
 				go node1.Run(ctx)
 				go node2.Run(ctx)

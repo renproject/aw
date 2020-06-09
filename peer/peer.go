@@ -1,7 +1,6 @@
 package peer
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"fmt"
@@ -156,7 +155,7 @@ func (peer *Peer) DidReceivePing(version uint8, data []byte, from id.Signatory) 
 		return wire.Message{}, fmt.Errorf("unsupported remote address: %v", err)
 	}
 
-	if peer.dht.InsertAddr(from, remoteAddr) {
+	if peer.dht.InsertAddr(remoteAddr) {
 		peer.opts.Logger.Infof("peer found with remote address=%v", remoteAddr)
 	}
 
@@ -208,15 +207,8 @@ func (peer *Peer) DidReceivePingAck(version uint8, data []byte, from id.Signator
 
 	// Add all of the remote addresses to the DHT and keep track of the
 	// addresses that we are seeing for the first time.
-	buf := new(bytes.Buffer)
 	for _, addr := range pingAckV1.Addrs {
-		buf.Reset()
-		remoteSignatory, err := addr.SignatoryWithBuffer(buf)
-		if err != nil {
-			peer.opts.Logger.Warnf("identifying remote address=%v: %v", addr, err)
-			continue
-		}
-		if peer.dht.InsertAddr(remoteSignatory, addr) {
+		if peer.dht.InsertAddr(addr) {
 			newRemoteAddrs = append(newRemoteAddrs, addr)
 		}
 	}
