@@ -26,7 +26,7 @@ type DHT interface {
 
 	// InsertAddr into the DHT. Returns true if the address is new, otherwise
 	// returns false.
-	InsertAddr(id.Signatory, wire.Address) bool
+	InsertAddr(wire.Address) bool
 	// DeleteAddr from the DHT.
 	DeleteAddr(id.Signatory)
 	// Addr returns the address associated with a signatory. If there is no
@@ -95,9 +95,15 @@ func New(identity id.Signatory) DHT {
 
 // InsertAddr into the DHT. Returns true if the address is new, otherwise
 // returns false.
-func (dht *distributedHashTable) InsertAddr(signatory id.Signatory, addr wire.Address) bool {
+func (dht *distributedHashTable) InsertAddr(addr wire.Address) bool {
 	dht.addrsBySignatoryMu.Lock()
 	defer dht.addrsBySignatoryMu.Unlock()
+
+	signatory, err := addr.Signatory()
+	if err != nil {
+		// If there is an error fetching the signatory, return false.
+		return false
+	}
 
 	existingAddr, ok := dht.addrsBySignatory[signatory]
 	if ok {
