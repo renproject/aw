@@ -32,8 +32,8 @@ type DHT interface {
 	// Addr returns the address associated with a signatory. If there is no
 	// associated address, it returns false. Otherwise, it returns true.
 	Addr(id.Signatory) (wire.Address, bool)
-	// Addrs returns a list of all known addresses.
-	Addrs() []wire.Address
+	// Addrs returns a random number of addresses.
+	Addrs(n int) []wire.Address
 	// NumAddrs returns the number of addresses in the store.
 	NumAddrs() (int, error)
 
@@ -144,14 +144,24 @@ func (dht *distributedHashTable) Addr(signatory id.Signatory) (wire.Address, boo
 	return addr, ok
 }
 
-// Addrs returns a list of all known addresses.
-func (dht *distributedHashTable) Addrs() []wire.Address {
+// Addrs returns a random number of addresses.
+func (dht *distributedHashTable) Addrs(n int) []wire.Address {
 	dht.addrsBySignatoryMu.Lock()
 	defer dht.addrsBySignatoryMu.Unlock()
 
-	addrs := make([]wire.Address, 0, len(dht.addrsBySignatory))
+	if n <= 0 {
+		// For values of n that are less than, or equal to, zero, return an
+		// empty list. We could panic instead, but this is a reasonable and
+		// unsurprising alternative.
+		return []wire.Address{}
+	}
+
+	addrs := make([]wire.Address, 0, n)
 	for _, addr := range dht.addrsBySignatory {
 		addrs = append(addrs, addr) // This is safe, because addresses are cloned by default.
+		if n--; n == 0 {
+			break
+		}
 	}
 	return addrs
 }
