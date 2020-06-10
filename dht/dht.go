@@ -32,8 +32,10 @@ type DHT interface {
 	// Addr returns the address associated with a signatory. If there is no
 	// associated address, it returns false. Otherwise, it returns true.
 	Addr(id.Signatory) (wire.Address, bool)
-	// Addrs returns a random number of addresses.
-	Addrs(int) map[id.Signatory]wire.Address
+	// Addrs returns a list of all known addresses.
+	Addrs() []wire.Address
+	// NumAddrs returns the number of addresses in the store.
+	NumAddrs() (int, error)
 
 	// InsertContent into the DHT. This will override existing content, so it is
 	// important to call the HasContent method to check whether or not you are
@@ -142,26 +144,24 @@ func (dht *distributedHashTable) Addr(signatory id.Signatory) (wire.Address, boo
 	return addr, ok
 }
 
-// Addrs returns a random number of addresses.
-func (dht *distributedHashTable) Addrs(n int) map[id.Signatory]wire.Address {
+// Addrs returns a list of all known addresses.
+func (dht *distributedHashTable) Addrs() []wire.Address {
 	dht.addrsBySignatoryMu.Lock()
 	defer dht.addrsBySignatoryMu.Unlock()
 
-	if n <= 0 {
-		// For values of n that are less than, or equal to, zero, return an
-		// empty map. We could panic instead, but this is a reasonable and
-		// unsurprising alternative.
-		return map[id.Signatory]wire.Address{}
+	addrs := make([]wire.Address, 0, len(dht.addrsBySignatory))
+	for _, addr := range dht.addrsBySignatory {
+		addrs = append(addrs, addr) // This is safe, because addresses are cloned by default.
 	}
+	return addrs
+}
 
-	addrsBySignatory := make(map[id.Signatory]wire.Address, n)
-	for signatory, addr := range dht.addrsBySignatory {
-		addrsBySignatory[signatory] = addr // This is safe, because addresses are cloned by default.
-		if n--; n == 0 {
-			break
-		}
-	}
-	return addrsBySignatory
+// NumAddrs returns the number of addresses in the store.
+func (dht *distributedHashTable) NumAddrs() (int, error) {
+	dht.addrsBySignatoryMu.Lock()
+	defer dht.addrsBySignatoryMu.Unlock()
+
+	return len(dht.addrsBySignatory), nil
 }
 
 // InsertContent into the DHT. Returns true if there is not already content
