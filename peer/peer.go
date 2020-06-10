@@ -135,7 +135,12 @@ func (peer *Peer) Ping(ctx context.Context) {
 	// Grab some random addresses from the DHT and add them to the queue for
 	// pinging.
 	addrsBySignatory := peer.dht.Addrs(peer.opts.Alpha)
-	for signatory, addr := range addrsBySignatory {
+	for _, addr := range addrsBySignatory {
+		signatory, err := addr.Signatory()
+		if err != nil {
+			peer.opts.Logger.Errorf("fetching signatory from address=%v: %v", addr, err)
+			return
+		}
 		select {
 		case <-ctx.Done():
 			return
