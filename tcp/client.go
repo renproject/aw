@@ -19,6 +19,10 @@ var (
 	// no messages are attempted to be sent, within one hour, then the
 	// connection is killed and all pending messages will be lost.
 	DefaultClientTimeToLive = time.Hour
+	// DefaultClientTimeToDial is set to 30 seconds. If a single dial attempt
+	// takes longer than this duration, it will be dropped (and a new attempt
+	// may begin).
+	DefaultClientTimeToDial = 30 * time.Second
 	// DefaultClientMaxCapacity is set to 4096.
 	DefaultClientMaxCapacity = 4096
 )
@@ -27,14 +31,19 @@ var (
 type ClientOptions struct {
 	// Logger for all information/debugging/error output.
 	Logger logrus.FieldLogger
-	// TimeToLive for connections. Connections with no non-malicious activity
-	// after the TimeToLive duration will be killed. Setting the TimeToLive, and
-	// carefully choosing which addresses to send messages to, is the primary
-	// mechanism for ensuring that the Client does not consume too many
-	// resources on maintaining connections (there is no explicit maximum number
-	// of connections). This is also the amount of time that we will wait while
+	// TimeToLive for connections. Connections with no activity after the
+	// TimeToLive duration will be killed. Setting the TimeToLive, and carefully
+	// choosing which addresses to send messages to, is the primary mechanism
+	// for ensuring that the Client does not consume too many resources on
+	// maintaining connections (there is no explicit maximum number of
+	// connections). This is also the amount of time that we will wait while
 	// attempting to dial connections.
 	TimeToLive time.Duration
+	// TimeToDial for establishing new connections. After this duration has
+	// passed, the dial attempt will be dropped. A new dial attempt will usually
+	// be started, assuming that the client has not been attempting dials for
+	// longer than the TimeToLive.
+	TimeToDial time.Duration
 	// MaxCapacity of messages that can be bufferred while waiting to write
 	// messages to a channel.
 	MaxCapacity int
@@ -188,8 +197,8 @@ func (client *Client) runAndKeepAlive(addr string) conn {
 				if err != nil {
 					select {
 					case <-ctx.Done():
-						// If the context is done, then we expect running
-						// errors, so we should not log them.
+						// If the context is done, then we expect errors, so we
+						// do not handle them.
 					default:
 						client.opts.Logger.Errorf("running connection: %v", err)
 					}
@@ -384,7 +393,7 @@ func (client *Client) dial(ctx context.Context, addr string) (net.Conn, handshak
 		// Attempt to dial a new connection for 30 seconds. If we are not
 		// successful, then wait until the end of the 30 second timeout and try
 		// again.
-		innerDialCtx, innerDialCancel := context.WithTimeout(dialCtx, time.Second)
+		innerDialCtx, innerDialCancel := context.WithTimeout(dialCtx, client.opts.TimeToDial)
 		conn, err := new(net.Dialer).DialContext(innerDialCtx, "tcp", addr)
 		if err != nil {
 			// Make sure to wait until the entire 30 seconds has passed,
@@ -402,10 +411,16 @@ func (client *Client) dial(ctx context.Context, addr string) (net.Conn, handshak
 		session, err := client.handshaker.Handshake(dialCtx, conn)
 		if err != nil {
 			client.opts.Logger.Errorf("handshaking: %v", err)
+			if err := conn.Close(); err != nil {
+				client.opts.Logger.Errorf("closing connection: %v", err)
+			}
 			continue
 		}
 		if session == nil {
 			client.opts.Logger.Errorf("handshaking: nil")
+			if err := conn.Close(); err != nil {
+				client.opts.Logger.Errorf("closing connection: %v", err)
+			}
 			continue
 		}
 

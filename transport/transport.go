@@ -55,18 +55,20 @@ func (trans *Transport) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		default:
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						trans.opts.Logger.Errorf("recovering: %v", r)
-					}
-				}()
-
-				if err := trans.tcpserver.Listen(ctx); err != nil {
-					trans.opts.Logger.Errorf("%v", err)
-				}
-			}()
+			trans.run(ctx)
 		}
+	}
+}
+
+func (trans *Transport) run(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			trans.opts.Logger.Errorf("recovering: %v", r)
+		}
+	}()
+
+	if err := trans.tcpserver.Listen(ctx); err != nil {
+		trans.opts.Logger.Errorf("%v", err)
 	}
 }
 
@@ -123,6 +125,8 @@ func (trans *Transport) SetPullListener(listener wire.PullListener) {
 	trans.pullListener = listener
 }
 
+// DidReceivePing is a callback that is invoked when a ping is received by the
+// transport.
 func (trans *Transport) DidReceivePing(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
 	if trans.pingListener != nil {
 		return trans.pingListener.DidReceivePing(version, data, from)
@@ -130,6 +134,8 @@ func (trans *Transport) DidReceivePing(version uint8, data []byte, from id.Signa
 	return wire.Message{Version: version, Type: wire.PingAck, Data: []byte{}}, nil
 }
 
+// DidReceivePingAck is a callback that is invoked when a ping acknowledgement
+// is received by the transport.
 func (trans *Transport) DidReceivePingAck(version uint8, data []byte, from id.Signatory) error {
 	if trans.pingListener != nil {
 		return trans.pingListener.DidReceivePingAck(version, data, from)
@@ -137,6 +143,8 @@ func (trans *Transport) DidReceivePingAck(version uint8, data []byte, from id.Si
 	return nil
 }
 
+// DidReceivePush is a callback that is invoked when a push is received by the
+// transport.
 func (trans *Transport) DidReceivePush(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
 	if trans.pushListener != nil {
 		return trans.pushListener.DidReceivePush(version, data, from)
@@ -144,6 +152,8 @@ func (trans *Transport) DidReceivePush(version uint8, data []byte, from id.Signa
 	return wire.Message{Version: version, Type: wire.PushAck, Data: []byte{}}, nil
 }
 
+// DidReceivePushAck is a callback that is invoked when a push acknowledgement
+// is received by the transport.
 func (trans *Transport) DidReceivePushAck(version uint8, data []byte, from id.Signatory) error {
 	if trans.pushListener != nil {
 		return trans.pushListener.DidReceivePushAck(version, data, from)
@@ -151,6 +161,8 @@ func (trans *Transport) DidReceivePushAck(version uint8, data []byte, from id.Si
 	return nil
 }
 
+// DidReceivePull is a callback that is invoked when a pull is received by the
+// transport.
 func (trans *Transport) DidReceivePull(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
 	if trans.pullListener != nil {
 		return trans.pullListener.DidReceivePull(version, data, from)
@@ -158,6 +170,8 @@ func (trans *Transport) DidReceivePull(version uint8, data []byte, from id.Signa
 	return wire.Message{Version: version, Type: wire.PullAck, Data: []byte{}}, nil
 }
 
+// DidReceivePullAck is a callback that is invoked when a pull acknowledgement
+// is received by the transport.
 func (trans *Transport) DidReceivePullAck(version uint8, data []byte, from id.Signatory) error {
 	if trans.pullListener != nil {
 		return trans.pullListener.DidReceivePullAck(version, data, from)
