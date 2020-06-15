@@ -2,7 +2,6 @@ package aw
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"crypto/sha256"
 	"sync"
 
@@ -43,7 +42,7 @@ func New() *Builder {
 	return builder
 }
 
-func (builder *Builder) WithPrivKey(privKey *ecdsa.PrivateKey) *Builder {
+func (builder *Builder) WithPrivKey(privKey *id.PrivKey) *Builder {
 	builder.handshaker.PrivKey = privKey
 	builder.dht = dht.New(id.NewSignatory(&builder.handshaker.PrivKey.PublicKey))
 	if err := builder.peer.Addr.Sign(builder.handshaker.PrivKey); err != nil {
@@ -76,17 +75,10 @@ func (builder *Builder) WithListener(listener gossip.Listener) *Builder {
 func (builder *Builder) Build() *Node {
 	handshaker := handshake.NewECDSA(builder.handshaker)
 	trans := transport.New(builder.trans, handshaker)
-
 	peer := peer.New(builder.peer, builder.dht, trans, builder.handshaker.PrivKey)
 	gossiper := gossip.New(builder.gossiper, builder.dht, trans, builder.listener)
-
-	trans.SetPingListener(peer)
-	trans.SetPushListener(gossiper)
-	trans.SetPullListener(gossiper)
-
 	return &Node{
-		opts: builder.opts,
-
+		opts:     builder.opts,
 		dht:      builder.dht,
 		trans:    trans,
 		peer:     peer,

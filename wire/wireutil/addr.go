@@ -1,11 +1,9 @@
 package wireutil
 
 import (
-	"crypto/ecdsa"
 	"fmt"
 	"math/rand"
 
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 )
@@ -24,7 +22,7 @@ type AddressBuilder struct {
 	r         *rand.Rand
 }
 
-func NewAddressBuilder(privKey *ecdsa.PrivateKey, r *rand.Rand) *AddressBuilder {
+func NewAddressBuilder(privKey *id.PrivKey, r *rand.Rand) *AddressBuilder {
 	protocol := RandomOkAddrProtocol(r)
 	value := RandomOkAddrValue(r)
 	nonce := RandomAddrNonce(r)
@@ -95,7 +93,7 @@ func RandomAddrNonce(r *rand.Rand) uint64 {
 	return r.Uint64()
 }
 
-func RandomAddrSignature(protocol uint8, value string, nonce uint64, privKey *ecdsa.PrivateKey, r *rand.Rand) id.Signature {
+func RandomAddrSignature(protocol uint8, value string, nonce uint64, privKey *id.PrivKey, r *rand.Rand) id.Signature {
 	switch r.Int() % 2 {
 	case 0:
 		return RandomOkAddrSignature(protocol, value, nonce, privKey)
@@ -104,12 +102,8 @@ func RandomAddrSignature(protocol uint8, value string, nonce uint64, privKey *ec
 	}
 }
 
-func RandomPrivKey() *ecdsa.PrivateKey {
-	privKey, err := crypto.GenerateKey()
-	if err != nil {
-		panic(err)
-	}
-	return privKey
+func RandomPrivKey() *id.PrivKey {
+	return id.NewPrivKey()
 }
 
 // ------
@@ -133,7 +127,7 @@ func RandomOkAddrValue(r *rand.Rand) string {
 	}
 }
 
-func RandomOkAddrSignature(protocol uint8, value string, nonce uint64, privKey *ecdsa.PrivateKey) id.Signature {
+func RandomOkAddrSignature(protocol uint8, value string, nonce uint64, privKey *id.PrivKey) id.Signature {
 	addr := wire.NewUnsignedAddress(protocol, value, nonce)
 	if err := addr.Sign(privKey); err != nil {
 		panic(err)

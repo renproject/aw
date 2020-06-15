@@ -73,11 +73,13 @@ var _ = Describe("Airwave", func() {
 				// each other.
 				time.Sleep(10 * time.Millisecond)
 
+				subnet := node1.DHT().AddSubnet([]id.Signatory{node2.Identity()})
+				fmt.Printf("%v\n", subnet)
 				for i := uint64(0); i < willSendN; i++ {
-					node1.Send(ctx, node2.Identity(), []byte("once"))
-					node1.Send(ctx, node2.Identity(), []byte(fmt.Sprintf("message #%v", i)))
+					node1.Broadcast(ctx, subnet, []byte("once"))
+					node1.Broadcast(ctx, subnet, []byte(fmt.Sprintf("message #%v", i)))
 				}
-				node1.Send(ctx, node2.Identity(), []byte("done"))
+				node1.Broadcast(ctx, subnet, []byte("done"))
 
 				<-ctx.Done()
 

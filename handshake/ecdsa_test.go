@@ -8,7 +8,6 @@ import (
 	"net"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/renproject/aw/handshake"
 	"github.com/renproject/id"
 
@@ -25,8 +24,7 @@ var _ = Describe("ECDSA handshake", func() {
 			//
 			// Client privkey
 			//
-			clientPrivKey, err := crypto.GenerateKey()
-			Expect(err).ToNot(HaveOccurred())
+			clientPrivKey := id.NewPrivKey()
 
 			//
 			// Server connection
@@ -70,8 +68,7 @@ var _ = Describe("ECDSA handshake", func() {
 			//
 			// Server privkey
 			//
-			serverPrivKey, err := crypto.GenerateKey()
-			Expect(err).ToNot(HaveOccurred())
+			serverPrivKey := id.NewPrivKey()
 
 			//
 			// Server connection
@@ -79,10 +76,10 @@ var _ = Describe("ECDSA handshake", func() {
 			port := uint16(3000 + rand.Int()%3000)
 			listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%v", port))
 			Expect(err).ToNot(HaveOccurred())
-			defer listener.Close()
 
 			go func() {
 				defer GinkgoRecover()
+				defer listener.Close()
 
 				conn, err := listener.Accept()
 				Expect(err).ToNot(HaveOccurred())
@@ -115,15 +112,13 @@ var _ = Describe("ECDSA handshake", func() {
 			//
 			// Client privkey and signatory
 			//
-			clientPrivKey, err := crypto.GenerateKey()
-			Expect(err).ToNot(HaveOccurred())
+			clientPrivKey := id.NewPrivKey()
 			clientSignatory := id.NewSignatory(&clientPrivKey.PublicKey)
 
 			//
 			// Server privkey and signatory
 			//
-			serverPrivKey, err := crypto.GenerateKey()
-			Expect(err).ToNot(HaveOccurred())
+			serverPrivKey := id.NewPrivKey()
 			serverSignatory := id.NewSignatory(&serverPrivKey.PublicKey)
 
 			//
@@ -132,10 +127,10 @@ var _ = Describe("ECDSA handshake", func() {
 			port := uint16(3000 + rand.Int()%3000)
 			listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%v", port))
 			Expect(err).ToNot(HaveOccurred())
-			defer listener.Close()
 
 			go func() {
 				defer GinkgoRecover()
+				defer listener.Close()
 
 				conn, err := listener.Accept()
 				Expect(err).ToNot(HaveOccurred())
@@ -187,15 +182,13 @@ var _ = Describe("ECDSA handshake", func() {
 			//
 			// Client privkey and signatory
 			//
-			clientPrivKey, err := crypto.GenerateKey()
-			Expect(err).ToNot(HaveOccurred())
+			clientPrivKey := id.NewPrivKey()
 			clientSignatory := id.NewSignatory(&clientPrivKey.PublicKey)
 
 			//
 			// Server privkey and signatory
 			//
-			serverPrivKey, err := crypto.GenerateKey()
-			Expect(err).ToNot(HaveOccurred())
+			serverPrivKey := id.NewPrivKey()
 			serverSignatory := id.NewSignatory(&serverPrivKey.PublicKey)
 
 			//
@@ -204,10 +197,10 @@ var _ = Describe("ECDSA handshake", func() {
 			port := uint16(3000 + rand.Int()%3000)
 			listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%v", port))
 			Expect(err).ToNot(HaveOccurred())
-			defer listener.Close()
-
+			
 			go func() {
 				defer GinkgoRecover()
+				defer listener.Close()
 
 				conn, err := listener.Accept()
 				Expect(err).ToNot(HaveOccurred())

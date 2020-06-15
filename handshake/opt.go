@@ -1,11 +1,9 @@
 package handshake
 
 import (
-	"crypto/ecdsa"
-	"fmt"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/renproject/id"
 	"github.com/sirupsen/logrus"
 )
 
@@ -16,22 +14,18 @@ var (
 
 type Options struct {
 	Logger  logrus.FieldLogger
-	PrivKey *ecdsa.PrivateKey
+	PrivKey *id.PrivKey
 	Timeout time.Duration
 	Filter  Filter
 }
 
 func DefaultOptions() Options {
-	privKey, err := crypto.GenerateKey()
-	if err != nil {
-		panic(fmt.Errorf("generating privkey: %v", err))
-	}
 	return Options{
 		Logger: logrus.New().
 			WithField("lib", "airwave").
 			WithField("pkg", "handshake").
 			WithField("com", "handshaker"),
-		PrivKey: privKey,
+		PrivKey: id.NewPrivKey(),
 		Timeout: DefaultTimeout,
 		Filter:  DefaultFilter,
 	}
@@ -42,7 +36,7 @@ func (opts Options) WithLogger(logger logrus.FieldLogger) Options {
 	return opts
 }
 
-func (opts Options) WithPrivKey(privKey *ecdsa.PrivateKey) Options {
+func (opts Options) WithPrivKey(privKey *id.PrivKey) Options {
 	opts.PrivKey = privKey
 	return opts
 }

@@ -28,7 +28,7 @@ type Gossiper struct {
 }
 
 func New(opts Options, dht dht.DHT, trans *transport.Transport, listener Listener) *Gossiper {
-	return &Gossiper{
+	g := &Gossiper{
 		opts: opts,
 
 		dht:      dht,
@@ -41,6 +41,9 @@ func New(opts Options, dht dht.DHT, trans *transport.Transport, listener Listene
 			wire.Message
 		}, opts.Alpha*opts.Alpha),
 	}
+	g.trans.ListenForPushes(g)
+	g.trans.ListenForPulls(g)
+	return g
 }
 
 func (g *Gossiper) Run(ctx context.Context) {

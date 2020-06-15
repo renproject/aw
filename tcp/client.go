@@ -57,6 +57,7 @@ func DefaultClientOptions() ClientOptions {
 			WithField("pkg", "tcp").
 			WithField("com", "client"),
 		TimeToLive:  DefaultClientTimeToLive,
+		TimeToDial:  DefaultClientTimeToDial,
 		MaxCapacity: DefaultClientMaxCapacity,
 	}
 }

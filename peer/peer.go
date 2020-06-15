@@ -2,7 +2,6 @@ package peer
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"fmt"
 	"math"
 	"time"
@@ -19,10 +18,10 @@ type Peer struct {
 
 	dht     dht.DHT
 	trans   *transport.Transport
-	privKey *ecdsa.PrivateKey
+	privKey *id.PrivKey
 }
 
-func New(opts Options, dht dht.DHT, trans *transport.Transport, privKey *ecdsa.PrivateKey) *Peer {
+func New(opts Options, dht dht.DHT, trans *transport.Transport, privKey *id.PrivKey) *Peer {
 
 	// Sign the address. This address will be the address that the we will use
 	// to let other Peers know we exist. If we cannot sign the address, then we
@@ -42,13 +41,14 @@ func New(opts Options, dht dht.DHT, trans *transport.Transport, privKey *ecdsa.P
 		opts.Logger.Warnf("ping interval is too low: expected>=%v, got=%v", expectedPingInterval, opts.PingInterval)
 	}
 
-	return &Peer{
-		opts: opts,
-
+	peer := &Peer{
+		opts:    opts,
 		dht:     dht,
 		trans:   trans,
 		privKey: privKey,
 	}
+	peer.trans.ListenForPings(peer)
+	return peer
 }
 
 // Run the Peer. This will periodically attempt to Ping random addresses in the

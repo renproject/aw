@@ -20,9 +20,9 @@ type Transport struct {
 	tcpclient *tcp.Client
 	tcpserver *tcp.Server
 
-	pingListener wire.PingListener
-	pushListener wire.PushListener
-	pullListener wire.PullListener
+	pingListeners []wire.PingListener
+	pushListeners []wire.PushListener
+	pullListeners []wire.PullListener
 }
 
 func New(opts Options, handshaker handshake.Handshaker) *Transport {
@@ -31,6 +31,10 @@ func New(opts Options, handshaker handshake.Handshaker) *Transport {
 
 		isRunningMu: new(sync.Mutex),
 		isRunning:   false,
+
+		pingListeners: []wire.PingListener{},
+		pushListeners: []wire.PushListener{},
+		pullListeners: []wire.PullListener{},
 	}
 	trans.tcpclient = tcp.NewClient(opts.TCPClientOpts, handshaker, trans)
 	trans.tcpserver = tcp.NewServer(opts.TCPServerOpts, handshaker, trans)
@@ -66,7 +70,6 @@ func (trans *Transport) run(ctx context.Context) {
 			trans.opts.Logger.Errorf("recovering: %v", r)
 		}
 	}()
-
 	if err := trans.tcpserver.Listen(ctx); err != nil {
 		trans.opts.Logger.Errorf("%v", err)
 	}
@@ -89,47 +92,52 @@ func (trans *Transport) Send(ctx context.Context, addr wire.Address, msg wire.Me
 	}
 }
 
-// SetPingListener must be called before calling the Run method. Otherwise, this
+// ListenForPings must be called before calling the Run method. Otherwise, this
 // method will panic.
-func (trans *Transport) SetPingListener(listener wire.PingListener) {
+func (trans *Transport) ListenForPings(listener wire.PingListener) {
 	trans.isRunningMu.Lock()
 	defer trans.isRunningMu.Unlock()
 
 	if trans.isRunning {
 		panic("transport is already running")
 	}
-	trans.pingListener = listener
+	trans.pingListeners = append(trans.pingListeners, listener)
 }
 
-// SetPushListener must be called before calling the Run method. Otherwise, this
+// ListenForPushes must be called before calling the Run method. Otherwise, this
 // method will panic.
-func (trans *Transport) SetPushListener(listener wire.PushListener) {
+func (trans *Transport) ListenForPushes(listener wire.PushListener) {
 	trans.isRunningMu.Lock()
 	defer trans.isRunningMu.Unlock()
 
 	if trans.isRunning {
 		panic("transport is already running")
 	}
-	trans.pushListener = listener
+	trans.pushListeners = append(trans.pushListeners, listener)
 }
 
-// SetPullListener must be called before calling the Run method. Otherwise, this
+// ListenForPulls must be called before calling the Run method. Otherwise, this
 // method will panic.
-func (trans *Transport) SetPullListener(listener wire.PullListener) {
+func (trans *Transport) ListenForPulls(listener wire.PullListener) {
 	trans.isRunningMu.Lock()
 	defer trans.isRunningMu.Unlock()
 
 	if trans.isRunning {
 		panic("transport is already running")
 	}
-	trans.pullListener = listener
+	trans.pullListeners = append(trans.pullListeners, listener)
 }
 
 // DidReceivePing is a callback that is invoked when a ping is received by the
 // transport.
 func (trans *Transport) DidReceivePing(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
-	if trans.pingListener != nil {
-		return trans.pingListener.DidReceivePing(version, data, from)
+	for _, listener := range trans.pingListeners {
+		response, err := listener.DidReceivePing(version, data, from)
+		if err != nil {
+			trans.opts.TCPServerOpts.Logger.Errorf("error receiving ping: %v", err)
+			continue
+		}
+		return response, nil
 	}
 	return wire.Message{Version: version, Type: wire.PingAck, Data: []byte{}}, nil
 }
@@ -137,8 +145,10 @@ func (trans *Transport) DidReceivePing(version uint8, data []byte, from id.Signa
 // DidReceivePingAck is a callback that is invoked when a ping acknowledgement
 // is received by the transport.
 func (trans *Transport) DidReceivePingAck(version uint8, data []byte, from id.Signatory) error {
-	if trans.pingListener != nil {
-		return trans.pingListener.DidReceivePingAck(version, data, from)
+	for _, listener := range trans.pingListeners {
+		if err := listener.DidReceivePingAck(version, data, from); err != nil {
+			trans.opts.TCPServerOpts.Logger.Errorf("error receiving ping ack: %v", err)
+		}
 	}
 	return nil
 }
@@ -146,8 +156,13 @@ func (trans *Transport) DidReceivePingAck(version uint8, data []byte, from id.Si
 // DidReceivePush is a callback that is invoked when a push is received by the
 // transport.
 func (trans *Transport) DidReceivePush(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
-	if trans.pushListener != nil {
-		return trans.pushListener.DidReceivePush(version, data, from)
+	for _, listener := range trans.pushListeners {
+		response, err := listener.DidReceivePush(version, data, from)
+		if err != nil {
+			trans.opts.TCPServerOpts.Logger.Errorf("error receiving push: %v", err)
+			continue
+		}
+		return response, nil
 	}
 	return wire.Message{Version: version, Type: wire.PushAck, Data: []byte{}}, nil
 }
@@ -155,8 +170,10 @@ func (trans *Transport) DidReceivePush(version uint8, data []byte, from id.Signa
 // DidReceivePushAck is a callback that is invoked when a push acknowledgement
 // is received by the transport.
 func (trans *Transport) DidReceivePushAck(version uint8, data []byte, from id.Signatory) error {
-	if trans.pushListener != nil {
-		return trans.pushListener.DidReceivePushAck(version, data, from)
+	for _, listener := range trans.pushListeners {
+		if err := listener.DidReceivePushAck(version, data, from); err != nil {
+			trans.opts.TCPServerOpts.Logger.Errorf("error receiving push ack: %v", err)
+		}
 	}
 	return nil
 }
@@ -164,8 +181,13 @@ func (trans *Transport) DidReceivePushAck(version uint8, data []byte, from id.Si
 // DidReceivePull is a callback that is invoked when a pull is received by the
 // transport.
 func (trans *Transport) DidReceivePull(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
-	if trans.pullListener != nil {
-		return trans.pullListener.DidReceivePull(version, data, from)
+	for _, listener := range trans.pullListeners {
+		response, err := listener.DidReceivePull(version, data, from)
+		if err != nil {
+			trans.opts.TCPServerOpts.Logger.Errorf("error receiving pull: %v", err)
+			continue
+		}
+		return response, nil
 	}
 	return wire.Message{Version: version, Type: wire.PullAck, Data: []byte{}}, nil
 }
@@ -173,8 +195,10 @@ func (trans *Transport) DidReceivePull(version uint8, data []byte, from id.Signa
 // DidReceivePullAck is a callback that is invoked when a pull acknowledgement
 // is received by the transport.
 func (trans *Transport) DidReceivePullAck(version uint8, data []byte, from id.Signatory) error {
-	if trans.pullListener != nil {
-		return trans.pullListener.DidReceivePullAck(version, data, from)
+	for _, listener := range trans.pullListeners {
+		if err := listener.DidReceivePullAck(version, data, from); err != nil {
+			trans.opts.TCPServerOpts.Logger.Errorf("error receiving pull ack: %v", err)
+		}
 	}
 	return nil
 }

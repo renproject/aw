@@ -120,7 +120,7 @@ func (addr *Address) Unmarshal(r io.Reader, m int) (int, error) {
 }
 
 // Sign this Address and set its Signature.
-func (addr *Address) Sign(privKey *ecdsa.PrivateKey) error {
+func (addr *Address) Sign(privKey *id.PrivKey) error {
 	buf := new(bytes.Buffer)
 	buf.Grow(surge.SizeHint(addr.Nonce) + surge.SizeHint(addr.Protocol) + surge.SizeHint(addr.Value))
 	return addr.SignWithBuffer(privKey, buf)
@@ -129,12 +129,12 @@ func (addr *Address) Sign(privKey *ecdsa.PrivateKey) error {
 // SignWithBuffer will Sign the Address and set its Signature. It uses a Buffer
 // for all marshaling, and expected the caller to Reset the Buffer before/after
 // calling this method.
-func (addr *Address) SignWithBuffer(privKey *ecdsa.PrivateKey, buf *bytes.Buffer) error {
+func (addr *Address) SignWithBuffer(privKey *id.PrivKey, buf *bytes.Buffer) error {
 	hash, err := NewAddressHashWithBuffer(addr.Protocol, addr.Value, addr.Nonce, buf)
 	if err != nil {
 		return fmt.Errorf("hashing address: %v", err)
 	}
-	signature, err := crypto.Sign(hash[:], privKey)
+	signature, err := crypto.Sign(hash[:], (*ecdsa.PrivateKey)(privKey))
 	if err != nil {
 		return fmt.Errorf("signing address hash: %v", err)
 	}

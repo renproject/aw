@@ -133,12 +133,12 @@ func encryptAndWriteKey(w io.Writer, localKey []byte, pubKey *ecdsa.PublicKey) e
 	return nil
 }
 
-func readAndDecryptKey(r io.Reader, privKey *ecdsa.PrivateKey) ([]byte, error) {
+func readAndDecryptKey(r io.Reader, privKey *id.PrivKey) ([]byte, error) {
 	encryptedKey := []byte{}
 	if _, err := surge.Unmarshal(r, &encryptedKey, surge.MaxBytes); err != nil {
 		return nil, fmt.Errorf("reading key: %v", err)
 	}
-	eciesPrivKey := ecies.ImportECDSA(privKey)
+	eciesPrivKey := ecies.ImportECDSA((*ecdsa.PrivateKey)(privKey))
 	key, err := eciesPrivKey.Decrypt(encryptedKey[:], nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("decrypting key: %v", err)
@@ -146,13 +146,13 @@ func readAndDecryptKey(r io.Reader, privKey *ecdsa.PrivateKey) ([]byte, error) {
 	return key, nil
 }
 
-func writePubKeyWithSignature(w io.Writer, pubKey *ecdsa.PublicKey, signer *ecdsa.PrivateKey) error {
+func writePubKeyWithSignature(w io.Writer, pubKey *ecdsa.PublicKey, signer *id.PrivKey) error {
 	compressedPubKey := crypto.CompressPubkey(pubKey)
 	if _, err := surge.Marshal(w, compressedPubKey, surge.MaxBytes); err != nil {
 		return fmt.Errorf("marshaling pubkey: %v", err)
 	}
 	signatory := id.NewSignatory(pubKey)
-	rawSignature, err := crypto.Sign(signatory[:], signer)
+	rawSignature, err := crypto.Sign(signatory[:], (*ecdsa.PrivateKey)(signer))
 	if err != nil {
 		return fmt.Errorf("signing pubkey: %v", err)
 	}

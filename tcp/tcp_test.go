@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/tcp"
 	"github.com/renproject/aw/wire"
+	"github.com/renproject/id"
 	"github.com/sirupsen/logrus"
 
 	. "github.com/onsi/ginkgo"
@@ -99,14 +99,8 @@ func runBenchmarkSend(b *testing.B, run func(ctx context.Context, client *tcp.Cl
 		logger.SetOutput(ioutil.Discard)
 	}
 
-	clientPrivKey, err := crypto.GenerateKey()
-	if err != nil {
-		b.Fatalf("generating key: %v", err)
-	}
-	serverPrivKey, err := crypto.GenerateKey()
-	if err != nil {
-		b.Fatalf("generating key: %v", err)
-	}
+	clientPrivKey := id.NewPrivKey()
+	serverPrivKey := id.NewPrivKey()
 
 	serverPort := 3000 + (rand.Int() % 7000)
 	serverListener := wire.Callbacks{}
