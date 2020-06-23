@@ -41,13 +41,16 @@ func New(opts Options, dht dht.DHT, trans *transport.Transport, privKey *id.Priv
 		opts.Logger.Warnf("ping interval is too low: expected>=%v, got=%v", expectedPingInterval, opts.PingInterval)
 	}
 
+	// Create the peer.
 	peer := &Peer{
 		opts:    opts,
 		dht:     dht,
 		trans:   trans,
 		privKey: privKey,
 	}
+	// Begin listening for ping/ack messsages on the underlying transport.
 	peer.trans.ListenForPings(peer)
+
 	return peer
 }
 

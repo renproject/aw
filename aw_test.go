@@ -71,7 +71,7 @@ var _ = Describe("Airwave", func() {
 
 				// Sleep for enough time for nodes to find each other by pinging
 				// each other.
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(100 * time.Millisecond)
 
 				subnet := node1.DHT().AddSubnet([]id.Signatory{node2.Identity()})
 				fmt.Printf("%v\n", subnet)
