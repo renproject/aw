@@ -9,6 +9,11 @@ import (
 	"github.com/renproject/surge"
 )
 
+var (
+	// DefaultSubnet is used to refer to all known signatories.
+	DefaultSubnet = id.Hash{}
+)
+
 // An Identifiable type is any type that is able to return a hash that uniquely
 // identifies it.
 type Identifiable interface {
@@ -18,9 +23,15 @@ type Identifiable interface {
 // A ContentResolver interface allows for third-party content resolution. This
 // can be used to persist content to the disk.
 type ContentResolver interface {
+	// Insert content with the given hash and type.
 	Insert(id.Hash, uint8, []byte)
+
+	// Delete content with the given hash.
 	Delete(id.Hash)
-	Get(id.Hash) ([]byte, bool)
+
+	// Content returns the content associated with a hash. If there is no
+	// associated content, it returns false. Otherwise, it returns true.
+	Content(id.Hash) ([]byte, bool)
 }
 
 // DHT defines a distributed hash table, used for storing addresses/content that
@@ -66,11 +77,6 @@ type DHT interface {
 	DeleteSubnet(id.Hash)
 	// Subnet returns the signatories associated with the specified subnet
 	// merkle root hash.
-	//
-	// TODO: There should be some kind of "default" or "global" subnet that is
-	// interpretted as "all known signatories". In this case, this method should
-	// return a random subset of all known signatories. Or, do we want to remove
-	// the idea of subnets entirely.
 	Subnet(id.Hash) []id.Signatory
 }
 
@@ -220,7 +226,7 @@ func (dht *distributedHashTable) Content(hash id.Hash) ([]byte, bool) {
 
 	content, ok := dht.contentByHash[hash]
 	if !ok && dht.contentResolver != nil {
-		content, ok = dht.contentResolver.Get(hash)
+		content, ok = dht.contentResolver.Content(hash)
 	}
 
 	return content, ok
@@ -235,7 +241,7 @@ func (dht *distributedHashTable) HasContent(hash id.Hash) bool {
 
 	_, ok := dht.contentByHash[hash]
 	if !ok && dht.contentResolver != nil {
-		_, ok = dht.contentResolver.Get(hash)
+		_, ok = dht.contentResolver.Content(hash)
 	}
 
 	return ok
@@ -251,7 +257,7 @@ func (dht *distributedHashTable) HasEmptyContent(hash id.Hash) bool {
 
 	content, ok := dht.contentByHash[hash]
 	if !ok && dht.contentResolver != nil {
-		content, ok = dht.contentResolver.Get(hash)
+		content, ok = dht.contentResolver.Content(hash)
 	}
 
 	return ok && len(content) == 0
@@ -292,6 +298,10 @@ func (dht *distributedHashTable) DeleteSubnet(hash id.Hash) {
 func (dht *distributedHashTable) Subnet(hash id.Hash) []id.Signatory {
 	dht.subnetsByHashMu.Lock()
 	defer dht.subnetsByHashMu.Unlock()
+
+	if hash == DefaultSubnet {
+		// TODO: Return a random subset of all known signatories.
+	}
 
 	subnet, ok := dht.subnetsByHash[hash]
 	if !ok {
