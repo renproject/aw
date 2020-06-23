@@ -1,8 +1,6 @@
 package dht
 
 import (
-	"fmt"
-	"io"
 	"sort"
 	"sync"
 
@@ -17,13 +15,18 @@ type Identifiable interface {
 	Hash() id.Hash
 }
 
+// A ContentResolver interface allows for third-party content resolution. This
+// can be used to persist content to the disk.
+type ContentResolver interface {
+	Insert(id.Hash, []byte)
+	Delete(id.Hash)
+	Get(id.Hash) ([]byte, bool)
+}
+
 // DHT defines a distributed hash table, used for storing addresses/content that
 // have been discovered in the network. All DHT implementations must be safe for
-// concurrent use. All DHT implementations must be able to marshal/unmarshal
-// to/from binary.
+// concurrent use.
 type DHT interface {
-	surge.Surger
-
 	// InsertAddr into the DHT. Returns true if the address is new, otherwise
 	// returns false.
 	InsertAddr(wire.Address) bool
@@ -72,7 +75,8 @@ type DHT interface {
 }
 
 type distributedHashTable struct {
-	identity id.Signatory
+	identity        id.Signatory
+	contentResolver ContentResolver
 
 	addrsBySignatoryMu *sync.Mutex
 	addrsBySignatory   map[id.Signatory]wire.Address
@@ -84,10 +88,12 @@ type distributedHashTable struct {
 	subnetsByHash   map[id.Hash][]id.Signatory
 }
 
-// New returns an empty DHT.
-func New(identity id.Signatory) DHT {
+// New returns an empty DHT. If a nil content resolver is provided, content will
+// only be stored in-memory and will not be persistent across reboots.
+func New(identity id.Signatory, contentResolver ContentResolver) DHT {
 	return &distributedHashTable{
-		identity: identity,
+		identity:        identity,
+		contentResolver: contentResolver,
 
 		addrsBySignatoryMu: new(sync.Mutex),
 		addrsBySignatory:   map[id.Signatory]wire.Address{},
@@ -188,6 +194,10 @@ func (dht *distributedHashTable) InsertContent(hash id.Hash, content []byte) {
 	copied := make([]byte, len(content))
 	copy(copied, content)
 	dht.contentByHash[hash] = copied
+
+	if dht.contentResolver != nil {
+		dht.contentResolver.Insert(hash, content)
+	}
 }
 
 // DeleteContent from the DHT.
@@ -196,6 +206,10 @@ func (dht *distributedHashTable) DeleteContent(hash id.Hash) {
 	defer dht.contentByHashMu.Unlock()
 
 	delete(dht.contentByHash, hash)
+
+	if dht.contentResolver != nil {
+		dht.contentResolver.Delete(hash)
+	}
 }
 
 // Content returns the content associated with a hash. If there is no
@@ -205,9 +219,8 @@ func (dht *distributedHashTable) Content(hash id.Hash) ([]byte, bool) {
 	defer dht.contentByHashMu.Unlock()
 
 	content, ok := dht.contentByHash[hash]
-	copied := make([]byte, len(content))
-	if content != nil {
-		copy(copied, content)
+	if !ok && dht.contentResolver != nil {
+		content, ok = dht.contentResolver.Get(hash)
 	}
 
 	return content, ok
@@ -221,6 +234,10 @@ func (dht *distributedHashTable) HasContent(hash id.Hash) bool {
 	defer dht.contentByHashMu.Unlock()
 
 	_, ok := dht.contentByHash[hash]
+	if !ok && dht.contentResolver != nil {
+		_, ok = dht.contentResolver.Get(hash)
+	}
+
 	return ok
 }
 
@@ -233,6 +250,10 @@ func (dht *distributedHashTable) HasEmptyContent(hash id.Hash) bool {
 	defer dht.contentByHashMu.Unlock()
 
 	content, ok := dht.contentByHash[hash]
+	if !ok && dht.contentResolver != nil {
+		content, ok = dht.contentResolver.Get(hash)
+	}
+
 	return ok && len(content) == 0
 }
 
@@ -287,55 +308,5 @@ func (dht *distributedHashTable) SizeHint() int {
 	dht.addrsBySignatoryMu.Lock()
 	defer dht.addrsBySignatoryMu.Unlock()
 
-	return surge.SizeHint(dht.addrsBySignatory) + surge.SizeHint(dht.contentByHash)
-}
-
-// Marshal this distributedHashTable into binary.
-func (dht *distributedHashTable) Marshal(w io.Writer, m int) (int, error) {
-	dht.addrsBySignatoryMu.Lock()
-	dht.contentByHashMu.Lock()
-	dht.subnetsByHashMu.Lock()
-	defer dht.addrsBySignatoryMu.Unlock()
-	defer dht.contentByHashMu.Unlock()
-	defer dht.subnetsByHashMu.Unlock()
-
-	m, err := surge.Marshal(w, dht.addrsBySignatory, m)
-	if err != nil {
-		return m, fmt.Errorf("marshaling addresses by signatory: %v", err)
-	}
-	m, err = surge.Marshal(w, dht.contentByHash, m)
-	if err != nil {
-		return m, fmt.Errorf("marshaling content by hash: %v", err)
-	}
-	m, err = surge.Marshal(w, dht.subnetsByHash, m)
-	if err != nil {
-		return m, fmt.Errorf("marshaling subnets by hash: %v", err)
-	}
-
-	return m, nil
-}
-
-// Unmarshal from binary into this distributedHashTable.
-func (dht *distributedHashTable) Unmarshal(r io.Reader, m int) (int, error) {
-	dht.addrsBySignatoryMu.Lock()
-	dht.contentByHashMu.Lock()
-	dht.subnetsByHashMu.Lock()
-	defer dht.addrsBySignatoryMu.Unlock()
-	defer dht.contentByHashMu.Unlock()
-	defer dht.subnetsByHashMu.Unlock()
-
-	m, err := surge.Unmarshal(r, &dht.addrsBySignatory, m)
-	if err != nil {
-		return m, fmt.Errorf("unmarshaling addresses by signatory: %v", err)
-	}
-	m, err = surge.Unmarshal(r, &dht.contentByHash, m)
-	if err != nil {
-		return m, fmt.Errorf("unmarshaling content by hash: %v", err)
-	}
-	m, err = surge.Unmarshal(r, &dht.subnetsByHash, m)
-	if err != nil {
-		return m, fmt.Errorf("unmarshaling subnets by hash: %v", err)
-	}
-
-	return m, nil
+	return surge.SizeHint(dht.addrsBySignatory) + surge.SizeHint(dht.subnetsByHash)
 }
