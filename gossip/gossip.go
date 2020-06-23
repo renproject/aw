@@ -137,11 +137,7 @@ func (g *Gossiper) DidReceivePush(version uint8, data []byte, from id.Signatory)
 	//
 
 	if !g.dht.HasContent(pushV1.Hash) {
-		g.dht.InsertContent(pushV1.Hash, []byte{})
-		// TODO: Instead of storing this in an in-memory DHT, we should be using
-		// an abstract "Content Resolver" interface that allows the user of
-		// airwave to control storing/loading (perhaps to disk).
-
+		g.dht.InsertContent(pushV1.Hash, pushV1.Type, []byte{})
 		// Beacuse we do not have the content associated with this hash, we try
 		// to pull the data from the sender.
 		fromAddr, ok := g.dht.Addr(from)
@@ -250,11 +246,8 @@ func (g *Gossiper) DidReceivePullAck(version uint8, data []byte, from id.Signato
 	// Only copy the content into the DHT if we do not have this content at the
 	// moment.
 	if !g.dht.HasContent(pullAckV1.Hash) || g.dht.HasEmptyContent(pullAckV1.Hash) {
-		// TODO: Instead of storing this in an in-memory DHT, we should be using
-		// an abstract "Content Resolver" interface that allows the user of
-		// airwave to control storing/loading (perhaps to disk).
-		g.dht.InsertContent(pullAckV1.Hash, pullAckV1.Content)
-		g.listener.DidReceiveContent(pullAckV1.Hash, pullAckV1.Content)
+		g.dht.InsertContent(pullAckV1.Hash, pullAckV1.Type, pullAckV1.Content)
+		g.listener.DidReceiveContent(pullAckV1.Hash, pullAckV1.Type, pullAckV1.Content)
 		g.Gossip(pullAckV1.Subnet, pullAckV1.Hash)
 	}
 	return nil
@@ -262,7 +255,7 @@ func (g *Gossiper) DidReceivePullAck(version uint8, data []byte, from id.Signato
 
 func (g *Gossiper) sendToSubnet(subnet id.Hash, msg wire.Message) {
 	subnetSignatories := g.dht.Subnet(subnet) // TODO: Load signatories in order of their XOR distance from our own address.
-	
+
 	for a := 0; a < g.opts.Alpha; a++ {
 		for i := 0; i < len(subnetSignatories); i++ {
 			// We express an exponential bias for the signatories that are

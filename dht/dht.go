@@ -18,7 +18,7 @@ type Identifiable interface {
 // A ContentResolver interface allows for third-party content resolution. This
 // can be used to persist content to the disk.
 type ContentResolver interface {
-	Insert(id.Hash, []byte)
+	Insert(id.Hash, uint8, []byte)
 	Delete(id.Hash)
 	Get(id.Hash) ([]byte, bool)
 }
@@ -40,10 +40,10 @@ type DHT interface {
 	// NumAddrs returns the number of addresses in the store.
 	NumAddrs() (int, error)
 
-	// InsertContent into the DHT. This will override existing content, so it is
-	// important to call the HasContent method to check whether or not you are
-	// able to override existing content.
-	InsertContent(id.Hash, []byte)
+	// InsertContent with the given type into the DHT. This will override
+	// existing content, so it is important to call the HasContent method to
+	// check whether or not you are able to override existing content.
+	InsertContent(id.Hash, uint8, []byte)
 	// DeleteContent from the DHT.
 	DeleteContent(id.Hash)
 	// Content returns the content associated with a hash. If there is no
@@ -187,7 +187,7 @@ func (dht *distributedHashTable) NumAddrs() (int, error) {
 
 // InsertContent into the DHT. Returns true if there is not already content
 // associated with this hash, otherwise returns false.
-func (dht *distributedHashTable) InsertContent(hash id.Hash, content []byte) {
+func (dht *distributedHashTable) InsertContent(hash id.Hash, contentType uint8, content []byte) {
 	dht.contentByHashMu.Lock()
 	defer dht.contentByHashMu.Unlock()
 
@@ -196,7 +196,7 @@ func (dht *distributedHashTable) InsertContent(hash id.Hash, content []byte) {
 	dht.contentByHash[hash] = copied
 
 	if dht.contentResolver != nil {
-		dht.contentResolver.Insert(hash, content)
+		dht.contentResolver.Insert(hash, contentType, content)
 	}
 }
 

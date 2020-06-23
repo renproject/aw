@@ -45,7 +45,7 @@ var _ = Describe("Airwave", func() {
 					WithPort(port2).
 					WithListener(
 						gossip.Callbacks{
-							ReceiveContent: func(hash id.Hash, content []byte) {
+							ReceiveContent: func(hash id.Hash, contentType uint8, content []byte) {
 								defer GinkgoRecover()
 								if string(content) == "once" {
 									Expect(didReceiveOnce).To(BeFalse())
@@ -76,10 +76,10 @@ var _ = Describe("Airwave", func() {
 				subnet := node1.DHT().AddSubnet([]id.Signatory{node2.Identity()})
 				fmt.Printf("%v\n", subnet)
 				for i := uint64(0); i < willSendN; i++ {
-					node1.Broadcast(ctx, subnet, []byte("once"))
-					node1.Broadcast(ctx, subnet, []byte(fmt.Sprintf("message #%v", i)))
+					node1.Broadcast(ctx, subnet, 0, []byte("once"))
+					node1.Broadcast(ctx, subnet, 0, []byte(fmt.Sprintf("message #%v", i)))
 				}
-				node1.Broadcast(ctx, subnet, []byte("done"))
+				node1.Broadcast(ctx, subnet, 0, []byte("done"))
 
 				<-ctx.Done()
 
