@@ -132,6 +132,9 @@ func (trans *Transport) ListenForPulls(listener wire.PullListener) {
 // transport.
 func (trans *Transport) DidReceivePing(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
 	for _, listener := range trans.pingListeners {
+		// TODO: We need (a) aggregate multiple response into a single response,
+		// (b) make the request/response cycle asynchronous and explicitly
+		// support multiple responses, or (c) continue with this pattern.
 		response, err := listener.DidReceivePing(version, data, from)
 		if err != nil {
 			trans.opts.TCPServerOpts.Logger.Errorf("error receiving ping: %v", err)
@@ -146,6 +149,9 @@ func (trans *Transport) DidReceivePing(version uint8, data []byte, from id.Signa
 // is received by the transport.
 func (trans *Transport) DidReceivePingAck(version uint8, data []byte, from id.Signatory) error {
 	for _, listener := range trans.pingListeners {
+		// TODO: We need (a) aggregate multiple response into a single response,
+		// (b) make the request/response cycle asynchronous and explicitly
+		// support multiple responses, or (c) continue with this pattern.
 		if err := listener.DidReceivePingAck(version, data, from); err != nil {
 			trans.opts.TCPServerOpts.Logger.Errorf("error receiving ping ack: %v", err)
 		}
@@ -157,6 +163,9 @@ func (trans *Transport) DidReceivePingAck(version uint8, data []byte, from id.Si
 // transport.
 func (trans *Transport) DidReceivePush(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
 	for _, listener := range trans.pushListeners {
+		// TODO: We need (a) aggregate multiple response into a single response,
+		// (b) make the request/response cycle asynchronous and explicitly
+		// support multiple responses, or (c) continue with this pattern.
 		response, err := listener.DidReceivePush(version, data, from)
 		if err != nil {
 			trans.opts.TCPServerOpts.Logger.Errorf("error receiving push: %v", err)
@@ -171,6 +180,9 @@ func (trans *Transport) DidReceivePush(version uint8, data []byte, from id.Signa
 // is received by the transport.
 func (trans *Transport) DidReceivePushAck(version uint8, data []byte, from id.Signatory) error {
 	for _, listener := range trans.pushListeners {
+		// TODO: We need (a) aggregate multiple response into a single response,
+		// (b) make the request/response cycle asynchronous and explicitly
+		// support multiple responses, or (c) continue with this pattern.
 		if err := listener.DidReceivePushAck(version, data, from); err != nil {
 			trans.opts.TCPServerOpts.Logger.Errorf("error receiving push ack: %v", err)
 		}
@@ -182,6 +194,9 @@ func (trans *Transport) DidReceivePushAck(version uint8, data []byte, from id.Si
 // transport.
 func (trans *Transport) DidReceivePull(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
 	for _, listener := range trans.pullListeners {
+		// TODO: We need (a) aggregate multiple response into a single response,
+		// (b) make the request/response cycle asynchronous and explicitly
+		// support multiple responses, or (c) continue with this pattern.
 		response, err := listener.DidReceivePull(version, data, from)
 		if err != nil {
 			trans.opts.TCPServerOpts.Logger.Errorf("error receiving pull: %v", err)
@@ -196,6 +211,9 @@ func (trans *Transport) DidReceivePull(version uint8, data []byte, from id.Signa
 // is received by the transport.
 func (trans *Transport) DidReceivePullAck(version uint8, data []byte, from id.Signatory) error {
 	for _, listener := range trans.pullListeners {
+		// TODO: We need (a) aggregate multiple response into a single response,
+		// (b) make the request/response cycle asynchronous and explicitly
+		// support multiple responses, or (c) continue with this pattern.
 		if err := listener.DidReceivePullAck(version, data, from); err != nil {
 			trans.opts.TCPServerOpts.Logger.Errorf("error receiving pull ack: %v", err)
 		}

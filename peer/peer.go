@@ -218,6 +218,10 @@ func (peer *Peer) DidReceivePingAck(version uint8, data []byte, from id.Signator
 	for _, addr := range pingAckV1.Addrs {
 		if peer.dht.InsertAddr(addr) {
 			newRemoteAddrs = append(newRemoteAddrs, addr)
+			// TODO: We have discovered a new peer, so we should probably think
+			// about pinging them straight away. We would need to do this in the
+			// background though, so it might be necessary to convert our
+			// background workers into persistent ones.
 		}
 	}
 
