@@ -25,6 +25,13 @@ type Handshaker interface {
 // such logic.
 type Filter interface {
 	Filter(id.Signatory) bool
+
+	// FIXME: There needs to be a "unfilter" method available on this interface.
+	// This should be called when the connection is closed, so that the filter
+	// can reset any state necessary.
+	//
+	//  Unfilter(id.Signatory)
+	//
 }
 
 type Session interface {
@@ -35,4 +42,11 @@ type Session interface {
 	// RemoteSignatory returns the pubkey hash of the Signatory that is on the
 	// remote end of the Session.
 	RemoteSignatory() id.Signatory
+
+	// FIXME: There needs to be a "close" method available on this interface.
+	// This should be called when the connection is closed, so that the session can
+	// close the filter.
+	//
+	//	Close()
+	//
 }

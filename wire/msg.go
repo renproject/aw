@@ -201,6 +201,8 @@ func (push *PushAckV1) Unmarshal(r io.Reader, m int) (int, error) {
 type PullV1 struct {
 	Subnet id.Hash `json:"subnet"` // TODO: Remove the subnet? Make it optional?
 	Hash   id.Hash `json:"hash"`
+	// TODO: Add information about the type of data that this hash identifies.
+	// For example, is it a transaction, a block, or something else?
 }
 
 func (pull PullV1) SizeHint() int {

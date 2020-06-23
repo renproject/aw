@@ -63,6 +63,11 @@ type DHT interface {
 	DeleteSubnet(id.Hash)
 	// Subnet returns the signatories associated with the specified subnet
 	// merkle root hash.
+	//
+	// TODO: There should be some kind of "default" or "global" subnet that is
+	// interpretted as "all known signatories". In this case, this method should
+	// return a random subset of all known signatories. Or, do we want to remove
+	// the idea of subnets entirely.
 	Subnet(id.Hash) []id.Signatory
 }
 
