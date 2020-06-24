@@ -82,7 +82,7 @@ type distributedHashTable struct {
 // will panic. A default double-cache content resolver can be used to store
 // content in-memory if it is not required to persist across reboots.
 //
-// dht.New(dht.NewDoubleCacheContentResolver(nil))
+// dht.New(identity, dht.NewDoubleCacheContentResolver(nil))
 //
 // The default resolver can also act as a middleware by replacing the `nil`
 // argument with a custom ContentResolver implementation.
