@@ -1,6 +1,7 @@
 package dht
 
 import (
+	"math/rand"
 	"sort"
 	"sync"
 
@@ -18,20 +19,6 @@ var (
 // identifies it.
 type Identifiable interface {
 	Hash() id.Hash
-}
-
-// A ContentResolver interface allows for third-party content resolution. This
-// can be used to persist content to the disk.
-type ContentResolver interface {
-	// Insert content with the given hash and type.
-	Insert(id.Hash, uint8, []byte)
-
-	// Delete content with the given hash.
-	Delete(id.Hash)
-
-	// Content returns the content associated with a hash. If there is no
-	// associated content, it returns false. Otherwise, it returns true.
-	Content(id.Hash) ([]byte, bool)
 }
 
 // DHT defines a distributed hash table, used for storing addresses/content that
@@ -87,9 +74,6 @@ type distributedHashTable struct {
 	addrsBySignatoryMu *sync.Mutex
 	addrsBySignatory   map[id.Signatory]wire.Address
 
-	contentByHashMu *sync.Mutex
-	contentByHash   map[id.Hash][]byte
-
 	subnetsByHashMu *sync.Mutex
 	subnetsByHash   map[id.Hash][]id.Signatory
 }
@@ -97,15 +81,16 @@ type distributedHashTable struct {
 // New returns an empty DHT. If a nil content resolver is provided, content will
 // only be stored in-memory and will not be persistent across reboots.
 func New(identity id.Signatory, contentResolver ContentResolver) DHT {
+	if contentResolver == nil {
+		panic("failed to construct dht: nil content resolver")
+	}
+
 	return &distributedHashTable{
 		identity:        identity,
 		contentResolver: contentResolver,
 
 		addrsBySignatoryMu: new(sync.Mutex),
 		addrsBySignatory:   map[id.Signatory]wire.Address{},
-
-		contentByHashMu: new(sync.Mutex),
-		contentByHash:   map[id.Hash][]byte{},
 
 		subnetsByHashMu: new(sync.Mutex),
 		subnetsByHash:   map[id.Hash][]id.Signatory{},
@@ -194,56 +179,25 @@ func (dht *distributedHashTable) NumAddrs() (int, error) {
 // InsertContent into the DHT. Returns true if there is not already content
 // associated with this hash, otherwise returns false.
 func (dht *distributedHashTable) InsertContent(hash id.Hash, contentType uint8, content []byte) {
-	dht.contentByHashMu.Lock()
-	defer dht.contentByHashMu.Unlock()
-
-	copied := make([]byte, len(content))
-	copy(copied, content)
-	dht.contentByHash[hash] = copied
-
-	if dht.contentResolver != nil {
-		dht.contentResolver.Insert(hash, contentType, content)
-	}
+	dht.contentResolver.Insert(hash, contentType, content)
 }
 
 // DeleteContent from the DHT.
 func (dht *distributedHashTable) DeleteContent(hash id.Hash) {
-	dht.contentByHashMu.Lock()
-	defer dht.contentByHashMu.Unlock()
-
-	delete(dht.contentByHash, hash)
-
-	if dht.contentResolver != nil {
-		dht.contentResolver.Delete(hash)
-	}
+	dht.contentResolver.Delete(hash)
 }
 
 // Content returns the content associated with a hash. If there is no
 // associated content, it returns false. Otherwise, it returns true.
 func (dht *distributedHashTable) Content(hash id.Hash) ([]byte, bool) {
-	dht.contentByHashMu.Lock()
-	defer dht.contentByHashMu.Unlock()
-
-	content, ok := dht.contentByHash[hash]
-	if !ok && dht.contentResolver != nil {
-		content, ok = dht.contentResolver.Content(hash)
-	}
-
-	return content, ok
+	return dht.contentResolver.Content(hash)
 }
 
-// HasContent returns the return when there is content associated with the
-// given hash. Otherwise, it returns false. This is more efficiently for
-// checking existence than the Content method, because no bytes are copied.
+// HasContent returns true when there is content associated with the given hash.
+// Otherwise, it returns false. This is more efficient for checking existence
+// than the Content method, because no bytes are copied.
 func (dht *distributedHashTable) HasContent(hash id.Hash) bool {
-	dht.contentByHashMu.Lock()
-	defer dht.contentByHashMu.Unlock()
-
-	_, ok := dht.contentByHash[hash]
-	if !ok && dht.contentResolver != nil {
-		_, ok = dht.contentResolver.Content(hash)
-	}
-
+	_, ok := dht.contentResolver.Content(hash)
 	return ok
 }
 
@@ -252,14 +206,7 @@ func (dht *distributedHashTable) HasContent(hash id.Hash) bool {
 // checking existence than the Content method, because no bytes are copied.
 // Note: not having content is different from having empty/nil content.
 func (dht *distributedHashTable) HasEmptyContent(hash id.Hash) bool {
-	dht.contentByHashMu.Lock()
-	defer dht.contentByHashMu.Unlock()
-
-	content, ok := dht.contentByHash[hash]
-	if !ok && dht.contentResolver != nil {
-		content, ok = dht.contentResolver.Content(hash)
-	}
-
+	content, ok := dht.contentResolver.Content(hash)
 	return ok && len(content) == 0
 }
 
