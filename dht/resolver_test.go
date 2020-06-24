@@ -103,27 +103,31 @@ var _ = Describe("Content Resolver", func() {
 					NewMockResolver(insertCh, deleteCh, contentCh),
 				)
 
-				// Insert.
+				// Insert and wait on the channel to make sure the inner
+				// resolver received the message.
 				hash := id.Hash(sha256.Sum256(randomContent()))
 				go resolver.Insert(hash, 0, nil)
 
 				newHash := <-insertCh
 				Expect(newHash).To(Equal(hash))
 
-				// Delete.
+				// Delete and wait on the channel to make sure the inner
+				// resolver received the message.
 				hash = id.Hash(sha256.Sum256(randomContent()))
 				go resolver.Delete(hash)
 
 				newHash = <-deleteCh
 				Expect(newHash).To(Equal(hash))
 
-				// Get.
+				// Get and wait on the channel to make sure the inner resolver
+				// received the message.
 				hash = id.Hash(sha256.Sum256(randomContent()))
 				go resolver.Content(hash)
 
 				newHash = <-contentCh
 				Expect(newHash).To(Equal(hash))
 
+				// Ensure the channels receive no additional messages.
 				select {
 				case <-insertCh:
 					Fail("unexpected insert message")
