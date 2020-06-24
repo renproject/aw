@@ -66,11 +66,15 @@ func (r *doubleCacheContentResolver) Insert(hash id.Hash, contentType uint8, con
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 
+	// If the capacity has been exceeded, move the front cache to the back and
+	// reset the front cache.
 	if len(r.cacheFront) >= r.opts.Capacity {
 		r.cacheBack = r.cacheFront
 		r.cacheFront = make(map[id.Hash][]byte, r.opts.Capacity)
 	}
 
+	// Insert the content to the front cache and the inner resolver (if it
+	// exists).
 	r.cacheFront[hash] = content
 
 	if r.inner != nil {
@@ -82,6 +86,8 @@ func (r *doubleCacheContentResolver) Delete(hash id.Hash) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 
+	// Delete the content from both caches and the inner resolver (if it
+	// exists).
 	delete(r.cacheFront, hash)
 	delete(r.cacheBack, hash)
 
@@ -94,17 +100,17 @@ func (r *doubleCacheContentResolver) Content(hash id.Hash) ([]byte, bool) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 
-	content, ok := r.cacheFront[hash]
-	if ok {
+	// Check both caches for the content.
+	if content, ok := r.cacheFront[hash]; ok {
 		return content, ok
 	}
-	content, ok = r.cacheBack[hash]
-	if ok {
+	if content, ok := r.cacheBack[hash]; ok {
 		return content, ok
 	}
 
+	// If the content has not been found, check the inner resolver.
 	if r.inner != nil {
 		return r.inner.Content(hash)
 	}
-	return content, ok
+	return nil, false
 }
