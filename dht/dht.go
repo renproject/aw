@@ -78,8 +78,14 @@ type distributedHashTable struct {
 	subnetsByHash   map[id.Hash][]id.Signatory
 }
 
-// New returns an empty DHT. If a nil content resolver is provided, content will
-// only be stored in-memory and will not be persistent across reboots.
+// New returns an empty DHT. If a nil content resolver is provided, the function
+// will panic. A default double-cache content resolver can be used to store
+// content in-memory if it is not required to persist across reboots.
+//
+// dht.New(dht.NewDoubleCacheContentResolver(nil))
+//
+// The default resolver can also act as a middleware by replacing the `nil`
+// argument with a custom ContentResolver implementation.
 func New(identity id.Signatory, contentResolver ContentResolver) DHT {
 	if contentResolver == nil {
 		panic("failed to construct dht: nil content resolver")
@@ -246,8 +252,17 @@ func (dht *distributedHashTable) Subnet(hash id.Hash) []id.Signatory {
 	dht.subnetsByHashMu.Lock()
 	defer dht.subnetsByHashMu.Unlock()
 
+	// If the default subnet hash is provided, return a random subnet of all
+	// known signatories.
 	if hash == DefaultSubnet {
-		// TODO: Return a random subset of all known signatories.
+		signatories := []id.Signatory{}
+		for _, subnet := range dht.subnetsByHash {
+			signatories = append(signatories, subnet...)
+		}
+		rand.Shuffle(len(signatories), func(i, j int) {
+			signatories[i], signatories[j] = signatories[j], signatories[i]
+		})
+		return signatories[:10]
 	}
 
 	subnet, ok := dht.subnetsByHash[hash]
