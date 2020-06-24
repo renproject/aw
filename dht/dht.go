@@ -7,7 +7,6 @@ import (
 
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
-	"github.com/renproject/surge"
 )
 
 var (
@@ -272,13 +271,4 @@ func (dht *distributedHashTable) Subnet(hash id.Hash) []id.Signatory {
 	copied := make([]id.Signatory, len(subnet))
 	copy(copied, subnet)
 	return copied
-}
-
-// SizeHint returns the number of bytes required to represent this
-// distributedHashTable in binary.
-func (dht *distributedHashTable) SizeHint() int {
-	dht.addrsBySignatoryMu.Lock()
-	defer dht.addrsBySignatoryMu.Unlock()
-
-	return surge.SizeHint(dht.addrsBySignatory) + surge.SizeHint(dht.subnetsByHash)
 }
