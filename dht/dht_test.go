@@ -231,7 +231,7 @@ var _ = Describe("DHT", func() {
 			It("should panic", func() {
 				privKey := id.NewPrivKey()
 				identity := id.NewSignatory(&privKey.PublicKey)
-				Expect(func() { dht.New(identity, nil) }).To(Panic())
+				Expect(func() { dht.New(dht.DefaultOptions(), identity, nil) }).To(Panic())
 			})
 		})
 
@@ -244,7 +244,7 @@ var _ = Describe("DHT", func() {
 				privKey := id.NewPrivKey()
 				identity := id.NewSignatory(&privKey.PublicKey)
 				resolver := dhtutil.NewMockResolver(insertCh, deleteCh, contentCh)
-				table := dht.New(identity, resolver)
+				table := dht.New(dht.DefaultOptions(), identity, resolver)
 
 				// Insert and wait on the channel to make sure the inner
 				// resolver received the message.
@@ -431,7 +431,7 @@ var _ = Describe("DHT", func() {
 				signatoriesMap := make(map[id.Signatory]bool, numSubnets*numSignatories)
 				for len(signatoriesMap) < numSignatories {
 					signatories := table.Subnet(dht.DefaultSubnet)
-					Expect(len(signatories)).To(Equal(10))
+					Expect(len(signatories)).To(Equal(dht.DefaultMaxRandomSignatories))
 
 					for _, signatory := range signatories {
 						signatoriesMap[signatory] = true
@@ -446,7 +446,7 @@ func initDHT() dht.DHT {
 	privKey := id.NewPrivKey()
 	identity := id.NewSignatory(&privKey.PublicKey)
 	resolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
-	return dht.New(identity, resolver)
+	return dht.New(dht.DefaultOptions(), identity, resolver)
 }
 
 func sortSignatories(signatories []id.Signatory) {

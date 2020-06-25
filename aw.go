@@ -41,13 +41,21 @@ func New() *Builder {
 	}
 	// By default, the content resolver is nil, meaning content will only be
 	// stored in-memory.
-	builder.dht = dht.New(id.NewSignatory(&builder.handshaker.PrivKey.PublicKey), nil)
+	builder.dht = dht.New(
+		dht.DefaultOptions(),
+		id.NewSignatory(&builder.handshaker.PrivKey.PublicKey),
+		nil,
+	)
 	return builder
 }
 
 func (builder *Builder) WithPrivKey(privKey *id.PrivKey) *Builder {
 	builder.handshaker.PrivKey = privKey
-	builder.dht = dht.New(id.NewSignatory(&builder.handshaker.PrivKey.PublicKey), builder.contentResolver)
+	builder.dht = dht.New(
+		dht.DefaultOptions(),
+		id.NewSignatory(&builder.handshaker.PrivKey.PublicKey),
+		builder.contentResolver,
+	)
 	if err := builder.peer.Addr.Sign(builder.handshaker.PrivKey); err != nil {
 		builder.opts.Logger.Fatalf("signing address=%v: %v", builder.peer.Addr, err)
 	}
@@ -56,7 +64,11 @@ func (builder *Builder) WithPrivKey(privKey *id.PrivKey) *Builder {
 
 func (builder *Builder) WithContentResolver(contentResolver dht.ContentResolver) *Builder {
 	builder.contentResolver = contentResolver
-	builder.dht = dht.New(id.NewSignatory(&builder.handshaker.PrivKey.PublicKey), builder.contentResolver)
+	builder.dht = dht.New(
+		dht.DefaultOptions(),
+		id.NewSignatory(&builder.handshaker.PrivKey.PublicKey),
+		builder.contentResolver,
+	)
 	return builder
 }
 
