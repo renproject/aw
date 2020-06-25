@@ -37,14 +37,15 @@ func New() *Builder {
 		peer:       peer.DefaultOptions(),
 		gossiper:   gossip.DefaultOptions(),
 
-		listener: gossip.Callbacks{},
+		listener:        gossip.Callbacks{},
+		contentResolver: dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil),
 	}
 	// By default, the content resolver is nil, meaning content will only be
 	// stored in-memory.
 	builder.dht = dht.New(
 		dht.DefaultOptions(),
 		id.NewSignatory(&builder.handshaker.PrivKey.PublicKey),
-		dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil),
+		builder.contentResolver,
 	)
 	return builder
 }
