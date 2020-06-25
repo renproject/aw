@@ -83,7 +83,7 @@ type distributedHashTable struct {
 // will panic. A default double-cache content resolver can be used to store
 // content in-memory if it is not required to persist across reboots.
 //
-// dht.New(opts, identity, dht.NewDoubleCacheContentResolver(nil))
+// dht.New(opts, identity, dht.NewDoubleCacheContentResolver(resolverOpts, nil))
 //
 // The default resolver can also act as a middleware by replacing the `nil`
 // argument with a custom ContentResolver implementation.
@@ -265,7 +265,11 @@ func (dht *distributedHashTable) Subnet(hash id.Hash) []id.Signatory {
 		rand.Shuffle(len(signatories), func(i, j int) {
 			signatories[i], signatories[j] = signatories[j], signatories[i]
 		})
-		return signatories[:dht.opts.MaxRandomSignatories]
+		numSignatories := dht.opts.MaxRandomSignatories
+		if numSignatories > len(signatories) {
+			numSignatories = len(signatories)
+		}
+		return signatories[:numSignatories]
 	}
 
 	subnet, ok := dht.subnetsByHash[hash]
