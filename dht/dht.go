@@ -253,7 +253,7 @@ func (dht *distributedHashTable) Subnet(hash id.Hash) []id.Signatory {
 	dht.subnetsByHashMu.Lock()
 	defer dht.subnetsByHashMu.Unlock()
 
-	// If the default subnet hash is provided, return a random subnet of all
+	// If the default subnet hash is provided, return a random subset of all
 	// known signatories.
 	if hash == DefaultSubnet {
 		signatories := []id.Signatory{}
