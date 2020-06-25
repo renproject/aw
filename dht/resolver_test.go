@@ -2,11 +2,11 @@ package dht_test
 
 import (
 	"crypto/sha256"
-	"math/rand"
 	"testing/quick"
 	"time"
 
 	"github.com/renproject/aw/dht"
+	"github.com/renproject/aw/dht/dhtutil"
 	"github.com/renproject/id"
 
 	. "github.com/onsi/ginkgo"
@@ -45,7 +45,7 @@ var _ = Describe("Content Resolver", func() {
 				// Fill cache with data.
 				hashes := make([]id.Hash, capacity)
 				for i := 0; i < capacity; i++ {
-					content := randomContent()
+					content := dhtutil.RandomContent()
 					hashes[i] = id.Hash(sha256.Sum256(content))
 					resolver.Insert(hashes[i], uint8(i), content)
 				}
@@ -54,7 +54,7 @@ var _ = Describe("Content Resolver", func() {
 				newHashes := make([]id.Hash, capacity)
 				newContent := make([][]byte, capacity)
 				for i := 0; i < capacity; i++ {
-					newContent[i] = randomContent()
+					newContent[i] = dhtutil.RandomContent()
 					newHashes[i] = id.Hash(sha256.Sum256(newContent[i]))
 					resolver.Insert(newHashes[i], uint8(i), newContent[i])
 				}
@@ -100,12 +100,12 @@ var _ = Describe("Content Resolver", func() {
 
 				resolver := dht.NewDoubleCacheContentResolver(
 					dht.DefaultDoubleCacheContentResolverOptions(),
-					NewMockResolver(insertCh, deleteCh, contentCh),
+					dhtutil.NewMockResolver(insertCh, deleteCh, contentCh),
 				)
 
 				// Insert and wait on the channel to make sure the inner
 				// resolver received the message.
-				hash := id.Hash(sha256.Sum256(randomContent()))
+				hash := id.Hash(sha256.Sum256(dhtutil.RandomContent()))
 				go resolver.Insert(hash, 0, nil)
 
 				newHash := <-insertCh
@@ -113,7 +113,7 @@ var _ = Describe("Content Resolver", func() {
 
 				// Delete and wait on the channel to make sure the inner
 				// resolver received the message.
-				hash = id.Hash(sha256.Sum256(randomContent()))
+				hash = id.Hash(sha256.Sum256(dhtutil.RandomContent()))
 				go resolver.Delete(hash)
 
 				newHash = <-deleteCh
@@ -121,7 +121,7 @@ var _ = Describe("Content Resolver", func() {
 
 				// Get and wait on the channel to make sure the inner resolver
 				// received the message.
-				hash = id.Hash(sha256.Sum256(randomContent()))
+				hash = id.Hash(sha256.Sum256(dhtutil.RandomContent()))
 				go resolver.Content(hash)
 
 				newHash = <-contentCh
@@ -141,38 +141,3 @@ var _ = Describe("Content Resolver", func() {
 		})
 	})
 })
-
-// TODO: Migrate this to a util package.
-func randomContent() []byte {
-	content := make([]byte, 32)
-	_, err := rand.Read(content)
-	Expect(err).ToNot(HaveOccurred())
-	return content
-}
-
-type mockResolver struct {
-	insertCh  chan id.Hash
-	deleteCh  chan id.Hash
-	contentCh chan id.Hash
-}
-
-func NewMockResolver(insertCh, deleteCh, contentCh chan id.Hash) dht.ContentResolver {
-	return &mockResolver{
-		insertCh:  insertCh,
-		deleteCh:  deleteCh,
-		contentCh: contentCh,
-	}
-}
-
-func (r *mockResolver) Insert(hash id.Hash, contentType uint8, content []byte) {
-	r.insertCh <- hash
-}
-
-func (r *mockResolver) Delete(hash id.Hash) {
-	r.deleteCh <- hash
-}
-
-func (r *mockResolver) Content(hash id.Hash) ([]byte, bool) {
-	r.contentCh <- hash
-	return nil, true
-}

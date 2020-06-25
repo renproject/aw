@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/renproject/aw/dht"
+	"github.com/renproject/aw/dht/dhtutil"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/aw/wire/wireutil"
 	"github.com/renproject/id"
@@ -242,12 +243,12 @@ var _ = Describe("DHT", func() {
 
 				privKey := id.NewPrivKey()
 				identity := id.NewSignatory(&privKey.PublicKey)
-				resolver := NewMockResolver(insertCh, deleteCh, contentCh)
+				resolver := dhtutil.NewMockResolver(insertCh, deleteCh, contentCh)
 				table := dht.New(identity, resolver)
 
 				// Insert and wait on the channel to make sure the inner
 				// resolver received the message.
-				hash := id.Hash(sha256.Sum256(randomContent()))
+				hash := id.Hash(sha256.Sum256(dhtutil.RandomContent()))
 				go table.InsertContent(hash, 0, nil)
 
 				newHash := <-insertCh
@@ -255,7 +256,7 @@ var _ = Describe("DHT", func() {
 
 				// Delete and wait on the channel to make sure the inner
 				// resolver received the message.
-				hash = id.Hash(sha256.Sum256(randomContent()))
+				hash = id.Hash(sha256.Sum256(dhtutil.RandomContent()))
 				go table.DeleteContent(hash)
 
 				newHash = <-deleteCh
@@ -263,7 +264,7 @@ var _ = Describe("DHT", func() {
 
 				// Get and wait on the channel to make sure the inner resolver
 				// received the message.
-				hash = id.Hash(sha256.Sum256(randomContent()))
+				hash = id.Hash(sha256.Sum256(dhtutil.RandomContent()))
 				go table.Content(hash)
 
 				newHash = <-contentCh
