@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/renproject/aw/dht"
@@ -25,6 +26,9 @@ type Gossiper struct {
 		wire.Address
 		wire.Message
 	}
+
+	syncResponders   map[id.Hash][]chan []byte
+	syncRespondersMu *sync.Mutex
 }
 
 func New(opts Options, dht dht.DHT, trans *transport.Transport, listener Listener) *Gossiper {
@@ -40,6 +44,9 @@ func New(opts Options, dht dht.DHT, trans *transport.Transport, listener Listene
 			wire.Address
 			wire.Message
 		}, opts.Alpha*opts.Alpha),
+
+		syncResponders:   make(map[id.Hash][]chan []byte, opts.MaxCapacity),
+		syncRespondersMu: new(sync.Mutex),
 	}
 	g.trans.ListenForPushes(g)
 	g.trans.ListenForPulls(g)
@@ -104,7 +111,7 @@ func (g *Gossiper) Gossip(target, hash id.Hash) {
 }
 
 // Sync a message from members of a particular Subnet.
-func (g *Gossiper) Sync(subnet, hash id.Hash) {
+func (g *Gossiper) Sync(ctx context.Context, subnet, hash id.Hash) ([]byte, error) {
 	pullV1 := wire.PullV1{Subnet: subnet, Hash: hash}
 	marshaledPullV1, err := surge.ToBinary(pullV1)
 	if err != nil {
@@ -115,7 +122,27 @@ func (g *Gossiper) Sync(subnet, hash id.Hash) {
 		Type:    wire.Pull,
 		Data:    marshaledPullV1,
 	}
+
+	// Before sending the message to the subnet, store a responder channel in
+	// the gossiper so we can receive the response.
+	g.syncRespondersMu.Lock()
+
+	responder := make(chan []byte, 1)
+	g.syncResponders[hash] = append(g.syncResponders[hash], responder)
+
+	// Do not defer the unlocking of the mutex, because the following select
+	// statement could block for a substantial amount of time.
+	g.syncRespondersMu.Unlock()
+
+	// Send the message to the subnet and wait for a response.
 	g.sendToSubnet(subnet, msg)
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case response := <-responder:
+		return response, nil
+	}
 }
 
 func (g *Gossiper) DidReceivePush(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
@@ -242,6 +269,27 @@ func (g *Gossiper) DidReceivePullAck(version uint8, data []byte, from id.Signato
 	//
 	// Process response.
 	//
+
+	g.syncRespondersMu.Lock()
+	responders, ok := g.syncResponders[pullAckV1.Hash]
+	if ok {
+		// Write the response to any listeners.
+		for _, responder := range responders {
+			select {
+			case responder <- pullAckV1.Content:
+			default:
+				// The reader is no longer waiting for the response.
+			}
+
+			// Clean up the map.
+			//
+			// TODO: There needs to be a way to prune this map if the gossiper
+			// does not receive a pull acknowledgement (or receives one but the
+			// content is empty so it does not get to this stage).
+			delete(g.syncResponders, pullAckV1.Hash)
+		}
+	}
+	g.syncRespondersMu.Unlock()
 
 	// Only copy the content into the DHT if we do not have this content at the
 	// moment.

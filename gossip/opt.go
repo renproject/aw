@@ -7,17 +7,19 @@ import (
 )
 
 var (
-	DefaultAlpha   = 10
-	DefaultBias    = 0.25
-	DefaultTimeout = 5 * time.Second
+	DefaultAlpha       = 10
+	DefaultBias        = 0.25
+	DefaultTimeout     = 5 * time.Second
+	DefaultMaxCapacity = 4096
 )
 
 type Options struct {
 	Logger logrus.FieldLogger
 
-	Alpha   int
-	Bias    float64
-	Timeout time.Duration
+	Alpha       int
+	Bias        float64
+	Timeout     time.Duration
+	MaxCapacity int
 }
 
 func DefaultOptions() Options {
@@ -26,9 +28,10 @@ func DefaultOptions() Options {
 			WithField("lib", "airwave").
 			WithField("pkg", "gossip").
 			WithField("com", "gossiper"),
-		Alpha:   DefaultAlpha,
-		Bias:    DefaultBias,
-		Timeout: DefaultTimeout,
+		Alpha:       DefaultAlpha,
+		Bias:        DefaultBias,
+		Timeout:     DefaultTimeout,
+		MaxCapacity: DefaultMaxCapacity,
 	}
 }
 
@@ -49,5 +52,10 @@ func (opts Options) WithBias(bias float64) Options {
 
 func (opts Options) WithTimeout(timeout time.Duration) Options {
 	opts.Timeout = timeout
+	return opts
+}
+
+func (opts Options) WithMaxCapacity(capacity int) Options {
+	opts.MaxCapacity = capacity
 	return opts
 }
