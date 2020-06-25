@@ -44,7 +44,7 @@ func New() *Builder {
 	builder.dht = dht.New(
 		dht.DefaultOptions(),
 		id.NewSignatory(&builder.handshaker.PrivKey.PublicKey),
-		nil,
+		dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil),
 	)
 	return builder
 }
