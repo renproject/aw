@@ -32,8 +32,9 @@ type DHT interface {
 	// Addr returns the address associated with a signatory. If there is no
 	// associated address, it returns false. Otherwise, it returns true.
 	Addr(id.Signatory) (wire.Address, bool)
-	// Addrs returns a random number of addresses.
-	Addrs(n int) []wire.Address
+	// Addrs returns a random subset of addresses in the store. The input
+	// argument can be used to specify the maximum number of addresses returned.
+	Addrs(int) []wire.Address
 	// NumAddrs returns the number of addresses in the store.
 	NumAddrs() (int, error)
 
@@ -151,7 +152,8 @@ func (dht *distributedHashTable) Addr(signatory id.Signatory) (wire.Address, boo
 	return addr, ok
 }
 
-// Addrs returns a random number of addresses.
+// Addrs returns a random subset of addresses in the store. The input argument
+// can be used to specify the maximum number of addresses returned.
 func (dht *distributedHashTable) Addrs(n int) []wire.Address {
 	dht.addrsBySignatoryMu.Lock()
 	defer dht.addrsBySignatoryMu.Unlock()
