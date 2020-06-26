@@ -19,10 +19,13 @@ var (
 	// no messages are attempted to be sent, within one hour, then the
 	// connection is killed and all pending messages will be lost.
 	DefaultClientTimeToLive = time.Hour
-	// DefaultClientTimeToDial is set to 30 seconds. If a single dial attempt
+	// DefaultClientTimeToDial is set to 15 seconds. If a single dial attempt
 	// takes longer than this duration, it will be dropped (and a new attempt
 	// may begin).
-	DefaultClientTimeToDial = 30 * time.Second // TODO: There should probably be a third timeout, that is distinct from TimeToLive, for controlling how long we attempt dial connections.
+	DefaultClientTimeToDial = 15 * time.Second
+	// DefaultClientMaxDialAttempts is set to 1. If the initial dial attempt
+	// fails, the connection will be dropped.
+	DefaultClientMaxDialAttempts = 1
 	// DefaultClientMaxCapacity is set to 4096.
 	DefaultClientMaxCapacity = 4096
 	// DefaultClientMaxConnections is set to 128.
@@ -46,6 +49,8 @@ type ClientOptions struct {
 	// be started, assuming that the client has not been attempting dials for
 	// longer than the TimeToLive.
 	TimeToDial time.Duration
+	// MaxDialAttempts when establishing new connections.
+	MaxDialAttempts int
 	// MaxCapacity of messages that can be bufferred while waiting to write
 	// messages to a channel.
 	MaxCapacity int
@@ -61,10 +66,11 @@ func DefaultClientOptions() ClientOptions {
 			WithField("lib", "airwave").
 			WithField("pkg", "tcp").
 			WithField("com", "client"),
-		TimeToLive:     DefaultClientTimeToLive,
-		TimeToDial:     DefaultClientTimeToDial,
-		MaxCapacity:    DefaultClientMaxCapacity,
-		MaxConnections: DefaultClientMaxConnections,
+		TimeToLive:      DefaultClientTimeToLive,
+		TimeToDial:      DefaultClientTimeToDial,
+		MaxDialAttempts: DefaultClientMaxDialAttempts,
+		MaxCapacity:     DefaultClientMaxCapacity,
+		MaxConnections:  DefaultClientMaxConnections,
 	}
 }
 
@@ -75,6 +81,11 @@ func (opts ClientOptions) WithLogger(logger logrus.FieldLogger) ClientOptions {
 
 func (opts ClientOptions) WithTimeToLive(ttl time.Duration) ClientOptions {
 	opts.TimeToLive = ttl
+	return opts
+}
+
+func (opts ClientOptions) WithMaxDialAttempts(dialAttempts int) ClientOptions {
+	opts.MaxDialAttempts = dialAttempts
 	return opts
 }
 
@@ -406,12 +417,15 @@ func (client *Client) write(session handshake.Session, rw *bufio.ReadWriter, msg
 // dial attempt succeeeds after the TimeToLive duration.
 func (client *Client) dial(ctx context.Context, addr string) (net.Conn, handshake.Session, error) {
 	// Create context for all dial attempts. We will attempt to dial once every
-	// 30 seconds, until we are successful, or until this context is done
-	// (either because the input context was cancelled, or the TimeToLive
+	// TimeToDial seconds, until we are successful, or until this context is
+	// done (either because the input context was cancelled, or the TimeToLive
 	// duration has passed).
 	dialCtx, dialCancel := context.WithTimeout(ctx, client.opts.TimeToLive)
 	defer dialCancel()
 
+	// Remember the number of dial attempts for this connection. If this
+	// exceeds MaxDialAttempts, the connection will be dropped.
+	numDialAttempts := 0
 	for {
 		select {
 		case <-dialCtx.Done():
@@ -422,16 +436,25 @@ func (client *Client) dial(ctx context.Context, addr string) (net.Conn, handshak
 		default:
 		}
 
-		// Attempt to dial a new connection for 30 seconds. If we are not
-		// successful, then wait until the end of the 30 second timeout and try
-		// again.
+		// Increment the number of dial attempts.
+		numDialAttempts++
+
+		// Attempt to dial a new connection for TimeToDial seconds. If we are
+		// not successful, then wait until the end of the TimeToDial second
+		// timeout and try again.
 		innerDialCtx, innerDialCancel := context.WithTimeout(dialCtx, client.opts.TimeToDial)
 		conn, err := new(net.Dialer).DialContext(innerDialCtx, "tcp", addr)
 		if err != nil {
-			// Make sure to wait until the entire 30 seconds has passed,
+			// Make sure to wait until the entire TimeToDial seconds has passed,
 			// otherwise we might attempt to re-dial too quickly.
 			<-innerDialCtx.Done()
 			innerDialCancel()
+
+			// If the number of dial attempts has exceeded the maximum, return
+			// an error.
+			if numDialAttempts >= client.opts.MaxDialAttempts {
+				return nil, nil, fmt.Errorf("dialing: exceeded max dial attempts: %v", err)
+			}
 
 			client.opts.Logger.Warnf("dialing: %v", err)
 			continue
