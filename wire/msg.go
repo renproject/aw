@@ -150,8 +150,8 @@ func (pingAck *PingAckV1) Unmarshal(r io.Reader, m int) (int, error) {
 
 type PushV1 struct {
 	Subnet id.Hash `json:"subnet"` // TODO: Remove the subnet? Make it optional?
-	Type   uint8   `json:"type"`
 	Hash   id.Hash `json:"hash"`
+	Type   uint8   `json:"type"`
 }
 
 func (push PushV1) SizeHint() int {
@@ -167,6 +167,10 @@ func (push PushV1) Marshal(w io.Writer, m int) (int, error) {
 	if err != nil {
 		return m, err
 	}
+	m, err = surge.Marshal(w, push.Type, m)
+	if err != nil {
+		return m, err
+	}
 	return m, nil
 }
 
@@ -176,6 +180,10 @@ func (push *PushV1) Unmarshal(r io.Reader, m int) (int, error) {
 		return m, err
 	}
 	m, err = surge.Unmarshal(r, &push.Hash, m)
+	if err != nil {
+		return m, err
+	}
+	m, err = surge.Unmarshal(r, &push.Type, m)
 	if err != nil {
 		return m, err
 	}
@@ -200,8 +208,7 @@ func (push *PushAckV1) Unmarshal(r io.Reader, m int) (int, error) {
 type PullV1 struct {
 	Subnet id.Hash `json:"subnet"` // TODO: Remove the subnet? Make it optional?
 	Hash   id.Hash `json:"hash"`
-	// TODO: Add information about the type of data that this hash identifies.
-	// For example, is it a transaction, a block, or something else?
+	Type   uint8   `json:"type"`
 }
 
 func (pull PullV1) SizeHint() int {
@@ -217,6 +224,10 @@ func (pull PullV1) Marshal(w io.Writer, m int) (int, error) {
 	if err != nil {
 		return m, err
 	}
+	m, err = surge.Marshal(w, pull.Type, m)
+	if err != nil {
+		return m, err
+	}
 	return m, nil
 }
 
@@ -226,6 +237,10 @@ func (pull *PullV1) Unmarshal(r io.Reader, m int) (int, error) {
 		return m, err
 	}
 	m, err = surge.Unmarshal(r, &pull.Hash, m)
+	if err != nil {
+		return m, err
+	}
+	m, err = surge.Unmarshal(r, &pull.Type, m)
 	if err != nil {
 		return m, err
 	}
@@ -252,6 +267,10 @@ func (pullAck PullAckV1) Marshal(w io.Writer, m int) (int, error) {
 	if err != nil {
 		return m, err
 	}
+	m, err = surge.Marshal(w, pullAck.Type, m)
+	if err != nil {
+		return m, err
+	}
 	m, err = surge.Marshal(w, pullAck.Content, m)
 	if err != nil {
 		return m, err
@@ -265,6 +284,10 @@ func (pullAck *PullAckV1) Unmarshal(r io.Reader, m int) (int, error) {
 		return m, err
 	}
 	m, err = surge.Unmarshal(r, &pullAck.Hash, m)
+	if err != nil {
+		return m, err
+	}
+	m, err = surge.Unmarshal(r, &pullAck.Type, m)
 	if err != nil {
 		return m, err
 	}

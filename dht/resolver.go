@@ -17,7 +17,7 @@ type ContentResolver interface {
 
 	// Content returns the content associated with a hash. If there is no
 	// associated content, it returns false. Otherwise, it returns true.
-	Content(id.Hash) ([]byte, bool)
+	Content(id.Hash, uint8) ([]byte, bool)
 }
 
 var (
@@ -96,7 +96,7 @@ func (r *doubleCacheContentResolver) Delete(hash id.Hash) {
 	}
 }
 
-func (r *doubleCacheContentResolver) Content(hash id.Hash) ([]byte, bool) {
+func (r *doubleCacheContentResolver) Content(hash id.Hash, contentType uint8) ([]byte, bool) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 
@@ -110,7 +110,7 @@ func (r *doubleCacheContentResolver) Content(hash id.Hash) ([]byte, bool) {
 
 	// If the content has not been found, check the inner resolver.
 	if r.inner != nil {
-		return r.inner.Content(hash)
+		return r.inner.Content(hash, contentType)
 	}
 	return nil, false
 }

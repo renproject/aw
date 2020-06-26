@@ -29,7 +29,7 @@ func (r *mockResolver) Delete(hash id.Hash) {
 	r.deleteCh <- hash
 }
 
-func (r *mockResolver) Content(hash id.Hash) ([]byte, bool) {
+func (r *mockResolver) Content(hash id.Hash, contentType uint8) ([]byte, bool) {
 	r.contentCh <- hash
 	return nil, true
 }

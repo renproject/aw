@@ -140,13 +140,13 @@ func (node *Node) Run(ctx context.Context) {
 func (node *Node) Send(ctx context.Context, signatory id.Signatory, dataType uint8, data []byte) {
 	hash := sha256.Sum256(data)
 	node.dht.InsertContent(hash, dataType, data)
-	node.gossiper.Gossip(id.Hash(signatory), hash)
+	node.gossiper.Gossip(id.Hash(signatory), hash, dataType)
 }
 
 func (node *Node) Broadcast(ctx context.Context, subnet id.Hash, dataType uint8, data []byte) {
 	hash := sha256.Sum256(data)
 	node.dht.InsertContent(hash, dataType, data)
-	node.gossiper.Gossip(subnet, hash)
+	node.gossiper.Gossip(subnet, hash, dataType)
 }
 
 func (node *Node) DHT() dht.DHT {

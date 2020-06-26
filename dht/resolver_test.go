@@ -26,7 +26,7 @@ var _ = Describe("Content Resolver", func() {
 					hash := id.Hash(sha256.Sum256(content))
 					resolver.Insert(hash, contentType, content)
 
-					newContent, ok := resolver.Content(hash)
+					newContent, ok := resolver.Content(hash, contentType)
 					Expect(ok).To(BeTrue())
 					Expect(newContent).To(Equal(content))
 					return true
@@ -41,13 +41,14 @@ var _ = Describe("Content Resolver", func() {
 						WithCapacity(capacity),
 					nil,
 				)
+				contentType := uint8(0)
 
 				// Fill cache with data.
 				hashes := make([]id.Hash, capacity)
 				for i := 0; i < capacity; i++ {
 					content := dhtutil.RandomContent()
 					hashes[i] = id.Hash(sha256.Sum256(content))
-					resolver.Insert(hashes[i], uint8(i), content)
+					resolver.Insert(hashes[i], contentType, content)
 				}
 
 				// Add more data to cause old data to be dropped.
@@ -56,18 +57,18 @@ var _ = Describe("Content Resolver", func() {
 				for i := 0; i < capacity; i++ {
 					newContent[i] = dhtutil.RandomContent()
 					newHashes[i] = id.Hash(sha256.Sum256(newContent[i]))
-					resolver.Insert(newHashes[i], uint8(i), newContent[i])
+					resolver.Insert(newHashes[i], contentType, newContent[i])
 				}
 
 				// Verify new data exists and old data has been dropped.
 				for _, hash := range hashes {
-					content, ok := resolver.Content(hash)
+					content, ok := resolver.Content(hash, contentType)
 					Expect(ok).To(BeFalse())
 					Expect(len(content)).To(Equal(0))
 				}
 
 				for i := range newHashes {
-					content, ok := resolver.Content(newHashes[i])
+					content, ok := resolver.Content(newHashes[i], contentType)
 					Expect(ok).To(BeTrue())
 					Expect(content).To(Equal(newContent[i]))
 				}
@@ -83,7 +84,7 @@ var _ = Describe("Content Resolver", func() {
 
 				f := func(contentType uint8, content []byte) bool {
 					hash := id.Hash(sha256.Sum256(content))
-					newContent, ok := resolver.Content(hash)
+					newContent, ok := resolver.Content(hash, contentType)
 					Expect(ok).To(BeFalse())
 					Expect(len(newContent)).To(Equal(0))
 					return true
@@ -102,11 +103,12 @@ var _ = Describe("Content Resolver", func() {
 					dht.DefaultDoubleCacheContentResolverOptions(),
 					dhtutil.NewMockResolver(insertCh, deleteCh, contentCh),
 				)
+				contentType := uint8(0)
 
 				// Insert and wait on the channel to make sure the inner
 				// resolver received the message.
 				hash := id.Hash(sha256.Sum256(dhtutil.RandomContent()))
-				go resolver.Insert(hash, 0, nil)
+				go resolver.Insert(hash, contentType, nil)
 
 				newHash := <-insertCh
 				Expect(newHash).To(Equal(hash))
@@ -122,7 +124,7 @@ var _ = Describe("Content Resolver", func() {
 				// Get and wait on the channel to make sure the inner resolver
 				// received the message.
 				hash = id.Hash(sha256.Sum256(dhtutil.RandomContent()))
-				go resolver.Content(hash)
+				go resolver.Content(hash, contentType)
 
 				newHash = <-contentCh
 				Expect(newHash).To(Equal(hash))

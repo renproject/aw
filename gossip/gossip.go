@@ -80,12 +80,13 @@ func (g *Gossiper) Run(ctx context.Context) {
 // If the target is a signatory, then the gossiper will attempt to deliver the
 // message to that specific peer. If the target is neither, the message will be
 // dropped.
-func (g *Gossiper) Gossip(target, hash id.Hash) {
+func (g *Gossiper) Gossip(target, hash id.Hash, dataType uint8) {
 	addr, ok := g.dht.Addr(id.Signatory(target))
 	if ok {
 		marshaledPushV1, err := surge.ToBinary(wire.PushV1{
 			Subnet: id.Hash{},
 			Hash:   hash,
+			Type:   dataType,
 		})
 		if err != nil {
 			g.opts.Logger.Fatalf("marshaling push: %v", err)
@@ -101,6 +102,7 @@ func (g *Gossiper) Gossip(target, hash id.Hash) {
 	marshaledPushV1, err := surge.ToBinary(wire.PushV1{
 		Subnet: target,
 		Hash:   hash,
+		Type:   dataType,
 	})
 	if err != nil {
 		g.opts.Logger.Fatalf("marshaling push: %v", err)
@@ -113,8 +115,12 @@ func (g *Gossiper) Gossip(target, hash id.Hash) {
 }
 
 // Sync a message from members of a particular Subnet.
-func (g *Gossiper) Sync(ctx context.Context, subnet, hash id.Hash) ([]byte, error) {
-	pullV1 := wire.PullV1{Subnet: subnet, Hash: hash}
+func (g *Gossiper) Sync(ctx context.Context, subnet, hash id.Hash, dataType uint8) ([]byte, error) {
+	pullV1 := wire.PullV1{
+		Subnet: subnet,
+		Hash:   hash,
+		Type:   dataType,
+	}
 	marshaledPullV1, err := surge.ToBinary(pullV1)
 	if err != nil {
 		g.opts.Logger.Fatalf("marshaling pull: %v", err)
@@ -165,7 +171,7 @@ func (g *Gossiper) DidReceivePush(version uint8, data []byte, from id.Signatory)
 	// Process response.
 	//
 
-	if !g.dht.HasContent(pushV1.Hash) {
+	if !g.dht.HasContent(pushV1.Hash, pushV1.Type) {
 		g.dht.InsertContent(pushV1.Hash, pushV1.Type, []byte{})
 		// Beacuse we do not have the content associated with this hash, we try
 		// to pull the data from the sender.
@@ -174,6 +180,7 @@ func (g *Gossiper) DidReceivePush(version uint8, data []byte, from id.Signatory)
 			pullV1 := wire.PullV1{
 				Subnet: pushV1.Subnet,
 				Hash:   pushV1.Hash,
+				Type:   pushV1.Type,
 			}
 			marshaledPullV1, err := surge.ToBinary(pullV1)
 			if err != nil {
@@ -229,7 +236,7 @@ func (g *Gossiper) DidReceivePull(version uint8, data []byte, from id.Signatory)
 	// Acknowledge request.
 	//
 
-	content, ok := g.dht.Content(pullV1.Hash)
+	content, ok := g.dht.Content(pullV1.Hash, pullV1.Type)
 	if !ok {
 		// We do not have the content being requested, so we return empty bytes.
 		// It is up to the requester to follow up with others in the network.
@@ -239,6 +246,7 @@ func (g *Gossiper) DidReceivePull(version uint8, data []byte, from id.Signatory)
 	pullAckV1 := wire.PullAckV1{
 		Subnet:  pullV1.Subnet,
 		Hash:    pullV1.Hash,
+		Type:    pullV1.Type,
 		Content: content,
 	}
 	pullAckV1Marshaled, err := surge.ToBinary(pullAckV1)
@@ -295,10 +303,10 @@ func (g *Gossiper) DidReceivePullAck(version uint8, data []byte, from id.Signato
 
 	// Only copy the content into the DHT if we do not have this content at the
 	// moment.
-	if !g.dht.HasContent(pullAckV1.Hash) || g.dht.HasEmptyContent(pullAckV1.Hash) {
+	if !g.dht.HasContent(pullAckV1.Hash, pullAckV1.Type) || g.dht.HasEmptyContent(pullAckV1.Hash, pullAckV1.Type) {
 		g.dht.InsertContent(pullAckV1.Hash, pullAckV1.Type, pullAckV1.Content)
 		g.listener.DidReceiveContent(pullAckV1.Hash, pullAckV1.Type, pullAckV1.Content)
-		g.Gossip(pullAckV1.Subnet, pullAckV1.Hash)
+		g.Gossip(pullAckV1.Subnet, pullAckV1.Hash, pullAckV1.Type)
 	}
 	return nil
 }

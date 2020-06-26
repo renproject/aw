@@ -245,11 +245,12 @@ var _ = Describe("DHT", func() {
 				identity := id.NewSignatory(&privKey.PublicKey)
 				resolver := dhtutil.NewMockResolver(insertCh, deleteCh, contentCh)
 				table := dht.New(dht.DefaultOptions(), identity, resolver)
+				contentType := uint8(0)
 
 				// Insert and wait on the channel to make sure the inner
 				// resolver received the message.
 				hash := id.Hash(sha256.Sum256(dhtutil.RandomContent()))
-				go table.InsertContent(hash, 0, nil)
+				go table.InsertContent(hash, contentType, nil)
 
 				newHash := <-insertCh
 				Expect(newHash).To(Equal(hash))
@@ -265,7 +266,7 @@ var _ = Describe("DHT", func() {
 				// Get and wait on the channel to make sure the inner resolver
 				// received the message.
 				hash = id.Hash(sha256.Sum256(dhtutil.RandomContent()))
-				go table.Content(hash)
+				go table.Content(hash, contentType)
 
 				newHash = <-contentCh
 				Expect(newHash).To(Equal(hash))
@@ -290,7 +291,7 @@ var _ = Describe("DHT", func() {
 
 					f := func(hash id.Hash, contentType uint8, content []byte) bool {
 						table.InsertContent(hash, contentType, content)
-						return table.HasContent(hash)
+						return table.HasContent(hash, contentType)
 					}
 					Expect(quick.Check(f, nil)).To(Succeed())
 				})
@@ -300,8 +301,8 @@ var _ = Describe("DHT", func() {
 				It("should return false", func() {
 					table := initDHT()
 
-					f := func(hash id.Hash) bool {
-						return !table.HasContent(hash)
+					f := func(hash id.Hash, contentType uint8) bool {
+						return !table.HasContent(hash, contentType)
 					}
 					Expect(quick.Check(f, nil)).To(Succeed())
 				})
@@ -315,7 +316,7 @@ var _ = Describe("DHT", func() {
 
 					f := func(hash id.Hash, contentType uint8) bool {
 						table.InsertContent(hash, contentType, nil)
-						return table.HasEmptyContent(hash)
+						return table.HasEmptyContent(hash, contentType)
 					}
 					Expect(quick.Check(f, nil)).To(Succeed())
 				})
@@ -331,7 +332,7 @@ var _ = Describe("DHT", func() {
 							return true
 						}
 						table.InsertContent(hash, contentType, content)
-						return !table.HasEmptyContent(hash)
+						return !table.HasEmptyContent(hash, contentType)
 					}
 					Expect(quick.Check(f, nil)).To(Succeed())
 				})
@@ -341,8 +342,8 @@ var _ = Describe("DHT", func() {
 				It("should return false", func() {
 					table := initDHT()
 
-					f := func(hash id.Hash) bool {
-						return !table.HasEmptyContent(hash)
+					f := func(hash id.Hash, contentType uint8) bool {
+						return !table.HasEmptyContent(hash, contentType)
 					}
 					Expect(quick.Check(f, nil)).To(Succeed())
 				})
