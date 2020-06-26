@@ -98,7 +98,7 @@ func (builder *Builder) Build() *Node {
 	handshaker := handshake.NewECDSA(builder.handshaker)
 	trans := transport.New(builder.trans, handshaker)
 	peer := peer.New(builder.peer, builder.dht, trans, builder.handshaker.PrivKey)
-	gossiper := gossip.New(builder.gossiper, builder.dht, trans, builder.listener)
+	gossiper := gossip.New(builder.gossiper, peer.Identity(), builder.dht, trans, builder.listener)
 	return &Node{
 		opts:     builder.opts,
 		dht:      builder.dht,

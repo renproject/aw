@@ -16,6 +16,7 @@ import (
 
 type Gossiper struct {
 	opts Options
+	self id.Signatory
 
 	dht      dht.DHT
 	trans    *transport.Transport
@@ -31,9 +32,10 @@ type Gossiper struct {
 	syncRespondersMu *sync.Mutex
 }
 
-func New(opts Options, dht dht.DHT, trans *transport.Transport, listener Listener) *Gossiper {
+func New(opts Options, self id.Signatory, dht dht.DHT, trans *transport.Transport, listener Listener) *Gossiper {
 	g := &Gossiper{
 		opts: opts,
+		self: self,
 
 		dht:      dht,
 		trans:    trans,
@@ -303,6 +305,17 @@ func (g *Gossiper) DidReceivePullAck(version uint8, data []byte, from id.Signato
 
 func (g *Gossiper) sendToSubnet(subnet id.Hash, msg wire.Message) {
 	subnetSignatories := g.dht.Subnet(subnet) // TODO: Load signatories in order of their XOR distance from our own address.
+
+	// Remove ourself from the list of signatories.
+	//
+	// TODO: We probably don't want to perform this logic here everytime we try
+	// to send a message.
+	for i := range subnetSignatories {
+		if subnetSignatories[i].Equal(&g.self) {
+			subnetSignatories = append(subnetSignatories[:i], subnetSignatories[i+1:]...)
+			break
+		}
+	}
 
 	for a := 0; a < g.opts.Alpha; a++ {
 		for i := 0; i < len(subnetSignatories); i++ {
