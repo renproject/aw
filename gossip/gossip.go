@@ -134,15 +134,16 @@ func (g *Gossiper) Sync(ctx context.Context, subnet, hash id.Hash, dataType uint
 	g.syncRespondersMu.Lock()
 
 	responder := make(chan []byte, 1)
+	if len(g.syncResponders[hash]) == 0 {
+		// Only send the message to the subnet if the hash does not exist. This
+		// ensures we do not send it multiple times.
+		g.sendToSubnet(subnet, msg)
+	}
 	g.syncResponders[hash] = append(g.syncResponders[hash], responder)
 
 	// Do not defer the unlocking of the mutex, because the next statement could
 	// block for a substantial amount of time.
 	g.syncRespondersMu.Unlock()
-
-	// TODO: Only send the message to the subnet if the hash does not exist.
-	// This ensures we do not send it multiple times.
-	g.sendToSubnet(subnet, msg)
 
 	select {
 	case <-ctx.Done():
