@@ -18,9 +18,8 @@ type Gossiper struct {
 	opts Options
 	self id.Signatory
 
-	dht      dht.DHT
-	trans    *transport.Transport
-	listener Listener
+	dht   dht.DHT
+	trans *transport.Transport
 
 	r        *rand.Rand
 	jobQueue chan struct {
@@ -32,14 +31,13 @@ type Gossiper struct {
 	syncRespondersMu *sync.Mutex
 }
 
-func New(opts Options, self id.Signatory, dht dht.DHT, trans *transport.Transport, listener Listener) *Gossiper {
+func New(opts Options, self id.Signatory, dht dht.DHT, trans *transport.Transport) *Gossiper {
 	g := &Gossiper{
 		opts: opts,
 		self: self,
 
-		dht:      dht,
-		trans:    trans,
-		listener: listener,
+		dht:   dht,
+		trans: trans,
 
 		r: rand.New(rand.NewSource(time.Now().UnixNano())),
 		jobQueue: make(chan struct {
@@ -138,11 +136,12 @@ func (g *Gossiper) Sync(ctx context.Context, subnet, hash id.Hash, dataType uint
 	responder := make(chan []byte, 1)
 	g.syncResponders[hash] = append(g.syncResponders[hash], responder)
 
-	// Do not defer the unlocking of the mutex, because the following select
-	// statement could block for a substantial amount of time.
+	// Do not defer the unlocking of the mutex, because the next statement could
+	// block for a substantial amount of time.
 	g.syncRespondersMu.Unlock()
 
-	// Send the message to the subnet and wait for a response.
+	// TODO: Only send the message to the subnet if the hash does not exist.
+	// This ensures we do not send it multiple times.
 	g.sendToSubnet(subnet, msg)
 
 	select {
@@ -281,6 +280,8 @@ func (g *Gossiper) DidReceivePullAck(version uint8, data []byte, from id.Signato
 	//
 
 	g.syncRespondersMu.Lock()
+	defer g.syncRespondersMu.Unlock()
+
 	responders, ok := g.syncResponders[pullAckV1.Hash]
 	if ok {
 		// Write the response to any listeners.
@@ -290,22 +291,20 @@ func (g *Gossiper) DidReceivePullAck(version uint8, data []byte, from id.Signato
 			default:
 				// The reader is no longer waiting for the response.
 			}
-
-			// Clean up the map.
-			//
-			// TODO: There needs to be a way to prune this map if the gossiper
-			// does not receive a pull acknowledgement (or receives one but the
-			// content is empty so it does not get to this stage).
-			delete(g.syncResponders, pullAckV1.Hash)
 		}
+
+		// Clean up the map.
+		//
+		// TODO: There needs to be a way to prune this map if the gossiper
+		// does not receive a pull acknowledgement (or receives one but the
+		// content is empty so it does not get to this stage).
+		delete(g.syncResponders, pullAckV1.Hash)
 	}
-	g.syncRespondersMu.Unlock()
 
 	// Only copy the content into the DHT if we do not have this content at the
 	// moment.
 	if !g.dht.HasContent(pullAckV1.Hash, pullAckV1.Type) || g.dht.HasEmptyContent(pullAckV1.Hash, pullAckV1.Type) {
 		g.dht.InsertContent(pullAckV1.Hash, pullAckV1.Type, pullAckV1.Content)
-		g.listener.DidReceiveContent(pullAckV1.Hash, pullAckV1.Type, pullAckV1.Content)
 		g.Gossip(pullAckV1.Subnet, pullAckV1.Hash, pullAckV1.Type)
 	}
 	return nil
