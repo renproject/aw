@@ -15,10 +15,10 @@ import (
 )
 
 var (
-	// DefaultClientTimeToLive is set to 1 hour. If no dial attempt succeeds, or
-	// no messages are attempted to be sent, within one hour, then the
-	// connection is killed and all pending messages will be lost.
-	DefaultClientTimeToLive = time.Hour
+	// DefaultClientTimeToLive is set to 10 minutes. If no messages are
+	// attempted to be sent within this time, then the connection is killed and
+	// all pending messages will be lost.
+	DefaultClientTimeToLive = 10 * time.Minute
 	// DefaultClientTimeToDial is set to 15 seconds. If a single dial attempt
 	// takes longer than this duration, it will be dropped (and a new attempt
 	// may begin).
