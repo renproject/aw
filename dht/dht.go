@@ -199,14 +199,14 @@ func (dht *distributedHashTable) DeleteContent(hash id.Hash) {
 // Content returns the content associated with a hash. If there is no
 // associated content, it returns false. Otherwise, it returns true.
 func (dht *distributedHashTable) Content(hash id.Hash, contentType uint8) ([]byte, bool) {
-	return dht.contentResolver.Content(hash, contentType)
+	return dht.contentResolver.Content(hash, contentType, true)
 }
 
 // HasContent returns true when there is content associated with the given hash.
 // Otherwise, it returns false. This is more efficient for checking existence
 // than the Content method, because no bytes are copied.
 func (dht *distributedHashTable) HasContent(hash id.Hash, contentType uint8) bool {
-	_, ok := dht.contentResolver.Content(hash, contentType)
+	_, ok := dht.contentResolver.Content(hash, contentType, false)
 	return ok
 }
 
@@ -215,7 +215,7 @@ func (dht *distributedHashTable) HasContent(hash id.Hash, contentType uint8) boo
 // checking existence than the Content method, because no bytes are copied.
 // Note: not having content is different from having empty/nil content.
 func (dht *distributedHashTable) HasEmptyContent(hash id.Hash, contentType uint8) bool {
-	content, ok := dht.contentResolver.Content(hash, contentType)
+	content, ok := dht.contentResolver.Content(hash, contentType, false)
 	return ok && len(content) == 0
 }
 

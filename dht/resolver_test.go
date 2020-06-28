@@ -26,7 +26,7 @@ var _ = Describe("Content Resolver", func() {
 					hash := id.Hash(sha256.Sum256(content))
 					resolver.Insert(hash, contentType, content)
 
-					newContent, ok := resolver.Content(hash, contentType)
+					newContent, ok := resolver.Content(hash, contentType, false)
 					Expect(ok).To(BeTrue())
 					Expect(newContent).To(Equal(content))
 					return true
@@ -62,13 +62,13 @@ var _ = Describe("Content Resolver", func() {
 
 				// Verify new data exists and old data has been dropped.
 				for _, hash := range hashes {
-					content, ok := resolver.Content(hash, contentType)
+					content, ok := resolver.Content(hash, contentType, false)
 					Expect(ok).To(BeFalse())
 					Expect(len(content)).To(Equal(0))
 				}
 
 				for i := range newHashes {
-					content, ok := resolver.Content(newHashes[i], contentType)
+					content, ok := resolver.Content(newHashes[i], contentType, false)
 					Expect(ok).To(BeTrue())
 					Expect(content).To(Equal(newContent[i]))
 				}
@@ -84,7 +84,7 @@ var _ = Describe("Content Resolver", func() {
 
 				f := func(contentType uint8, content []byte) bool {
 					hash := id.Hash(sha256.Sum256(content))
-					newContent, ok := resolver.Content(hash, contentType)
+					newContent, ok := resolver.Content(hash, contentType, false)
 					Expect(ok).To(BeFalse())
 					Expect(len(newContent)).To(Equal(0))
 					return true
@@ -124,7 +124,7 @@ var _ = Describe("Content Resolver", func() {
 				// Get and wait on the channel to make sure the inner resolver
 				// received the message.
 				hash = id.Hash(sha256.Sum256(dhtutil.RandomContent()))
-				go resolver.Content(hash, contentType)
+				go resolver.Content(hash, contentType, false)
 
 				newHash = <-contentCh
 				Expect(newHash).To(Equal(hash))
