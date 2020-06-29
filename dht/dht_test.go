@@ -231,7 +231,7 @@ var _ = Describe("DHT", func() {
 			It("should panic", func() {
 				privKey := id.NewPrivKey()
 				identity := id.NewSignatory(&privKey.PublicKey)
-				Expect(func() { dht.New(dht.DefaultOptions(), identity, nil) }).To(Panic())
+				Expect(func() { dht.New(identity, nil) }).To(Panic())
 			})
 		})
 
@@ -244,12 +244,12 @@ var _ = Describe("DHT", func() {
 				privKey := id.NewPrivKey()
 				identity := id.NewSignatory(&privKey.PublicKey)
 				resolver := dhtutil.NewChannelResolver(insertCh, deleteCh, contentCh)
-				table := dht.New(dht.DefaultOptions(), identity, resolver)
-				contentType := uint8(0)
+				table := dht.New(identity, resolver)
 
 				// Insert and wait on the channel to make sure the inner
 				// resolver received the message.
 				hash := id.Hash(sha256.Sum256(dhtutil.RandomContent()))
+				contentType := uint8(0)
 				go table.InsertContent(hash, contentType, nil)
 
 				newHash := <-insertCh
@@ -407,39 +407,6 @@ var _ = Describe("DHT", func() {
 				Expect(len(signatories)).To(Equal(0))
 			})
 		})
-
-		Context("when querying random signatories", func() {
-			It("should eventually return all signatories", func() {
-				table := initDHT()
-
-				numSubnets := rand.Intn(10)
-				numSignatories := rand.Intn(1000)
-				signatories := make([]id.Signatory, numSubnets*numSignatories)
-
-				// Insert `numSubnets` subnets into the store, each containing
-				// `numSignatories` signatories.
-				for i := 0; i < numSubnets; i++ {
-					for j := 0; j < numSignatories; j++ {
-						privKey := id.NewPrivKey()
-						signatories[i*numSignatories+j] = id.NewSignatory(&privKey.PublicKey)
-					}
-
-					table.AddSubnet(signatories)
-				}
-
-				// When querying random signatories, eventually we should come
-				// across every signatory.
-				signatoriesMap := make(map[id.Signatory]bool, numSubnets*numSignatories)
-				for len(signatoriesMap) < numSignatories {
-					signatories := table.Subnet(dht.DefaultSubnet)
-					Expect(len(signatories)).To(Equal(dht.DefaultMaxRandomSignatories))
-
-					for _, signatory := range signatories {
-						signatoriesMap[signatory] = true
-					}
-				}
-			})
-		})
 	})
 })
 
@@ -447,7 +414,7 @@ func initDHT() dht.DHT {
 	privKey := id.NewPrivKey()
 	identity := id.NewSignatory(&privKey.PublicKey)
 	resolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
-	return dht.New(dht.DefaultOptions(), identity, resolver)
+	return dht.New(identity, resolver)
 }
 
 func sortSignatories(signatories []id.Signatory) {

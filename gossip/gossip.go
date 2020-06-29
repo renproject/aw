@@ -14,6 +14,11 @@ import (
 	"github.com/renproject/surge"
 )
 
+var (
+	// DefaultSubnet is used to refer to all known signatories.
+	DefaultSubnet = id.Hash{}
+)
+
 type Gossiper struct {
 	opts Options
 	self id.Signatory
@@ -312,7 +317,23 @@ func (g *Gossiper) DidReceivePullAck(version uint8, data []byte, from id.Signato
 }
 
 func (g *Gossiper) sendToSubnet(subnet id.Hash, msg wire.Message) {
-	subnetSignatories := g.dht.Subnet(subnet) // TODO: Load signatories in order of their XOR distance from our own address.
+	var subnetSignatories []id.Signatory
+	if subnet == DefaultSubnet {
+		// If the default subnet hash is provided, return a random subset of all
+		// known signatories.
+		addrs := g.dht.Addrs(g.opts.Alpha)
+		subnetSignatories = make([]id.Signatory, 0, len(addrs))
+		for _, addr := range addrs {
+			sig, err := addr.Signatory()
+			if err != nil {
+				g.opts.Logger.Errorf("failed to get signatory from %v: err", addr.String(), err)
+				continue
+			}
+			subnetSignatories = append(subnetSignatories, sig)
+		}
+	} else {
+		subnetSignatories = g.dht.Subnet(subnet) // TODO: Load signatories in order of their XOR distance from our own address.
+	}
 
 	// Remove ourself from the list of signatories.
 	//
