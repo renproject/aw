@@ -22,8 +22,6 @@ type Builder struct {
 	peer       peer.Options
 	gossiper   gossip.Options
 
-	listener gossip.Listener
-
 	dht             dht.DHT
 	contentResolver dht.ContentResolver
 }
@@ -37,7 +35,6 @@ func New() *Builder {
 		peer:       peer.DefaultOptions(),
 		gossiper:   gossip.DefaultOptions(),
 
-		listener:        gossip.Callbacks{},
 		contentResolver: dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil),
 	}
 	// By default, the content resolver is nil, meaning content will only be
@@ -89,16 +86,11 @@ func (builder *Builder) WithPort(port uint16) *Builder {
 	return builder
 }
 
-func (builder *Builder) WithListener(listener gossip.Listener) *Builder {
-	builder.listener = listener
-	return builder
-}
-
 func (builder *Builder) Build() *Node {
 	handshaker := handshake.NewECDSA(builder.handshaker)
 	trans := transport.New(builder.trans, handshaker)
 	peer := peer.New(builder.peer, builder.dht, trans, builder.handshaker.PrivKey)
-	gossiper := gossip.New(builder.gossiper, builder.dht, trans, builder.listener)
+	gossiper := gossip.New(builder.gossiper, builder.dht, trans)
 	return &Node{
 		opts:     builder.opts,
 		dht:      builder.dht,

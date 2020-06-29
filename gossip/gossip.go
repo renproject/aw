@@ -16,9 +16,8 @@ import (
 type Gossiper struct {
 	opts Options
 
-	dht      dht.DHT
-	trans    *transport.Transport
-	listener Listener
+	dht   dht.DHT
+	trans *transport.Transport
 
 	r        *rand.Rand
 	jobQueue chan struct {
@@ -27,13 +26,12 @@ type Gossiper struct {
 	}
 }
 
-func New(opts Options, dht dht.DHT, trans *transport.Transport, listener Listener) *Gossiper {
+func New(opts Options, dht dht.DHT, trans *transport.Transport) *Gossiper {
 	g := &Gossiper{
 		opts: opts,
 
-		dht:      dht,
-		trans:    trans,
-		listener: listener,
+		dht:   dht,
+		trans: trans,
 
 		r: rand.New(rand.NewSource(time.Now().UnixNano())),
 		jobQueue: make(chan struct {
@@ -247,7 +245,6 @@ func (g *Gossiper) DidReceivePullAck(version uint8, data []byte, from id.Signato
 	// moment.
 	if !g.dht.HasContent(pullAckV1.Hash) || g.dht.HasEmptyContent(pullAckV1.Hash) {
 		g.dht.InsertContent(pullAckV1.Hash, pullAckV1.Type, pullAckV1.Content)
-		g.listener.DidReceiveContent(pullAckV1.Hash, pullAckV1.Type, pullAckV1.Content)
 		g.Gossip(pullAckV1.Subnet, pullAckV1.Hash)
 	}
 	return nil
