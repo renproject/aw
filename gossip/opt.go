@@ -57,7 +57,7 @@ func (opts Options) WithTimeout(timeout time.Duration) Options {
 
 // WithMaxRandomSignatories returns new Options with the given maximum random
 // signatories. This is the maximum number of random signatories that will be
-// returned when interacting with a subnet using the DefaultHash.
+// queried/gossiped to when using the DefaultHash.
 func (opts Options) WithMaxRandomSignatories(maxRandomSignatories int) Options {
 	opts.MaxRandomSignatories = maxRandomSignatories
 	return opts
