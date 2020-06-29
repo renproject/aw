@@ -101,7 +101,7 @@ var _ = Describe("Content Resolver", func() {
 
 				resolver := dht.NewDoubleCacheContentResolver(
 					dht.DefaultDoubleCacheContentResolverOptions(),
-					dhtutil.NewMockResolver(insertCh, deleteCh, contentCh),
+					dhtutil.NewChannelResolver(insertCh, deleteCh, contentCh),
 				)
 				contentType := uint8(0)
 

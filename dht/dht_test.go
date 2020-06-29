@@ -243,7 +243,7 @@ var _ = Describe("DHT", func() {
 
 				privKey := id.NewPrivKey()
 				identity := id.NewSignatory(&privKey.PublicKey)
-				resolver := dhtutil.NewMockResolver(insertCh, deleteCh, contentCh)
+				resolver := dhtutil.NewChannelResolver(insertCh, deleteCh, contentCh)
 				table := dht.New(dht.DefaultOptions(), identity, resolver)
 				contentType := uint8(0)
 
