@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/renproject/aw"
-	"github.com/renproject/aw/gossip"
+	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 
@@ -43,10 +43,14 @@ var _ = Describe("Airwave", func() {
 					WithAddr(wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port2), uint64(time.Now().UnixNano()))).
 					WithHost("0.0.0.0").
 					WithPort(port2).
-					WithListener(
-						gossip.Callbacks{
-							ReceiveContent: func(hash id.Hash, content []byte) {
+					WithContentResolver(
+						dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), dht.CallbackContentResolver{
+							InsertCallback: func(hash id.Hash, contentType uint8, content []byte) {
 								defer GinkgoRecover()
+								if len(content) == 0 {
+									// Ignore empty content.
+									return
+								}
 								if string(content) == "once" {
 									Expect(didReceiveOnce).To(BeFalse())
 									didReceiveOnce = true
@@ -60,7 +64,7 @@ var _ = Describe("Airwave", func() {
 								}
 								atomic.AddUint64(&didReceiveN, 1)
 							},
-						},
+						}),
 					).
 					Build()
 
@@ -71,15 +75,15 @@ var _ = Describe("Airwave", func() {
 
 				// Sleep for enough time for nodes to find each other by pinging
 				// each other.
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(100 * time.Millisecond)
 
 				subnet := node1.DHT().AddSubnet([]id.Signatory{node2.Identity()})
 				fmt.Printf("%v\n", subnet)
 				for i := uint64(0); i < willSendN; i++ {
-					node1.Broadcast(ctx, subnet, []byte("once"))
-					node1.Broadcast(ctx, subnet, []byte(fmt.Sprintf("message #%v", i)))
+					node1.Broadcast(ctx, subnet, 0, []byte("once"))
+					node1.Broadcast(ctx, subnet, 0, []byte(fmt.Sprintf("message #%v", i)))
 				}
-				node1.Broadcast(ctx, subnet, []byte("done"))
+				node1.Broadcast(ctx, subnet, 0, []byte("done"))
 
 				<-ctx.Done()
 

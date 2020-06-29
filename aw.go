@@ -22,9 +22,8 @@ type Builder struct {
 	peer       peer.Options
 	gossiper   gossip.Options
 
-	listener gossip.Listener
-
-	dht dht.DHT
+	dht             dht.DHT
+	contentResolver dht.ContentResolver
 }
 
 func New() *Builder {
@@ -36,18 +35,35 @@ func New() *Builder {
 		peer:       peer.DefaultOptions(),
 		gossiper:   gossip.DefaultOptions(),
 
-		listener: gossip.Callbacks{},
+		contentResolver: dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil),
 	}
-	builder.dht = dht.New(id.NewSignatory(&builder.handshaker.PrivKey.PublicKey))
+	// By default, the content resolver is nil, meaning content will only be
+	// stored in-memory.
+	builder.dht = dht.New(
+		id.NewSignatory(&builder.handshaker.PrivKey.PublicKey),
+		builder.contentResolver,
+	)
 	return builder
 }
 
 func (builder *Builder) WithPrivKey(privKey *id.PrivKey) *Builder {
 	builder.handshaker.PrivKey = privKey
-	builder.dht = dht.New(id.NewSignatory(&builder.handshaker.PrivKey.PublicKey))
+	builder.dht = dht.New(
+		id.NewSignatory(&builder.handshaker.PrivKey.PublicKey),
+		builder.contentResolver,
+	)
 	if err := builder.peer.Addr.Sign(builder.handshaker.PrivKey); err != nil {
 		builder.opts.Logger.Fatalf("signing address=%v: %v", builder.peer.Addr, err)
 	}
+	return builder
+}
+
+func (builder *Builder) WithContentResolver(contentResolver dht.ContentResolver) *Builder {
+	builder.contentResolver = contentResolver
+	builder.dht = dht.New(
+		id.NewSignatory(&builder.handshaker.PrivKey.PublicKey),
+		builder.contentResolver,
+	)
 	return builder
 }
 
@@ -67,16 +83,11 @@ func (builder *Builder) WithPort(port uint16) *Builder {
 	return builder
 }
 
-func (builder *Builder) WithListener(listener gossip.Listener) *Builder {
-	builder.listener = listener
-	return builder
-}
-
 func (builder *Builder) Build() *Node {
 	handshaker := handshake.NewECDSA(builder.handshaker)
 	trans := transport.New(builder.trans, handshaker)
 	peer := peer.New(builder.peer, builder.dht, trans, builder.handshaker.PrivKey)
-	gossiper := gossip.New(builder.gossiper, builder.dht, trans, builder.listener)
+	gossiper := gossip.New(builder.gossiper, builder.dht, trans)
 	return &Node{
 		opts:     builder.opts,
 		dht:      builder.dht,
@@ -115,15 +126,15 @@ func (node *Node) Run(ctx context.Context) {
 	wg.Wait()
 }
 
-func (node *Node) Send(ctx context.Context, signatory id.Signatory, data []byte) {
+func (node *Node) Send(ctx context.Context, signatory id.Signatory, dataType uint8, data []byte) {
 	hash := sha256.Sum256(data)
-	node.dht.InsertContent(hash, data)
+	node.dht.InsertContent(hash, dataType, data)
 	node.gossiper.Gossip(id.Hash(signatory), hash)
 }
 
-func (node *Node) Broadcast(ctx context.Context, subnet id.Hash, data []byte) {
+func (node *Node) Broadcast(ctx context.Context, subnet id.Hash, dataType uint8, data []byte) {
 	hash := sha256.Sum256(data)
-	node.dht.InsertContent(hash, data)
+	node.dht.InsertContent(hash, dataType, data)
 	node.gossiper.Gossip(subnet, hash)
 }
 

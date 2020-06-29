@@ -11,6 +11,9 @@ import (
 // make multiple HTTPS requests to multiple APIs and return the IP address that
 // is reported by the majority.
 func IP() (string, error) {
+	// TODO: Instead of finding our IP address by quering these APIs, we could
+	// integrate self-IP discovery into the ping/ping-ack process. Maybe we do
+	// not even need to know our own IP address.
 	urls := []string{
 		"https://ipv4bot.whatismyipaddress.com",
 		"https://api.ipify.org/?format=text",

@@ -13,12 +13,16 @@ import (
 	"github.com/renproject/surge"
 )
 
+var (
+	// DefaultSubnet is used to refer to all known signatories.
+	DefaultSubnet = id.Hash{}
+)
+
 type Gossiper struct {
 	opts Options
 
-	dht      dht.DHT
-	trans    *transport.Transport
-	listener Listener
+	dht   dht.DHT
+	trans *transport.Transport
 
 	r        *rand.Rand
 	jobQueue chan struct {
@@ -27,13 +31,12 @@ type Gossiper struct {
 	}
 }
 
-func New(opts Options, dht dht.DHT, trans *transport.Transport, listener Listener) *Gossiper {
+func New(opts Options, dht dht.DHT, trans *transport.Transport) *Gossiper {
 	g := &Gossiper{
 		opts: opts,
 
-		dht:      dht,
-		trans:    trans,
-		listener: listener,
+		dht:   dht,
+		trans: trans,
 
 		r: rand.New(rand.NewSource(time.Now().UnixNano())),
 		jobQueue: make(chan struct {
@@ -137,8 +140,7 @@ func (g *Gossiper) DidReceivePush(version uint8, data []byte, from id.Signatory)
 	//
 
 	if !g.dht.HasContent(pushV1.Hash) {
-		g.dht.InsertContent(pushV1.Hash, []byte{})
-
+		g.dht.InsertContent(pushV1.Hash, pushV1.Type, []byte{})
 		// Beacuse we do not have the content associated with this hash, we try
 		// to pull the data from the sender.
 		fromAddr, ok := g.dht.Addr(from)
@@ -247,15 +249,31 @@ func (g *Gossiper) DidReceivePullAck(version uint8, data []byte, from id.Signato
 	// Only copy the content into the DHT if we do not have this content at the
 	// moment.
 	if !g.dht.HasContent(pullAckV1.Hash) || g.dht.HasEmptyContent(pullAckV1.Hash) {
-		g.dht.InsertContent(pullAckV1.Hash, pullAckV1.Content)
-		g.listener.DidReceiveContent(pullAckV1.Hash, pullAckV1.Content)
+		g.dht.InsertContent(pullAckV1.Hash, pullAckV1.Type, pullAckV1.Content)
 		g.Gossip(pullAckV1.Subnet, pullAckV1.Hash)
 	}
 	return nil
 }
 
 func (g *Gossiper) sendToSubnet(subnet id.Hash, msg wire.Message) {
-	subnetSignatories := g.dht.Subnet(subnet)
+	var subnetSignatories []id.Signatory
+	if subnet == DefaultSubnet {
+		// If the default subnet hash is provided, return a random subset of all
+		// known signatories.
+		addrs := g.dht.Addrs(g.opts.Alpha)
+		subnetSignatories = make([]id.Signatory, 0, len(addrs))
+		for _, addr := range addrs {
+			sig, err := addr.Signatory()
+			if err != nil {
+				g.opts.Logger.Errorf("failed to get signatory from %v: err", addr.String(), err)
+				continue
+			}
+			subnetSignatories = append(subnetSignatories, sig)
+		}
+	} else {
+		subnetSignatories = g.dht.Subnet(subnet) // TODO: Load signatories in order of their XOR distance from our own address.
+	}
+
 	for a := 0; a < g.opts.Alpha; a++ {
 		for i := 0; i < len(subnetSignatories); i++ {
 			// We express an exponential bias for the signatories that are

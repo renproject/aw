@@ -22,9 +22,11 @@ var (
 	// DefaultClientTimeToDial is set to 30 seconds. If a single dial attempt
 	// takes longer than this duration, it will be dropped (and a new attempt
 	// may begin).
-	DefaultClientTimeToDial = 30 * time.Second
+	DefaultClientTimeToDial = 30 * time.Second // TODO: There should probably be a third timeout, that is distinct from TimeToLive, for controlling how long we attempt dial connections.
 	// DefaultClientMaxCapacity is set to 4096.
 	DefaultClientMaxCapacity = 4096
+	// DefaultClientMaxConnections is set to 128.
+	DefaultClientMaxConnections = 128
 )
 
 // ClientOptions are used to parameterize the behaviour of the Client.
@@ -47,6 +49,9 @@ type ClientOptions struct {
 	// MaxCapacity of messages that can be bufferred while waiting to write
 	// messages to a channel.
 	MaxCapacity int
+	// MaxConnections is the maximum number of outbound connections that the
+	// Client will have open. New connection attempts will error.
+	MaxConnections int
 }
 
 // DefaultClientOptions return the default ClientOptions.
@@ -56,9 +61,10 @@ func DefaultClientOptions() ClientOptions {
 			WithField("lib", "airwave").
 			WithField("pkg", "tcp").
 			WithField("com", "client"),
-		TimeToLive:  DefaultClientTimeToLive,
-		TimeToDial:  DefaultClientTimeToDial,
-		MaxCapacity: DefaultClientMaxCapacity,
+		TimeToLive:     DefaultClientTimeToLive,
+		TimeToDial:     DefaultClientTimeToDial,
+		MaxCapacity:    DefaultClientMaxCapacity,
+		MaxConnections: DefaultClientMaxConnections,
 	}
 }
 
@@ -74,6 +80,11 @@ func (opts ClientOptions) WithTimeToLive(ttl time.Duration) ClientOptions {
 
 func (opts ClientOptions) WithMaxCapacity(capacity int) ClientOptions {
 	opts.MaxCapacity = capacity
+	return opts
+}
+
+func (opts ClientOptions) WithMaxConnections(maxConnections int) ClientOptions {
+	opts.MaxConnections = maxConnections
 	return opts
 }
 
@@ -118,7 +129,6 @@ func (client *Client) Options() ClientOptions {
 // then an error will be returned.
 func (client *Client) Send(ctx context.Context, addr string, msg wire.Message) error {
 	client.connsByAddrMu.Lock()
-	defer client.connsByAddrMu.Unlock()
 
 	// Get an existing connection, or establish and maintain a new connection.
 	// Running (and keeping alive) a new connection is non-blocking, and will
@@ -128,9 +138,17 @@ func (client *Client) Send(ctx context.Context, addr string, msg wire.Message) e
 	// can be configured in the ClientOptions).
 	conn, ok := client.connsByAddr[addr]
 	if !ok {
+		if len(client.connsByAddr) >= client.opts.MaxConnections {
+			client.connsByAddrMu.Unlock()
+			return fmt.Errorf("max outbound connections exceeded")
+		}
 		client.connsByAddr[addr] = client.runAndKeepAlive(addr)
 		conn = client.connsByAddr[addr]
 	}
+
+	// Do not defer the unlocking of the mutex, because the next statement could
+	// block for a substantial amount of time.
+	client.connsByAddrMu.Unlock()
 
 	select {
 	case <-ctx.Done():
@@ -186,6 +204,14 @@ func (client *Client) runAndKeepAlive(addr string) conn {
 		var lastMessageSent *wire.Message
 		var err error
 
+		// deadline is used to kill the connection if no messages have been written
+		// to it for the time-to-live duration. The run method should reset the
+		// deadline whenever it writes a message to the connection. We define the
+		// deadline here to make sure that it persists across runs (if run defines
+		// deadline, but errors before it times out, then the deadline will not
+		// actually be respected).
+		deadline := time.NewTimer(client.opts.TimeToLive)
+
 		// Loop until the context is cancelled, or until there is an
 		// unrecoverable error. The only expected errors returned are those
 		// caused by failures to connect/write for the TimeToLive duration.
@@ -193,8 +219,14 @@ func (client *Client) runAndKeepAlive(addr string) conn {
 			select {
 			case <-ctx.Done():
 				return
+			case <-deadline.C:
+				// The connection was implicitly cancelled, because there have
+				// been no messages sent to this connection by the Client for
+				// the time-to-live duration.
+				client.opts.Logger.Errorf("running connection: killing connection: time-to-live expired")
+				return
 			default:
-				lastMessageSent, err = client.run(ctx, addr, ch, lastMessageSent)
+				lastMessageSent, err = client.run(ctx, deadline, addr, ch, lastMessageSent)
 				if err != nil {
 					select {
 					case <-ctx.Done():
@@ -214,7 +246,7 @@ func (client *Client) runAndKeepAlive(addr string) conn {
 
 // Returning an error here will kill the connection, the channel, and all
 // pending messages will be lost.
-func (client *Client) run(ctx context.Context, addr string, ch <-chan wire.Message, lastMessage *wire.Message) (*wire.Message, error) {
+func (client *Client) run(ctx context.Context, deadline *time.Timer, addr string, ch <-chan wire.Message, lastMessage *wire.Message) (*wire.Message, error) {
 	conn, session, err := client.dial(ctx, addr)
 	if err != nil {
 		// If connecting returns an error, then running must return an error.
@@ -235,10 +267,6 @@ func (client *Client) run(ctx context.Context, addr string, ch <-chan wire.Messa
 		bufio.NewWriterSize(conn, surge.MaxBytes),
 	)
 
-	// deadline is used to kill this connection if no messages have been written
-	// to it for the time-to-live duration.
-	deadline := time.NewTimer(client.opts.TimeToLive)
-
 	if lastMessage != nil {
 		// Failing to write a message should not result in the
 		// connection/channel being killed, and should not result in all pending
@@ -247,7 +275,7 @@ func (client *Client) run(ctx context.Context, addr string, ch <-chan wire.Messa
 		client.opts.Logger.Infof("resending last message sent")
 		if err := client.write(session, rw, *lastMessage); err != nil {
 			client.opts.Logger.Errorf("writing: %v", err)
-			return nil, nil
+			return lastMessage, nil
 		}
 	}
 	for {
@@ -256,12 +284,15 @@ func (client *Client) run(ctx context.Context, addr string, ch <-chan wire.Messa
 			// The connection was explicitly cancelled.
 			return nil, fmt.Errorf("killing connection: %v", ctx.Err())
 		case <-deadline.C:
-			// The connection was implicitly cancelled, because it there have
-			// been no messages sent to this connection by the Client for the
+			// The connection was implicitly cancelled, because there have been
+			// no messages sent to this connection by the Client for the
 			// time-to-live duration.
 			return nil, fmt.Errorf("killing connection: time-to-live expired")
 		case msg, ok := <-ch:
 			if !ok {
+				// This is a defensive check to make sure that future
+				// modifications to the client do not violate assumptions made
+				// about the control flow of context, connections, and channels.
 				panic("channel is closed")
 			}
 
@@ -405,12 +436,12 @@ func (client *Client) dial(ctx context.Context, addr string) (net.Conn, handshak
 			client.opts.Logger.Warnf("dialing: %v", err)
 			continue
 		}
-		innerDialCancel()
 
 		// Handshake with the server to establish authentication and encryption
 		// on the connection.
 		session, err := client.handshaker.Handshake(dialCtx, conn)
 		if err != nil {
+			innerDialCancel()
 			client.opts.Logger.Errorf("handshaking: %v", err)
 			if err := conn.Close(); err != nil {
 				client.opts.Logger.Errorf("closing connection: %v", err)
@@ -418,6 +449,7 @@ func (client *Client) dial(ctx context.Context, addr string) (net.Conn, handshak
 			continue
 		}
 		if session == nil {
+			innerDialCancel()
 			client.opts.Logger.Errorf("handshaking: nil")
 			if err := conn.Close(); err != nil {
 				client.opts.Logger.Errorf("closing connection: %v", err)
@@ -425,6 +457,7 @@ func (client *Client) dial(ctx context.Context, addr string) (net.Conn, handshak
 			continue
 		}
 
+		innerDialCancel()
 		return conn, session, nil
 	}
 }

@@ -116,6 +116,8 @@ func (msg *Message) Unmarshal(r io.Reader, m int) (int, error) {
 
 type PingV1 struct {
 	Addr Address `json:"addr"`
+	// TODO: Add information about the maximum number of peers that we would
+	// like to know about.
 }
 
 func (ping PingV1) SizeHint() int {
@@ -147,7 +149,8 @@ func (pingAck *PingAckV1) Unmarshal(r io.Reader, m int) (int, error) {
 }
 
 type PushV1 struct {
-	Subnet id.Hash `json:"subnet"`
+	Subnet id.Hash `json:"subnet"` // TODO: Remove the subnet? Make it optional?
+	Type   uint8   `json:"type"`
 	Hash   id.Hash `json:"hash"`
 }
 
@@ -195,8 +198,10 @@ func (push *PushAckV1) Unmarshal(r io.Reader, m int) (int, error) {
 }
 
 type PullV1 struct {
-	Subnet id.Hash `json:"subnet"`
+	Subnet id.Hash `json:"subnet"` // TODO: Remove the subnet? Make it optional?
 	Hash   id.Hash `json:"hash"`
+	// TODO: Add information about the type of data that this hash identifies.
+	// For example, is it a transaction, a block, or something else?
 }
 
 func (pull PullV1) SizeHint() int {
@@ -228,8 +233,9 @@ func (pull *PullV1) Unmarshal(r io.Reader, m int) (int, error) {
 }
 
 type PullAckV1 struct {
-	Subnet  id.Hash `json:"subnet"`
-	Hash    id.Hash `json:"hash"`
+	Subnet  id.Hash `json:"subnet"` // TODO: Remove the subnet? Make it optional?
+	Hash    id.Hash `json:"hash"`   // TODO: Remove the hash? This should be inferrable (and would need to be checked anyway) against the content. Although, it is nice as a checksum.
+	Type    uint8   `json:"type"`
 	Content []byte  `json:"content"`
 }
 

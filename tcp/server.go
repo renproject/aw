@@ -20,7 +20,7 @@ import (
 var (
 	DefaultServerTimeout    = 10 * time.Second
 	DefaultServerTimeToLive = 24 * time.Hour
-	DefaultServerMaxConns   = 256
+	DefaultServerMaxConns   = 128
 	DefaultServerHost       = "0.0.0.0"
 	DefaultServerPort       = uint16(18514)
 	DefaultRateLimit        = rate.Limit(1.0)
@@ -147,7 +147,7 @@ func (server *Server) Listen(ctx context.Context) error {
 			continue
 		}
 		if atomic.LoadInt64(&server.numConns) >= int64(server.opts.MaxConns) {
-			server.opts.Logger.Infof("closing connection: max connections exceeded")
+			server.opts.Logger.Infof("closing connection: max inbound connections exceeded")
 			if err := conn.Close(); err != nil {
 				server.opts.Logger.Errorf("closing connection: %v", err)
 			}
@@ -162,16 +162,16 @@ func (server *Server) Listen(ctx context.Context) error {
 }
 
 func (server *Server) handle(ctx context.Context, conn net.Conn) {
-	server.opts.Logger.Infof("handling connection: remote=%v", conn.RemoteAddr().String())
-
 	defer atomic.AddInt64(&server.numConns, -1)
 	defer conn.Close()
 
 	// Reject connections from IP-addresses that have attempted to connect too
 	// recently.
 	if !server.allowRateLimit(conn) {
+		server.opts.Logger.Infof("handling connection: remote=%v has been rate-limited", conn.RemoteAddr().String())
 		return
 	}
+	server.opts.Logger.Infof("handling connection: remote=%v", conn.RemoteAddr().String())
 
 	innerCtx, cancel := context.WithTimeout(ctx, server.opts.Timeout)
 	defer cancel()
@@ -187,15 +187,26 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		server.opts.Logger.Errorf("accepting handshake: nil")
 		return
 	}
-
-	innerCtx, cancel = context.WithTimeout(ctx, server.opts.TimeToLive)
-	defer cancel()
+	// TODO: Restrict the number of inbound connection from the remote
+	// signatory. Alternatively, drop all previous connections from the remote
+	// signatory, implicitly restricting them to only one (the latest)
+	// connection.
+	//
+	//	session.RemoteSignatory()
+	//
 
 	// Read messages from the client until the time-to-live expires, or an error
 	// is encountered when trying to read.
 	bufReader := bufio.NewReaderSize(conn, surge.MaxBytes)
 	bufWriter := bufio.NewWriterSize(conn, surge.MaxBytes)
 	for {
+		// We have "time-to-live" amount of time to read a message and write a
+		// response to the message.
+		if err := conn.SetDeadline(time.Now().Add(server.opts.TimeToLive)); err != nil {
+			server.opts.Logger.Errorf("setting deadline: %v", err)
+			return
+		}
+
 		// Read message from connection.
 		msg := wire.Message{}
 		if _, err := msg.Unmarshal(bufReader, surge.MaxBytes); err != nil {
