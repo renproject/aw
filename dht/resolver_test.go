@@ -116,7 +116,7 @@ var _ = Describe("Content Resolver", func() {
 				// Delete and wait on the channel to make sure the inner
 				// resolver received the message.
 				hash = id.Hash(sha256.Sum256(dhtutil.RandomContent()))
-				go resolver.Delete(hash)
+				go resolver.Delete(hash, contentType)
 
 				newHash = <-deleteCh
 				Expect(newHash).To(Equal(hash))

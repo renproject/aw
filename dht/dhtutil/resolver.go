@@ -25,7 +25,7 @@ func (r *mockResolver) Insert(hash id.Hash, contentType uint8, content []byte) {
 	r.insertCh <- hash
 }
 
-func (r *mockResolver) Delete(hash id.Hash) {
+func (r *mockResolver) Delete(hash id.Hash, contentType uint8) {
 	r.deleteCh <- hash
 }
 

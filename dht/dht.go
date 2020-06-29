@@ -43,7 +43,7 @@ type DHT interface {
 	// check whether or not you are able to override existing content.
 	InsertContent(id.Hash, uint8, []byte)
 	// DeleteContent from the DHT.
-	DeleteContent(id.Hash)
+	DeleteContent(id.Hash, uint8)
 	// Content returns the content associated with a hash. If there is no
 	// associated content, it returns false. Otherwise, it returns true.
 	Content(id.Hash, uint8) ([]byte, bool)
@@ -192,8 +192,8 @@ func (dht *distributedHashTable) InsertContent(hash id.Hash, contentType uint8, 
 }
 
 // DeleteContent from the DHT.
-func (dht *distributedHashTable) DeleteContent(hash id.Hash) {
-	dht.contentResolver.Delete(hash)
+func (dht *distributedHashTable) DeleteContent(hash id.Hash, contentType uint8) {
+	dht.contentResolver.Delete(hash, contentType)
 }
 
 // Content returns the content associated with a hash. If there is no

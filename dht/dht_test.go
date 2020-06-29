@@ -258,7 +258,7 @@ var _ = Describe("DHT", func() {
 				// Delete and wait on the channel to make sure the inner
 				// resolver received the message.
 				hash = id.Hash(sha256.Sum256(dhtutil.RandomContent()))
-				go table.DeleteContent(hash)
+				go table.DeleteContent(hash, contentType)
 
 				newHash = <-deleteCh
 				Expect(newHash).To(Equal(hash))

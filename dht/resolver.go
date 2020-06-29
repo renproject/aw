@@ -12,8 +12,8 @@ type ContentResolver interface {
 	// Insert content with the given hash and type.
 	Insert(id.Hash, uint8, []byte)
 
-	// Delete content with the given hash.
-	Delete(id.Hash)
+	// Delete content with the given hash and type.
+	Delete(id.Hash, uint8)
 
 	// Content returns the content associated with a hash. If there is no
 	// associated content, it returns false. Otherwise, it returns true.
@@ -82,7 +82,7 @@ func (r *doubleCacheContentResolver) Insert(hash id.Hash, contentType uint8, con
 	}
 }
 
-func (r *doubleCacheContentResolver) Delete(hash id.Hash) {
+func (r *doubleCacheContentResolver) Delete(hash id.Hash, contentType uint8) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 
@@ -92,7 +92,7 @@ func (r *doubleCacheContentResolver) Delete(hash id.Hash) {
 	delete(r.cacheBack, hash)
 
 	if r.inner != nil {
-		r.inner.Delete(hash)
+		r.inner.Delete(hash, contentType)
 	}
 }
 
