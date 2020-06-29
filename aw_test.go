@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/renproject/aw"
-	"github.com/renproject/aw/dht/dhtutil"
+	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 
@@ -31,25 +31,6 @@ var _ = Describe("Airwave", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
-				contentResolver := dhtutil.NewInsertCallbackResolver(func(content []byte) {
-					defer GinkgoRecover()
-					if len(content) == 0 {
-						return
-					}
-					if string(content) == "once" {
-						Expect(didReceiveOnce).To(BeFalse())
-						didReceiveOnce = true
-						return
-					}
-					if string(content) == "done" {
-						Expect(didReceiveDone).To(BeFalse())
-						didReceiveDone = true
-						cancel()
-						return
-					}
-					atomic.AddUint64(&didReceiveN, 1)
-				})
-
 				port1 := uint16(3000 + r.Int()%3000)
 				node1 := aw.New().
 					WithAddr(wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port1), uint64(time.Now().UnixNano()))).
@@ -62,7 +43,29 @@ var _ = Describe("Airwave", func() {
 					WithAddr(wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port2), uint64(time.Now().UnixNano()))).
 					WithHost("0.0.0.0").
 					WithPort(port2).
-					WithContentResolver(contentResolver).
+					WithContentResolver(
+						dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), dht.CallbackContentResolver{
+							InsertCallback: func(hash id.Hash, contentType uint8, content []byte) {
+								defer GinkgoRecover()
+								if len(content) == 0 {
+									// Ignore empty content.
+									return
+								}
+								if string(content) == "once" {
+									Expect(didReceiveOnce).To(BeFalse())
+									didReceiveOnce = true
+									return
+								}
+								if string(content) == "done" {
+									Expect(didReceiveDone).To(BeFalse())
+									didReceiveDone = true
+									cancel()
+									return
+								}
+								atomic.AddUint64(&didReceiveN, 1)
+							},
+						}),
+					).
 					Build()
 
 				node1.DHT().InsertAddr(node2.Addr())

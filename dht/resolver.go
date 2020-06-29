@@ -21,82 +21,120 @@ type ContentResolver interface {
 }
 
 var (
-	DefaultDoubleCacheContentResolverCapacity = 256
+	// DefaultDoubleCacheContentResolverCapacity defines the default in-memory
+	// cache capacity (in bytes) for the double-cache content resolver.
+	DefaultDoubleCacheContentResolverCapacity = 128 * 1024 * 1024 // 128 MB
 )
 
+// DoubleCacheContentResolverOptions for parameterising the behaviour of the
+// DoubleCacheContentResolver.
 type DoubleCacheContentResolverOptions struct {
 	Capacity int
 }
 
+// DefaultDoubleCacheContentResolverOptions returns the default
+// DoubleCacheContentResolverOptions.
 func DefaultDoubleCacheContentResolverOptions() DoubleCacheContentResolverOptions {
 	return DoubleCacheContentResolverOptions{
 		Capacity: DefaultDoubleCacheContentResolverCapacity,
 	}
 }
 
+// WithCapacity sets the maximum in-memory cache capacity (in bytes). This
+// capacity accounts for the fact that the double-cache content resolver has two
+// in-memory buffers. For example, if the capacity is set to 2 MB, then the
+// double-cache content resolver is guaranteeed to consume, at most, 2 MB of
+// memory, but will only be able to cache 1 MB of data.
 func (opts DoubleCacheContentResolverOptions) WithCapacity(capacity int) DoubleCacheContentResolverOptions {
-	// Halve the value provided as there are two caches.
 	opts.Capacity = capacity / 2
 	return opts
 }
 
-type doubleCacheContentResolver struct {
-	opts  DoubleCacheContentResolverOptions
-	inner ContentResolver
+// The DoubleCacheContentResolver uses the double-cache technique to implement a
+// fast in-memory cache. The cache can optionally wrap around another
+// content-resolver (which can be responsible for more persistent content
+// resolution).
+type DoubleCacheContentResolver struct {
+	opts DoubleCacheContentResolverOptions
+	next ContentResolver
 
-	cacheMu    *sync.Mutex
-	cacheFront map[id.Hash][]byte // Front is used to add new content until the max capacity is reached.
-	cacheBack  map[id.Hash][]byte // Back is used to read old content that has been rotated from the front.
+	cacheMu        *sync.Mutex
+	cacheFrontSize int
+	cacheFront     map[id.Hash][]byte // Front is used to add new content until the max capacity is reached.
+	cacheBack      map[id.Hash][]byte // Back is used to read old content that has been rotated from the front.
 }
 
 // NewDoubleCacheContentResolver returns a new double-cache content resolver
-// wrapped around a given resolver.
-func NewDoubleCacheContentResolver(opts DoubleCacheContentResolverOptions, inner ContentResolver) ContentResolver {
-	return &doubleCacheContentResolver{
-		opts:  opts,
-		inner: inner,
+// that is wrapped around another content-resolver.
+func NewDoubleCacheContentResolver(opts DoubleCacheContentResolverOptions, next ContentResolver) *DoubleCacheContentResolver {
+	return &DoubleCacheContentResolver{
+		opts: opts,
+		next: next,
 
-		cacheMu:    new(sync.Mutex),
-		cacheFront: make(map[id.Hash][]byte, opts.Capacity),
-		cacheBack:  make(map[id.Hash][]byte, 0),
+		cacheMu:        new(sync.Mutex),
+		cacheFrontSize: 0,
+		cacheFront:     make(map[id.Hash][]byte, 0),
+		cacheBack:      make(map[id.Hash][]byte, 0),
 	}
 }
 
-func (r *doubleCacheContentResolver) Insert(hash id.Hash, contentType uint8, content []byte) {
+// Insert content into the double-cache content resolver. If the front cache is
+// full, it will be rotated to the back, the current back cache will be dropped,
+// and a new front cache will be created. This method will also insert the
+// content to the next content resovler (if one exists).
+func (r *DoubleCacheContentResolver) Insert(hash id.Hash, contentType uint8, content []byte) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
+
+	// We cannot cache something that is greater than the maximum capacity.
+	if len(content) > r.opts.Capacity {
+		if r.next != nil {
+			r.next.Insert(hash, contentType, content)
+		}
+		return
+	}
 
 	// If the capacity has been exceeded, move the front cache to the back and
 	// reset the front cache.
-	if len(r.cacheFront) >= r.opts.Capacity {
+	if r.cacheFrontSize+len(content) > r.opts.Capacity {
 		r.cacheBack = r.cacheFront
-		r.cacheFront = make(map[id.Hash][]byte, r.opts.Capacity)
+		r.cacheFrontSize = 0
+		r.cacheFront = make(map[id.Hash][]byte, 0)
 	}
 
-	// Insert the content to the front cache and the inner resolver (if it
+	// Insert the content to the front cache and the next resolver (if it
 	// exists).
+	r.cacheFrontSize += len(content)
 	r.cacheFront[hash] = content
 
-	if r.inner != nil {
-		r.inner.Insert(hash, contentType, content)
+	if r.next != nil {
+		r.next.Insert(hash, contentType, content)
 	}
 }
 
-func (r *doubleCacheContentResolver) Delete(hash id.Hash, contentType uint8) {
+// Delete content from the double-cache content resolver. This method will also
+// delete the content from the next content resolver (if one exists).
+func (r *DoubleCacheContentResolver) Delete(hash id.Hash, contentType uint8) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 
-	// Delete the content from both caches and the inner resolver (if it
+	// Delete the content from both caches and the next resolver (if it
 	// exists).
-	delete(r.cacheFront, hash)
+	if content, ok := r.cacheFront[hash]; ok {
+		r.cacheFrontSize -= len(content)
+		delete(r.cacheFront, hash)
+	}
 	delete(r.cacheBack, hash)
 
-	if r.inner != nil {
-		r.inner.Delete(hash, contentType)
+	if r.next != nil {
+		r.next.Delete(hash, contentType)
 	}
 }
 
-func (r *doubleCacheContentResolver) Content(hash id.Hash, contentType uint8, syncRequired bool) ([]byte, bool) {
+// Content returns the content associated with the given hash. If the content is
+// not found in the double-cache content resolver, the next content resolver
+// will be checked (if one exists).
+func (r *DoubleCacheContentResolver) Content(hash id.Hash, contentType uint8, syncRequired bool) ([]byte, bool) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 
@@ -108,9 +146,43 @@ func (r *doubleCacheContentResolver) Content(hash id.Hash, contentType uint8, sy
 		return content, ok
 	}
 
-	// If the content has not been found, check the inner resolver.
-	if r.inner != nil {
-		return r.inner.Content(hash, contentType, syncRequired)
+	// If the content has not been found, check the next resolver.
+	if r.next != nil {
+		return r.next.Content(hash, contentType, syncRequired)
+	}
+	return nil, false
+}
+
+// CallbackContentResolver implements the ContentResolve interface by delegating
+// all logic to callback functions. This is useful when defining an
+// implementation inline.
+type CallbackContentResolver struct {
+	InsertCallback  func(id.Hash, uint8, []byte)
+	DeleteCallback  func(id.Hash, uint8)
+	ContentCallback func(id.Hash, uint8, bool) ([]byte, bool)
+}
+
+// Insert will delegate the implementation to the InsertCallback. If the
+// callback is nil, then this method will do nothing.
+func (r CallbackContentResolver) Insert(hash id.Hash, contentType uint8, content []byte) {
+	if r.InsertCallback != nil {
+		r.InsertCallback(hash, contentType, content)
+	}
+}
+
+// Delete will delegate the implementation to the DeleteCallback. If the
+// callback is nil, then this method will do nothing.
+func (r CallbackContentResolver) Delete(hash id.Hash, contentType uint8) {
+	if r.DeleteCallback != nil {
+		r.DeleteCallback(hash, contentType)
+	}
+}
+
+// Content will delegate the implementation to the ContentCallback. If the
+// callback is nil, then this method will return false.
+func (r CallbackContentResolver) Content(hash id.Hash, contentType uint8, syncRequired bool) ([]byte, bool) {
+	if r.ContentCallback != nil {
+		return r.ContentCallback(hash, contentType, syncRequired)
 	}
 	return nil, false
 }
