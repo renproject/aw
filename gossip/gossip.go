@@ -260,7 +260,7 @@ func (g *Gossiper) sendToSubnet(subnet id.Hash, msg wire.Message) {
 	if subnet == DefaultSubnet {
 		// If the default subnet hash is provided, return a random subset of all
 		// known signatories.
-		addrs := g.dht.Addrs(g.opts.MaxRandomSignatories)
+		addrs := g.dht.Addrs(g.opts.Alpha)
 		subnetSignatories = make([]id.Signatory, 0, len(addrs))
 		for _, addr := range addrs {
 			sig, err := addr.Signatory()
