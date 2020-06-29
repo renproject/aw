@@ -265,7 +265,7 @@ func (g *Gossiper) sendToSubnet(subnet id.Hash, msg wire.Message) {
 		for _, addr := range addrs {
 			sig, err := addr.Signatory()
 			if err != nil {
-				g.opts.Logger.Warnf("cannot get signatory from addr %v: err", addr.String(), err)
+				g.opts.Logger.Errorf("failed to get signatory from %v: err", addr.String(), err)
 				continue
 			}
 			subnetSignatories = append(subnetSignatories, sig)
