@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/renproject/aw"
-	"github.com/renproject/aw/gossip"
+	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 
@@ -31,6 +31,25 @@ var _ = Describe("Airwave", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
+				contentResolver := newMockResolver(func(content []byte) {
+					defer GinkgoRecover()
+					if len(content) == 0 {
+						return
+					}
+					if string(content) == "once" {
+						Expect(didReceiveOnce).To(BeFalse())
+						didReceiveOnce = true
+						return
+					}
+					if string(content) == "done" {
+						Expect(didReceiveDone).To(BeFalse())
+						didReceiveDone = true
+						cancel()
+						return
+					}
+					atomic.AddUint64(&didReceiveN, 1)
+				})
+
 				port1 := uint16(3000 + r.Int()%3000)
 				node1 := aw.New().
 					WithAddr(wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port1), uint64(time.Now().UnixNano()))).
@@ -43,25 +62,7 @@ var _ = Describe("Airwave", func() {
 					WithAddr(wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port2), uint64(time.Now().UnixNano()))).
 					WithHost("0.0.0.0").
 					WithPort(port2).
-					WithListener(
-						gossip.Callbacks{
-							ReceiveContent: func(hash id.Hash, contentType uint8, content []byte) {
-								defer GinkgoRecover()
-								if string(content) == "once" {
-									Expect(didReceiveOnce).To(BeFalse())
-									didReceiveOnce = true
-									return
-								}
-								if string(content) == "done" {
-									Expect(didReceiveDone).To(BeFalse())
-									didReceiveDone = true
-									cancel()
-									return
-								}
-								atomic.AddUint64(&didReceiveN, 1)
-							},
-						},
-					).
+					WithContentResolver(dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), contentResolver)).
 					Build()
 
 				node1.DHT().InsertAddr(node2.Addr())
@@ -90,3 +91,29 @@ var _ = Describe("Airwave", func() {
 		})
 	})
 })
+
+type mockResolver struct {
+	callback func([]byte)
+}
+
+// newMockResolver returns a ContentResolver that calls the given callback when
+// it receives data.
+func newMockResolver(callback func([]byte)) dht.ContentResolver {
+	return &mockResolver{
+		callback: callback,
+	}
+}
+
+func (r *mockResolver) Insert(hash id.Hash, contentType uint8, content []byte) {
+	r.callback(content)
+}
+
+func (r *mockResolver) Delete(hash id.Hash, contentType uint8) {
+}
+
+func (r *mockResolver) Content(hash id.Hash, contentType uint8, syncRequired bool) ([]byte, bool) {
+	// This is irrelevant since we use a `NewDoubleCacheContentResolver`
+	// wrapper. If this resolver was to be used alone, this function would need
+	// to be updated.
+	return nil, false
+}
