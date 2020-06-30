@@ -3,7 +3,6 @@ package tcp_test
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"strings"
@@ -14,7 +13,7 @@ import (
 	"github.com/renproject/aw/tcp"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -79,25 +78,25 @@ func runBenchmarkSend(b *testing.B, run func(ctx context.Context, client *tcp.Cl
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	logger := logrus.New()
+	loggerConfig := zap.NewDevelopmentConfig()
 	switch strings.ToLower(os.Getenv("LOG")) {
 	case "panic":
-		logger.SetLevel(logrus.PanicLevel)
+		loggerConfig.Level.SetLevel(zap.PanicLevel)
 	case "fatal":
-		logger.SetLevel(logrus.FatalLevel)
+		loggerConfig.Level.SetLevel(zap.FatalLevel)
 	case "error":
-		logger.SetLevel(logrus.ErrorLevel)
+		loggerConfig.Level.SetLevel(zap.ErrorLevel)
 	case "warn":
-		logger.SetLevel(logrus.WarnLevel)
+		loggerConfig.Level.SetLevel(zap.WarnLevel)
 	case "info":
-		logger.SetLevel(logrus.InfoLevel)
+		loggerConfig.Level.SetLevel(zap.InfoLevel)
 	case "debug":
-		logger.SetLevel(logrus.DebugLevel)
-	case "trace":
-		logger.SetLevel(logrus.TraceLevel)
+		loggerConfig.Level.SetLevel(zap.DebugLevel)
 	default:
-		logger.SetOutput(ioutil.Discard)
+		loggerConfig.Level.SetLevel(zap.DebugLevel)
 	}
+	logger, err := loggerConfig.Build()
+	Expect(err).ToNot(HaveOccurred())
 
 	clientPrivKey := id.NewPrivKey()
 	serverPrivKey := id.NewPrivKey()

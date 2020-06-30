@@ -11,7 +11,7 @@ import (
 	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/surge"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 )
 
 var (
@@ -32,7 +32,7 @@ var (
 // ClientOptions are used to parameterize the behaviour of the Client.
 type ClientOptions struct {
 	// Logger for all information/debugging/error output.
-	Logger logrus.FieldLogger
+	Logger *zap.Logger
 	// TimeToLive for connections. Connections with no activity after the
 	// TimeToLive duration will be killed. Setting the TimeToLive, and carefully
 	// choosing which addresses to send messages to, is the primary mechanism
@@ -56,11 +56,12 @@ type ClientOptions struct {
 
 // DefaultClientOptions return the default ClientOptions.
 func DefaultClientOptions() ClientOptions {
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		panic(err)
+	}
 	return ClientOptions{
-		Logger: logrus.New().
-			WithField("lib", "airwave").
-			WithField("pkg", "tcp").
-			WithField("com", "client"),
+		Logger:         logger,
 		TimeToLive:     DefaultClientTimeToLive,
 		TimeToDial:     DefaultClientTimeToDial,
 		MaxCapacity:    DefaultClientMaxCapacity,
@@ -68,7 +69,7 @@ func DefaultClientOptions() ClientOptions {
 	}
 }
 
-func (opts ClientOptions) WithLogger(logger logrus.FieldLogger) ClientOptions {
+func (opts ClientOptions) WithLogger(logger *zap.Logger) ClientOptions {
 	opts.Logger = logger
 	return opts
 }
@@ -223,7 +224,7 @@ func (client *Client) runAndKeepAlive(addr string) conn {
 				// The connection was implicitly cancelled, because there have
 				// been no messages sent to this connection by the Client for
 				// the time-to-live duration.
-				client.opts.Logger.Errorf("running connection: killing connection: time-to-live expired")
+				client.opts.Logger.Error("running connection: killing connection: time-to-live expired")
 				return
 			default:
 				lastMessageSent, err = client.run(ctx, deadline, addr, ch, lastMessageSent)
@@ -233,7 +234,7 @@ func (client *Client) runAndKeepAlive(addr string) conn {
 						// If the context is done, then we expect errors, so we
 						// do not handle them.
 					default:
-						client.opts.Logger.Errorf("running connection: %v", err)
+						client.opts.Logger.Error("running connection", zap.Error(err))
 					}
 					return
 				}
@@ -256,7 +257,7 @@ func (client *Client) run(ctx context.Context, deadline *time.Timer, addr string
 	}
 	defer func() {
 		if err := conn.Close(); err != nil {
-			client.opts.Logger.Errorf("closing connection: %v", err)
+			client.opts.Logger.Error("closing connection", zap.Error(err))
 		}
 	}()
 
@@ -272,9 +273,9 @@ func (client *Client) run(ctx context.Context, deadline *time.Timer, addr string
 		// connection/channel being killed, and should not result in all pending
 		// messages being lost. Therefore, we consume the error, and return a
 		// nil-error.
-		client.opts.Logger.Infof("resending last message sent")
+		client.opts.Logger.Info("resending last message sent")
 		if err := client.write(session, rw, *lastMessage); err != nil {
-			client.opts.Logger.Errorf("writing: %v", err)
+			client.opts.Logger.Error("writing", zap.Error(err))
 			return lastMessage, nil
 		}
 	}
@@ -310,7 +311,7 @@ func (client *Client) run(ctx context.Context, deadline *time.Timer, addr string
 			// and receive a response on the connection. If we cannot write by
 			// this deadline, the connection will be re-established.
 			if err := conn.SetDeadline(time.Now().Add(client.opts.TimeToLive)); err != nil {
-				client.opts.Logger.Errorf("setting deadline: %v", err)
+				client.opts.Logger.Error("setting deadline", zap.Error(err))
 				return &msg, nil
 			}
 
@@ -319,7 +320,7 @@ func (client *Client) run(ctx context.Context, deadline *time.Timer, addr string
 			// messages being lost. Therefore, we consume the error, and return a
 			// nil-error.
 			if err := client.write(session, rw, msg); err != nil {
-				client.opts.Logger.Errorf("writing: %v", err)
+				client.opts.Logger.Error("writing", zap.Error(err))
 				return &msg, nil
 			}
 		}
@@ -433,7 +434,7 @@ func (client *Client) dial(ctx context.Context, addr string) (net.Conn, handshak
 			<-innerDialCtx.Done()
 			innerDialCancel()
 
-			client.opts.Logger.Warnf("dialing: %v", err)
+			client.opts.Logger.Warn("dialing", zap.Error(err))
 			continue
 		}
 
@@ -442,17 +443,17 @@ func (client *Client) dial(ctx context.Context, addr string) (net.Conn, handshak
 		session, err := client.handshaker.Handshake(dialCtx, conn)
 		if err != nil {
 			innerDialCancel()
-			client.opts.Logger.Errorf("handshaking: %v", err)
+			client.opts.Logger.Error("handshaking", zap.Error(err))
 			if err := conn.Close(); err != nil {
-				client.opts.Logger.Errorf("closing connection: %v", err)
+				client.opts.Logger.Error("closing connection", zap.Error(err))
 			}
 			continue
 		}
 		if session == nil {
 			innerDialCancel()
-			client.opts.Logger.Errorf("handshaking: nil")
+			client.opts.Logger.Error("handshaking: nil")
 			if err := conn.Close(); err != nil {
-				client.opts.Logger.Errorf("closing connection: %v", err)
+				client.opts.Logger.Error("closing connection", zap.Error(err))
 			}
 			continue
 		}

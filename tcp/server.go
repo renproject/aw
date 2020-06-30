@@ -13,7 +13,7 @@ import (
 	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/surge"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
 
@@ -23,12 +23,13 @@ var (
 	DefaultServerMaxConns   = 128
 	DefaultServerHost       = "0.0.0.0"
 	DefaultServerPort       = uint16(18514)
-	DefaultRateLimit        = rate.Limit(1.0)
-	DefaultRateLimitBurst   = DefaultServerMaxConns
+
+	DefaultConnRateLimit      = rate.Limit(1.0)
+	DefaultConnRateLimitBurst = DefaultServerMaxConns
 )
 
 type ServerOptions struct {
-	Logger         logrus.FieldLogger
+	Logger         *zap.Logger
 	Timeout        time.Duration
 	TimeToLive     time.Duration
 	MaxConns       int
@@ -39,23 +40,24 @@ type ServerOptions struct {
 }
 
 func DefaultServerOptions() ServerOptions {
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		panic(err)
+	}
 	return ServerOptions{
-		Logger: logrus.New().
-			WithField("lib", "airwave").
-			WithField("pkg", "tcp").
-			WithField("com", "server"),
+		Logger:         logger,
 		Timeout:        DefaultServerTimeout,
 		TimeToLive:     DefaultServerTimeToLive,
 		MaxConns:       DefaultServerMaxConns,
 		Host:           DefaultServerHost,
 		Port:           DefaultServerPort,
-		RateLimit:      DefaultRateLimit,
-		RateLimitBurst: DefaultRateLimitBurst,
+		RateLimit:      DefaultConnRateLimit,
+		RateLimitBurst: DefaultConnRateLimitBurst,
 	}
 }
 
-// WithLogger sets the logger.
-func (opts ServerOptions) WithLogger(logger logrus.FieldLogger) ServerOptions {
+// WithLogger sets the logger that will be used by the server.
+func (opts ServerOptions) WithLogger(logger *zap.Logger) ServerOptions {
 	opts.Logger = logger
 	return opts
 }
@@ -79,7 +81,8 @@ type Server struct {
 	listener   wire.Listener
 
 	// numConns must only be accessed atomically.
-	numConns int64
+	numConnsCond *sync.Cond
+	numConns     int64
 
 	// rateLimits must only be accessed while the mutex is locked.
 	rateLimitsMu       *sync.Mutex
@@ -95,7 +98,8 @@ func NewServer(opts ServerOptions, handshaker handshake.Handshaker, listener wir
 		handshaker: handshaker,
 		listener:   listener,
 
-		numConns: 0,
+		numConnsCond: sync.NewCond(new(sync.Mutex)),
+		numConns:     0,
 
 		rateLimitsMu:       new(sync.Mutex),
 		rateLimitsFront:    make(map[string]*rate.Limiter, 65535),
@@ -115,12 +119,16 @@ func (server *Server) Options() ServerOptions {
 // accept spawn a background goroutine for every accepted connection, but will
 // not accept more connections than its configured maximum.
 func (server *Server) Listen(ctx context.Context) error {
+	server.opts.Logger.Info(
+		"listening",
+		zap.String("host", server.opts.Host),
+		zap.Uint16("port", server.opts.Port))
+
 	// Attempt to listen for incoming connections on the configured host and
 	// port. Return any errors that occur.
-	server.opts.Logger.Infof("listening on %v:%v", server.opts.Host, server.opts.Port)
 	listener, err := net.Listen("tcp", fmt.Sprintf("%v:%v", server.opts.Host, server.opts.Port))
 	if err != nil {
-		return fmt.Errorf("error listening on %v:%v: %v", server.opts.Host, server.opts.Port, err)
+		return fmt.Errorf("listening on %v:%v: %v", server.opts.Host, server.opts.Port, err)
 	}
 
 	go func() {
@@ -128,11 +136,19 @@ func (server *Server) Listen(ctx context.Context) error {
 		// does not block on waiting to accept a new connection.
 		<-ctx.Done()
 		if err := listener.Close(); err != nil {
-			server.opts.Logger.Errorf("error closing listener: %v", err)
+			server.opts.Logger.Error("closing listener", zap.Error(err))
 		}
 	}()
 
 	for {
+		// Wait until the there are available connections. Otherwise, there is
+		// no point attempting to make new connections.
+		server.numConnsCond.L.Lock()
+		for atomic.LoadInt64(&server.numConns) >= int64(server.opts.MaxConns) {
+			server.numConnsCond.Wait()
+		}
+		server.numConnsCond.L.Unlock()
+
 		conn, err := listener.Accept()
 		if err != nil {
 			select {
@@ -143,13 +159,13 @@ func (server *Server) Listen(ctx context.Context) error {
 			default:
 			}
 
-			server.opts.Logger.Errorf("accepting connection: %v", err)
+			server.opts.Logger.Error("accepting connection", zap.Error(err))
 			continue
 		}
 		if atomic.LoadInt64(&server.numConns) >= int64(server.opts.MaxConns) {
-			server.opts.Logger.Infof("closing connection: max inbound connections exceeded")
+			server.opts.Logger.Info("max inbound connections exceeded")
 			if err := conn.Close(); err != nil {
-				server.opts.Logger.Errorf("closing connection: %v", err)
+				server.opts.Logger.Error("closing connection", zap.Error(err))
 			}
 			continue
 		}
@@ -162,16 +178,21 @@ func (server *Server) Listen(ctx context.Context) error {
 }
 
 func (server *Server) handle(ctx context.Context, conn net.Conn) {
-	defer atomic.AddInt64(&server.numConns, -1)
+	defer func() {
+		// Lower the current connection count, and signal to the conditional
+		// variable that it should re-check the max connections condition.
+		atomic.AddInt64(&server.numConns, -1)
+		server.numConnsCond.Signal()
+	}()
 	defer conn.Close()
 
 	// Reject connections from IP-addresses that have attempted to connect too
 	// recently.
 	if !server.allowRateLimit(conn) {
-		server.opts.Logger.Infof("handling connection: remote=%v has been rate-limited", conn.RemoteAddr().String())
+		server.opts.Logger.Info("rate-limited", zap.String("remote", conn.RemoteAddr().String()))
 		return
 	}
-	server.opts.Logger.Infof("handling connection: remote=%v", conn.RemoteAddr().String())
+	server.opts.Logger.Info("handling connection", zap.String("remote", conn.RemoteAddr().String()))
 
 	innerCtx, cancel := context.WithTimeout(ctx, server.opts.Timeout)
 	defer cancel()
@@ -180,13 +201,10 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 	// session.
 	session, err := server.handshaker.AcceptHandshake(innerCtx, conn)
 	if err != nil {
-		server.opts.Logger.Errorf("accepting handshake: %v", err)
+		server.opts.Logger.Error("accepting handshake", zap.Error(err))
 		return
 	}
-	if session == nil {
-		server.opts.Logger.Errorf("accepting handshake: nil")
-		return
-	}
+
 	// TODO: Restrict the number of inbound connection from the remote
 	// signatory. Alternatively, drop all previous connections from the remote
 	// signatory, implicitly restricting them to only one (the latest)
@@ -203,7 +221,7 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		// We have "time-to-live" amount of time to read a message and write a
 		// response to the message.
 		if err := conn.SetDeadline(time.Now().Add(server.opts.TimeToLive)); err != nil {
-			server.opts.Logger.Errorf("setting deadline: %v", err)
+			server.opts.Logger.Error("setting deadline", zap.Error(err))
 			return
 		}
 
@@ -211,10 +229,10 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		msg := wire.Message{}
 		if _, err := msg.Unmarshal(bufReader, surge.MaxBytes); err != nil {
 			if err != io.EOF {
-				server.opts.Logger.Errorf("unmarshaling message: %v", err)
+				server.opts.Logger.Error("bad message", zap.Error(err))
 				return
 			}
-			server.opts.Logger.Infof("closing connectin: %v", err)
+			server.opts.Logger.Info("closing connection", zap.String("remote", conn.RemoteAddr().String()))
 			return
 		}
 
@@ -228,7 +246,7 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		case wire.V1:
 			// Ok; do nothing.
 		default:
-			server.opts.Logger.Errorf("checking message: unsupported version=%v", msg.Version)
+			server.opts.Logger.Error("bad message", zap.Uint8("version", msg.Version))
 			return
 		}
 		// Check that the message type is supported.
@@ -237,10 +255,10 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 			// Ok; do nothing.
 		case wire.PingAck, wire.PushAck, wire.PullAck:
 			// Not ok; only clients expect to receive acks.
-			server.opts.Logger.Errorf("checking message: server does not expect ack=%v", msg.Type)
+			server.opts.Logger.Error("bad message ack", zap.Uint8("type", msg.Type))
 			return
 		default:
-			server.opts.Logger.Errorf("checking message: unsupported type=%v", msg.Type)
+			server.opts.Logger.Error("bad message", zap.Uint8("type", msg.Type))
 			return
 		}
 
@@ -249,7 +267,7 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		// messages.
 		msg.Data, err = session.Decrypt(msg.Data)
 		if err != nil {
-			server.opts.Logger.Errorf("decrypting message: %v", err)
+			server.opts.Logger.Error("bad message", zap.Error(err))
 			return
 		}
 
@@ -269,7 +287,7 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		if err != nil {
 			// An error returned from the listeners indicates that the
 			// connection should be killed immediately.
-			server.opts.Logger.Errorf("handling message: %v", err)
+			server.opts.Logger.Error("handling message", zap.Error(err))
 			return
 		}
 		// Ok returned from the listeners indicates that we should send a
@@ -277,15 +295,15 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		// sending it.
 		response.Data, err = session.Encrypt(response.Data)
 		if err != nil {
-			server.opts.Logger.Errorf("encrypting response: %v", err)
+			server.opts.Logger.Error("bad response: %v", zap.Error(err))
 			return
 		}
 		if _, err := response.Marshal(bufWriter, surge.MaxBytes); err != nil {
-			server.opts.Logger.Errorf("marshaling response: %v", err)
+			server.opts.Logger.Error("bad response", zap.Error(err))
 			return
 		}
 		if err := bufWriter.Flush(); err != nil {
-			server.opts.Logger.Errorf("flushing response: %v", err)
+			server.opts.Logger.Error("flushing", zap.Error(err))
 			return
 		}
 	}

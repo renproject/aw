@@ -9,6 +9,7 @@ import (
 	"github.com/renproject/aw/tcp"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
+	"go.uber.org/zap"
 )
 
 type Transport struct {
@@ -137,7 +138,7 @@ func (trans *Transport) DidReceivePing(version uint8, data []byte, from id.Signa
 		// support multiple responses, or (c) continue with this pattern.
 		response, err := listener.DidReceivePing(version, data, from)
 		if err != nil {
-			trans.opts.TCPServerOpts.Logger.Errorf("error receiving ping: %v", err)
+			trans.opts.TCPServerOpts.Logger.Error("receiving ping", zap.Error(err))
 			continue
 		}
 		return response, nil
@@ -153,7 +154,7 @@ func (trans *Transport) DidReceivePingAck(version uint8, data []byte, from id.Si
 		// (b) make the request/response cycle asynchronous and explicitly
 		// support multiple responses, or (c) continue with this pattern.
 		if err := listener.DidReceivePingAck(version, data, from); err != nil {
-			trans.opts.TCPServerOpts.Logger.Errorf("error receiving ping ack: %v", err)
+			trans.opts.TCPServerOpts.Logger.Error("receiving ping ack", zap.Error(err))
 		}
 	}
 	return nil
@@ -168,7 +169,7 @@ func (trans *Transport) DidReceivePush(version uint8, data []byte, from id.Signa
 		// support multiple responses, or (c) continue with this pattern.
 		response, err := listener.DidReceivePush(version, data, from)
 		if err != nil {
-			trans.opts.TCPServerOpts.Logger.Errorf("error receiving push: %v", err)
+			trans.opts.TCPServerOpts.Logger.Error("receiving push", zap.Error(err))
 			continue
 		}
 		return response, nil
@@ -184,7 +185,7 @@ func (trans *Transport) DidReceivePushAck(version uint8, data []byte, from id.Si
 		// (b) make the request/response cycle asynchronous and explicitly
 		// support multiple responses, or (c) continue with this pattern.
 		if err := listener.DidReceivePushAck(version, data, from); err != nil {
-			trans.opts.TCPServerOpts.Logger.Errorf("error receiving push ack: %v", err)
+			trans.opts.TCPServerOpts.Logger.Error("receiving push ack", zap.Error(err))
 		}
 	}
 	return nil
@@ -199,7 +200,7 @@ func (trans *Transport) DidReceivePull(version uint8, data []byte, from id.Signa
 		// support multiple responses, or (c) continue with this pattern.
 		response, err := listener.DidReceivePull(version, data, from)
 		if err != nil {
-			trans.opts.TCPServerOpts.Logger.Errorf("error receiving pull: %v", err)
+			trans.opts.TCPServerOpts.Logger.Error("receiving pull", zap.Error(err))
 			continue
 		}
 		return response, nil
@@ -215,7 +216,7 @@ func (trans *Transport) DidReceivePullAck(version uint8, data []byte, from id.Si
 		// (b) make the request/response cycle asynchronous and explicitly
 		// support multiple responses, or (c) continue with this pattern.
 		if err := listener.DidReceivePullAck(version, data, from); err != nil {
-			trans.opts.TCPServerOpts.Logger.Errorf("error receiving pull ack: %v", err)
+			trans.opts.TCPServerOpts.Logger.Error("receiving pull ack", zap.Error(err))
 		}
 	}
 	return nil
