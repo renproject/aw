@@ -189,10 +189,10 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 	// Reject connections from IP-addresses that have attempted to connect too
 	// recently.
 	if !server.allowRateLimit(conn) {
-		server.opts.Logger.Info("rate-limited", zap.String("remote", conn.RemoteAddr().String()))
+		server.opts.Logger.Info("limiting", zap.String("remote", conn.RemoteAddr().String()))
 		return
 	}
-	server.opts.Logger.Info("handling connection", zap.String("remote", conn.RemoteAddr().String()))
+	server.opts.Logger.Info("handling", zap.String("remote", conn.RemoteAddr().String()))
 
 	innerCtx, cancel := context.WithTimeout(ctx, server.opts.Timeout)
 	defer cancel()
