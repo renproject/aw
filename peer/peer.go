@@ -204,7 +204,7 @@ func (peer *peer) bootstrap(ctx context.Context) {
 	if len(peerAddrs) < maxPeerAddrs {
 		maxPeerAddrs = len(peerAddrs)
 	}
-	peerAddrs = peerAddrs[:len]
+	peerAddrs = peerAddrs[:maxPeerAddrs]
 
 	protocol.ParForAllAddresses(peerAddrs, peer.options.NumWorkers, func(peerAddr protocol.PeerAddress) {
 		// Timeout is computed to ensure that we are ready for the next
