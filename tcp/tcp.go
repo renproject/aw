@@ -160,7 +160,6 @@ func (server *Server) handle(ctx context.Context, conn net.Conn, messages protoc
 	now := time.Now()
 	session, err := server.establishSession(ctx, conn)
 	if err != nil {
-		server.logger.Errorf("closing connection: error establishing session: %v", err)
 		return
 	}
 	if session == nil {
