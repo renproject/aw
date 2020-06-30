@@ -3,6 +3,7 @@ package peer
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/renproject/aw/broadcast"
@@ -193,6 +194,17 @@ func (peer *peer) bootstrap(ctx context.Context) {
 		peer.logger.Errorf("error bootstrapping: error loading peer addresses: %v", err)
 		return
 	}
+
+	rand.Shuffle(len(peerAddrs), func(i, j int) {
+		tmp := peerAddrs[i]
+		peerAddrs[i] = peerAddrs[j]
+		peerAddrs[j] = tmp
+	})
+	maxPeerAddrs := 10
+	if len(peerAddrs) < maxPeerAddrs {
+		maxPeerAddrs = len(peerAddrs)
+	}
+	peerAddrs = peerAddrs[:len]
 
 	protocol.ParForAllAddresses(peerAddrs, peer.options.NumWorkers, func(peerAddr protocol.PeerAddress) {
 		// Timeout is computed to ensure that we are ready for the next
