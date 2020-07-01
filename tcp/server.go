@@ -12,6 +12,7 @@ import (
 
 	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/wire"
+	"github.com/renproject/id"
 	"github.com/renproject/surge"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
@@ -24,19 +25,24 @@ var (
 	DefaultServerHost       = "0.0.0.0"
 	DefaultServerPort       = uint16(18514)
 
-	DefaultConnRateLimit      = rate.Limit(1.0)
-	DefaultConnRateLimitBurst = DefaultServerMaxConns
+	DefaultConnRateLimit      = rate.Limit(0.1)
+	DefaultConnRateLimitBurst = 10
+
+	DefaultBandwidthLimit      = rate.Limit(4 * 1024 * 1024) // 4 MB
+	DefaultBandwidthLimitBurst = 32 * 1024 * 1024            // 32 MB
 )
 
 type ServerOptions struct {
-	Logger         *zap.Logger
-	Timeout        time.Duration
-	TimeToLive     time.Duration
-	MaxConns       int
-	Host           string
-	Port           uint16
-	RateLimit      rate.Limit
-	RateLimitBurst int
+	Logger              *zap.Logger
+	Timeout             time.Duration
+	TimeToLive          time.Duration
+	MaxConns            int
+	Host                string
+	Port                uint16
+	RateLimit           rate.Limit
+	RateLimitBurst      int
+	BandwidthLimit      rate.Limit
+	BandwidthLimitBurst int
 }
 
 func DefaultServerOptions() ServerOptions {
@@ -45,14 +51,16 @@ func DefaultServerOptions() ServerOptions {
 		panic(err)
 	}
 	return ServerOptions{
-		Logger:         logger,
-		Timeout:        DefaultServerTimeout,
-		TimeToLive:     DefaultServerTimeToLive,
-		MaxConns:       DefaultServerMaxConns,
-		Host:           DefaultServerHost,
-		Port:           DefaultServerPort,
-		RateLimit:      DefaultConnRateLimit,
-		RateLimitBurst: DefaultConnRateLimitBurst,
+		Logger:              logger,
+		Timeout:             DefaultServerTimeout,
+		TimeToLive:          DefaultServerTimeToLive,
+		MaxConns:            DefaultServerMaxConns,
+		Host:                DefaultServerHost,
+		Port:                DefaultServerPort,
+		RateLimit:           DefaultConnRateLimit,
+		RateLimitBurst:      DefaultConnRateLimitBurst,
+		BandwidthLimit:      DefaultBandwidthLimit,
+		BandwidthLimitBurst: DefaultBandwidthLimitBurst,
 	}
 }
 
@@ -80,9 +88,8 @@ type Server struct {
 	handshaker handshake.Handshaker
 	listener   wire.Listener
 
-	// numConns must only be accessed atomically.
-	numConnsCond *sync.Cond
-	numConns     int64
+	// pool of connections.
+	pool ServerConnPool
 
 	// rateLimits must only be accessed while the mutex is locked.
 	rateLimitsMu       *sync.Mutex
@@ -98,8 +105,7 @@ func NewServer(opts ServerOptions, handshaker handshake.Handshaker, listener wir
 		handshaker: handshaker,
 		listener:   listener,
 
-		numConnsCond: sync.NewCond(new(sync.Mutex)),
-		numConns:     0,
+		pool: NewServerConnPool(int64(opts.MaxConns)),
 
 		rateLimitsMu:       new(sync.Mutex),
 		rateLimitsFront:    make(map[string]*rate.Limiter, 65535),
@@ -141,13 +147,9 @@ func (server *Server) Listen(ctx context.Context) error {
 	}()
 
 	for {
-		// Wait until the there are available connections. Otherwise, there is
-		// no point attempting to make new connections.
-		server.numConnsCond.L.Lock()
-		for atomic.LoadInt64(&server.numConns) >= int64(server.opts.MaxConns) {
-			server.numConnsCond.Wait()
-		}
-		server.numConnsCond.L.Unlock()
+		// Wait until a connection slot becomes available before attempting to
+		// accept a new connection.
+		server.pool.Wait()
 
 		conn, err := listener.Accept()
 		if err != nil {
@@ -158,18 +160,9 @@ func (server *Server) Listen(ctx context.Context) error {
 				return nil
 			default:
 			}
-
 			server.opts.Logger.Error("accepting connection", zap.Error(err))
 			continue
 		}
-		if atomic.LoadInt64(&server.numConns) >= int64(server.opts.MaxConns) {
-			server.opts.Logger.Info("max inbound connections exceeded")
-			if err := conn.Close(); err != nil {
-				server.opts.Logger.Error("closing connection", zap.Error(err))
-			}
-			continue
-		}
-		atomic.AddInt64(&server.numConns, 1)
 
 		// Spawn background goroutine to handle this connection so that it does
 		// not block other connections.
@@ -178,43 +171,42 @@ func (server *Server) Listen(ctx context.Context) error {
 }
 
 func (server *Server) handle(ctx context.Context, conn net.Conn) {
-	defer func() {
-		// Lower the current connection count, and signal to the conditional
-		// variable that it should re-check the max connections condition.
-		atomic.AddInt64(&server.numConns, -1)
-		server.numConnsCond.Signal()
-	}()
+	// Close the connection and signal that the connection slot being consumed
+	// is no longer needed.
+	defer server.pool.Signal()
 	defer conn.Close()
 
 	// Reject connections from IP-addresses that have attempted to connect too
 	// recently.
-	if !server.allowRateLimit(conn) {
-		server.opts.Logger.Info("limiting", zap.String("remote", conn.RemoteAddr().String()))
+	var remoteAddr string
+	if tcpAddr, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
+		remoteAddr = tcpAddr.IP.String()
+	} else {
+		remoteAddr = conn.RemoteAddr().String()
+	}
+	if !server.allowRateLimit(remoteAddr) {
+		server.opts.Logger.Info("limiting", zap.String("remote", remoteAddr))
 		return
 	}
-	server.opts.Logger.Info("handling", zap.String("remote", conn.RemoteAddr().String()))
-
-	innerCtx, cancel := context.WithTimeout(ctx, server.opts.Timeout)
-	defer cancel()
+	remoteAddrToken := server.pool.AddToRemoteAddress(remoteAddr, conn)
+	defer server.pool.RemoveFromRemoteAddress(remoteAddr, remoteAddrToken)
 
 	// Handshake with the client to establish an authenticated and encrypted
 	// session.
-	session, err := server.handshaker.AcceptHandshake(innerCtx, conn)
+	sessionCtx, cancel := context.WithTimeout(ctx, server.opts.Timeout)
+	defer cancel()
+	session, err := server.handshaker.AcceptHandshake(sessionCtx, conn)
 	if err != nil {
 		server.opts.Logger.Error("accepting handshake", zap.Error(err))
 		return
 	}
-
-	// TODO: Restrict the number of inbound connection from the remote
-	// signatory. Alternatively, drop all previous connections from the remote
-	// signatory, implicitly restricting them to only one (the latest)
-	// connection.
-	//
-	//	session.RemoteSignatory()
-	//
+	remoteSignatory := session.RemoteSignatory()
+	remoteSignatoryToken := server.pool.AddToRemoteSignatory(remoteSignatory, conn)
+	defer server.pool.RemoveFromRemoteSignatory(remoteSignatory, remoteSignatoryToken)
 
 	// Read messages from the client until the time-to-live expires, or an error
 	// is encountered when trying to read.
+	server.opts.Logger.Info("handling", zap.String("remote", remoteAddr))
 	bufReader := bufio.NewReaderSize(conn, surge.MaxBytes)
 	bufWriter := bufio.NewWriterSize(conn, surge.MaxBytes)
 	for {
@@ -309,21 +301,14 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 	}
 }
 
-func (server *Server) allowRateLimit(conn net.Conn) bool {
-	var addr string
-	if tcpAddr, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
-		addr = tcpAddr.IP.String()
-	} else {
-		addr = conn.RemoteAddr().String()
-	}
-
+func (server *Server) allowRateLimit(remoteAddr string) bool {
 	server.rateLimitsMu.Lock()
 	defer server.rateLimitsMu.Unlock()
 
-	if limiter, ok := server.rateLimitsFront[addr]; ok {
+	if limiter, ok := server.rateLimitsFront[remoteAddr]; ok {
 		return limiter.Allow()
 	}
-	if limiter, ok := server.rateLimitsBack[addr]; ok {
+	if limiter, ok := server.rateLimitsBack[remoteAddr]; ok {
 		return limiter.Allow()
 	}
 
@@ -331,6 +316,152 @@ func (server *Server) allowRateLimit(conn net.Conn) bool {
 		server.rateLimitsBack = server.rateLimitsFront
 		server.rateLimitsFront = make(map[string]*rate.Limiter, server.rateLimitsCapacity)
 	}
-	server.rateLimitsFront[addr] = rate.NewLimiter(server.opts.RateLimit, server.opts.RateLimitBurst)
-	return server.rateLimitsFront[addr].Allow()
+	server.rateLimitsFront[remoteAddr] = rate.NewLimiter(server.opts.RateLimit, server.opts.RateLimitBurst)
+	return server.rateLimitsFront[remoteAddr].Allow()
+}
+
+// A ServerConnPool is used to manage connections from the perspective of a
+// server. Its primary responsibility is ensuring that every IP address and
+// every cryptographic identity only has one active connection, where new
+// connections will replace old connections.
+type ServerConnPool struct {
+	numConnsCond *sync.Cond
+	numConns     int64
+	maxConns     int64
+
+	perAddrMu   *sync.Mutex
+	perAddr     map[string]net.Conn
+	perAddrToks map[string]uint64
+
+	perSignatoryMu   *sync.Mutex
+	perSignatory     map[id.Signatory]net.Conn
+	perSignatoryToks map[id.Signatory]uint64
+
+	nextToken uint64
+}
+
+// NewServerConnPool returns an empty connection pool. Because this pool exists
+// to prevent duplicate connections, and connections do not persist across
+// reboots, the pool does not need to be persisted across reboots. In other
+// words, this method is sufficient to construct a new connection pool.
+func NewServerConnPool(maxConns int64) ServerConnPool {
+	return ServerConnPool{
+		numConnsCond: sync.NewCond(new(sync.Mutex)),
+		numConns:     0,
+		maxConns:     maxConns,
+
+		perAddrMu:   new(sync.Mutex),
+		perAddr:     map[string]net.Conn{},
+		perAddrToks: map[string]uint64{},
+
+		perSignatoryMu:   new(sync.Mutex),
+		perSignatory:     map[id.Signatory]net.Conn{},
+		perSignatoryToks: map[id.Signatory]uint64{},
+
+		nextToken: 0,
+	}
+}
+
+// Wait until the there are available connections. If the maximum number of
+// connections have already been established, then this method will block until
+// one of the existing connections is closed.
+func (pool *ServerConnPool) Wait() {
+	pool.numConnsCond.L.Lock()
+	for atomic.LoadInt64(&pool.numConns) >= pool.maxConns {
+		pool.numConnsCond.Wait()
+	}
+	pool.numConnsCond.L.Unlock()
+	atomic.AddInt64(&pool.numConns, 1)
+}
+
+// Signal that an existing connection has been closed.
+func (pool *ServerConnPool) Signal() {
+	atomic.AddInt64(&pool.numConns, -1)
+	pool.numConnsCond.Signal()
+}
+
+// AddToRemoteAddress will add a connection and associate it with an IP address.
+// Any previous connection associated with this IP address will be closed (and
+// error caused by the closure will be ignored). This method returns a token
+// that can be used to explicitly remove the connection.
+func (pool *ServerConnPool) AddToRemoteAddress(ip string, conn net.Conn) uint64 {
+	pool.perAddrMu.Lock()
+	defer pool.perAddrMu.Unlock()
+
+	token := atomic.AddUint64(&pool.nextToken, 1)
+
+	if prevConn, ok := pool.perAddr[ip]; ok {
+		if prevConn != nil {
+			prevConn.Close()
+		}
+		delete(pool.perAddr, ip)
+		delete(pool.perAddrToks, ip)
+	}
+	if conn != nil {
+		pool.perAddr[ip] = conn
+		pool.perAddrToks[ip] = token
+	}
+
+	return token
+}
+
+// AddToRemoteSignatory will add a connection and associate it with a signatory.
+// Any previous connection associated with this signatory will be closed (any
+// error caused by the closure will be ignored). This method returns a token
+// that can be used to explicitly remove the connection.
+func (pool *ServerConnPool) AddToRemoteSignatory(signatory id.Signatory, conn net.Conn) uint64 {
+	pool.perSignatoryMu.Lock()
+	defer pool.perSignatoryMu.Unlock()
+
+	token := atomic.AddUint64(&pool.nextToken, 1)
+
+	if prevConn, ok := pool.perSignatory[signatory]; ok {
+		if prevConn != nil {
+			prevConn.Close()
+		}
+		delete(pool.perSignatory, signatory)
+		delete(pool.perSignatoryToks, signatory)
+	}
+	if conn != nil {
+		pool.perSignatory[signatory] = conn
+		pool.perSignatoryToks[signatory] = token
+	}
+
+	return token
+}
+
+// RemoveFromRemoteAddress removes an IP address from the map, unless the
+// provided token is no longer the most recent token, and closes any associated
+// connection (any error caused by the closure will be ignored).
+func (pool *ServerConnPool) RemoveFromRemoteAddress(ip string, tok uint64) {
+	pool.perAddrMu.Lock()
+	defer pool.perAddrMu.Unlock()
+
+	if currTok, ok := pool.perAddrToks[ip]; ok && currTok == tok {
+		if prevConn, ok := pool.perAddr[ip]; ok {
+			if prevConn != nil {
+				prevConn.Close()
+			}
+		}
+		delete(pool.perAddr, ip)
+		delete(pool.perAddrToks, ip)
+	}
+}
+
+// RemoveFromRemoteSignatory removes a signatory from the map, unless the
+// provided token is no longer the most recent token, and closes any associated
+// connection (any error caused by the closure will be ignored).
+func (pool *ServerConnPool) RemoveFromRemoteSignatory(signatory id.Signatory, tok uint64) {
+	pool.perSignatoryMu.Lock()
+	defer pool.perSignatoryMu.Unlock()
+
+	if currTok, ok := pool.perSignatoryToks[signatory]; ok && currTok == tok {
+		if prevConn, ok := pool.perSignatory[signatory]; ok {
+			if prevConn != nil {
+				prevConn.Close()
+			}
+		}
+		delete(pool.perSignatory, signatory)
+		delete(pool.perSignatoryToks, signatory)
+	}
 }
