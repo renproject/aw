@@ -23,9 +23,9 @@ var (
 	// takes longer than this duration, it will be dropped (and a new attempt
 	// may begin).
 	DefaultClientTimeToDial = 15 * time.Second
-	// DefaultClientMaxDialAttempts is set to 1. If the initial dial attempt
-	// fails, the connection will be dropped.
-	DefaultClientMaxDialAttempts = 1
+	// DefaultClientMaxDialAttempts is set to 5. If the first 5 dial attempts
+	// fail, the connection will be dropped.
+	DefaultClientMaxDialAttempts = 5
 	// DefaultClientMaxCapacity is set to 4096.
 	DefaultClientMaxCapacity = 4096
 	// DefaultClientMaxConnections is set to 128.
