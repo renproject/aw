@@ -109,6 +109,11 @@ func (dht *distributedHashTable) InsertAddr(addr wire.Address) bool {
 		return false
 	}
 
+	if signatory.Equal(&dht.identity) {
+		// Do not insert our own address into the DHT.
+		return false
+	}
+
 	existingAddr, ok := dht.addrsBySignatory[signatory]
 	if ok {
 		if addr.Equal(&existingAddr) {

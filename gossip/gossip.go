@@ -335,17 +335,6 @@ func (g *Gossiper) sendToSubnet(subnet id.Hash, msg wire.Message) {
 		subnetSignatories = g.dht.Subnet(subnet) // TODO: Load signatories in order of their XOR distance from our own address.
 	}
 
-	// Remove ourself from the list of signatories.
-	//
-	// TODO: We probably don't want to perform this logic here everytime we try
-	// to send a message.
-	for i := range subnetSignatories {
-		if subnetSignatories[i].Equal(&g.self) {
-			subnetSignatories = append(subnetSignatories[:i], subnetSignatories[i+1:]...)
-			break
-		}
-	}
-
 	for a := 0; a < g.opts.Alpha; a++ {
 		for i := 0; i < len(subnetSignatories); i++ {
 			// We express an exponential bias for the signatories that are
