@@ -3,7 +3,6 @@ package gossip_test
 import (
 	"context"
 	"fmt"
-	"log"
 	"math/rand"
 	"testing/quick"
 	"time"
@@ -21,17 +20,24 @@ import (
 )
 
 var _ = Describe("Gossip", func() {
+	rand.Seed(GinkgoRandomSeed())
+
 	Context("when gossiping data to a peer", func() {
 		It("should be received by the node", func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			numNodes := uint(5)
-			nodes, _ := initNodes(ctx, numNodes)
+			n := uint(rand.Intn(10) + 1)
+			nodes := initNodes(ctx, n, int(n), 1)
 			f := func(fromIndex, toIndex uint, hash id.Hash, dataType uint8) bool {
-				// Restrict indices to a valid range.
-				fromIndex = fromIndex % numNodes
-				toIndex = toIndex % numNodes
+				// Restrict variables to a valid range.
+				fromIndex = fromIndex % n
+				toIndex = toIndex % n
+
+				if fromIndex == toIndex {
+					// Prevent sending a message to ourself.
+					return true
+				}
 
 				// Gossip to a random peer.
 				nodes[fromIndex].gossiper.Gossip(id.Hash(nodes[toIndex].signatory), hash, dataType)
@@ -51,27 +57,36 @@ var _ = Describe("Gossip", func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			numNodes := uint(10)
-			nodes, subnets := initNodes(ctx, numNodes)
-			f := func(fromIndex, toIndex uint, hash id.Hash, dataType uint8) bool {
-				// Restrict indices to a valid range.
-				fromIndex = fromIndex % numNodes
-				toIndex = toIndex % numNodes
+			n := uint(rand.Intn(10) + 1)
+			nodes := initNodes(ctx, n, int(n), 1)
+			f := func(fromIndex, subnetSize uint, hash id.Hash, dataType uint8) bool {
+				// Restrict variables to a valid range.
+				fromIndex = fromIndex % n
+				subnetSize = subnetSize % n
 
-				// Gossip to a random peer.
-				nodes[fromIndex].gossiper.Gossip(subnets[fromIndex], hash, dataType)
+				// Create a random subnet and insert it into the DHT.
+				nodeIndices := rand.Perm(int(subnetSize))
+				signatories := make([]id.Signatory, subnetSize)
+				for i, index := range nodeIndices {
+					signatories[i] = nodes[index].signatory
+				}
+				subnet := nodes[fromIndex].dht.AddSubnet(signatories)
+
+				// Gossip to the subnet.
+				nodes[fromIndex].gossiper.Gossip(subnet, hash, dataType)
 
 				// Ensure the subnet receives the data.
 				Eventually(func() bool {
 					received := true
-					for i := range nodes {
-						if uint(i) == fromIndex {
+					for _, index := range nodeIndices {
+						if uint(index) == fromIndex {
+							// Continue as we do not gossip messages to ourself.
 							continue
 						}
-						received = received && nodes[i].dht.HasContent(hash, dataType)
+						received = received && nodes[index].dht.HasContent(hash, dataType)
 					}
 					return received
-				}, 3*time.Second).Should(BeTrue())
+				}).Should(BeTrue())
 				return true
 			}
 			Expect(quick.Check(f, nil)).To(Succeed())
@@ -83,27 +98,27 @@ var _ = Describe("Gossip", func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			numNodes := uint(10)
-			nodes, subnets := initNodes(ctx, numNodes)
+			n := uint(rand.Intn(10) + 1)
+			alpha := rand.Intn(int(n))
+			nodes := initNodes(ctx, n, alpha, 1)
 			f := func(fromIndex, toIndex uint, hash id.Hash, dataType uint8) bool {
-				// Restrict indices to a valid range.
-				fromIndex = fromIndex % numNodes
-				toIndex = toIndex % numNodes
+				// Restrict variables to a valid range.
+				fromIndex = fromIndex % n
+				toIndex = toIndex % n
 
-				// Gossip to a random peer.
-				nodes[fromIndex].gossiper.Gossip(subnets[fromIndex], hash, dataType)
+				// Gossip to the default subnet.
+				nodes[fromIndex].gossiper.Gossip(gossip.DefaultSubnet, hash, dataType)
 
-				// Ensure the subnet receives the data.
+				// As the bias is 1, we expect alpha nodes to receive the data.
 				Eventually(func() bool {
-					received := true
+					numReceived := 0
 					for i := range nodes {
-						if uint(i) == fromIndex {
-							continue
+						if nodes[i].dht.HasContent(hash, dataType) {
+							numReceived++
 						}
-						received = received && nodes[i].dht.HasContent(hash, dataType)
 					}
-					return received
-				}, 3*time.Second).Should(BeTrue())
+					return numReceived == alpha
+				}).Should(BeTrue())
 				return true
 			}
 			Expect(quick.Check(f, nil)).To(Succeed())
@@ -115,7 +130,8 @@ var _ = Describe("Gossip", func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			nodes, _ := initNodes(ctx, 5)
+			n := uint(rand.Intn(10) + 1)
+			nodes := initNodes(ctx, n, rand.Intn(100), rand.Float64())
 			f := func(target, hash id.Hash, dataType uint8) bool {
 				// Gossip to a random target and ensure the function does not
 				// panic.
@@ -139,17 +155,16 @@ type node struct {
 	dht      dht.DHT
 }
 
-func initNodes(ctx context.Context, n uint) ([]node, []id.Hash) {
+func initNodes(ctx context.Context, n uint, alpha int, bias float64) []node {
 	nodes := make([]node, n)
-	signatories := make([]id.Signatory, n)
 	for i := range nodes {
 		privKey := id.NewPrivKey()
-		signatories[i] = id.NewSignatory(&privKey.PublicKey)
+		signatory := id.NewSignatory(&privKey.PublicKey)
 		host := "0.0.0.0"
 		port := uint16(3000 + rand.Int()%3000)
 
 		dht := dht.New(
-			signatories[i],
+			signatory,
 			dht.NewDoubleCacheContentResolver(
 				dht.DefaultDoubleCacheContentResolverOptions(),
 				nil,
@@ -168,9 +183,9 @@ func initNodes(ctx context.Context, n uint) ([]node, []id.Hash) {
 		)
 		gossiper := gossip.New(
 			gossip.DefaultOptions().
-				WithAlpha(int(n)).
-				WithBias(1),
-			signatories[i],
+				WithAlpha(alpha).
+				WithBias(bias),
+			signatory,
 			dht,
 			trans,
 		)
@@ -178,23 +193,18 @@ func initNodes(ctx context.Context, n uint) ([]node, []id.Hash) {
 		go trans.Run(ctx)
 		go gossiper.Run(ctx)
 
-		nodes[i] = node{privKey, signatories[i], host, port, gossiper, dht}
+		nodes[i] = node{privKey, signatory, host, port, gossiper, dht}
 	}
 
-	subnets := make([]id.Hash, n)
+	// Insert peer addresses into the DHT.
 	for i := range nodes {
-		// Insert peer addresses into the DHT.
 		for j := range nodes {
 			addr := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", nodes[j].host, nodes[j].port), uint64(time.Now().UnixNano()))
 			err := addr.Sign(nodes[j].privKey)
 			Expect(err).ToNot(HaveOccurred())
 			nodes[i].dht.InsertAddr(addr)
 		}
-
-		// Insert the subnet into the DHT.
-		log.Println(len(signatories))
-		subnets[i] = nodes[i].dht.AddSubnet(signatories)
 	}
 
-	return nodes, subnets
+	return nodes
 }
