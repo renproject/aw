@@ -335,7 +335,12 @@ func (g *Gossiper) sendToSubnet(subnet id.Hash, msg wire.Message) {
 		subnetSignatories = g.dht.Subnet(subnet) // TODO: Load signatories in order of their XOR distance from our own address.
 	}
 
-	for a := 0; a < g.opts.Alpha; a++ {
+	// Loop indefinitely until we have sent min(alpha, n) messages.
+	alpha := g.opts.Alpha
+	if alpha > len(subnetSignatories) {
+		alpha = len(subnetSignatories)
+	}
+	for {
 		for i := 0; i < len(subnetSignatories); i++ {
 			// We express an exponential bias for the signatories that are
 			// earlier in the queue (i.e. have pubkey hashes that are similar to
@@ -351,11 +356,15 @@ func (g *Gossiper) sendToSubnet(subnet id.Hash, msg wire.Message) {
 				addr, ok := g.dht.Addr(subnetSignatories[i])
 				subnetSignatories = append(subnetSignatories[:i], subnetSignatories[i+1:]...)
 				i--
+				alpha--
 				if ok {
 					g.send(addr, msg)
 				}
 				break
 			}
+		}
+		if alpha == 0 {
+			break
 		}
 	}
 }

@@ -28,7 +28,7 @@ var _ = Describe("Gossip", func() {
 			defer cancel()
 
 			n := uint(rand.Intn(10) + 1)
-			nodes := initNodes(ctx, n, int(n), 1)
+			nodes := initNodes(ctx, n, int(n))
 			f := func(fromIndex, toIndex uint, hash id.Hash, dataType uint8) bool {
 				// Restrict variables to a valid range.
 				fromIndex = fromIndex % n
@@ -58,7 +58,7 @@ var _ = Describe("Gossip", func() {
 			defer cancel()
 
 			n := uint(rand.Intn(10) + 1)
-			nodes := initNodes(ctx, n, int(n), 1)
+			nodes := initNodes(ctx, n, int(n))
 			f := func(fromIndex, subnetSize uint, hash id.Hash, dataType uint8) bool {
 				// Restrict variables to a valid range.
 				fromIndex = fromIndex % n
@@ -100,7 +100,7 @@ var _ = Describe("Gossip", func() {
 
 			n := uint(rand.Intn(10) + 1)
 			alpha := rand.Intn(int(n))
-			nodes := initNodes(ctx, n, alpha, 1)
+			nodes := initNodes(ctx, n, alpha)
 			f := func(fromIndex, toIndex uint, hash id.Hash, dataType uint8) bool {
 				// Restrict variables to a valid range.
 				fromIndex = fromIndex % n
@@ -109,7 +109,7 @@ var _ = Describe("Gossip", func() {
 				// Gossip to the default subnet.
 				nodes[fromIndex].gossiper.Gossip(gossip.DefaultSubnet, hash, dataType)
 
-				// As the bias is 1, we expect alpha nodes to receive the data.
+				// We expect alpha nodes to receive the data.
 				Eventually(func() bool {
 					numReceived := 0
 					for i := range nodes {
@@ -131,7 +131,7 @@ var _ = Describe("Gossip", func() {
 			defer cancel()
 
 			n := uint(rand.Intn(10) + 1)
-			nodes := initNodes(ctx, n, rand.Intn(100), rand.Float64())
+			nodes := initNodes(ctx, n, rand.Intn(100))
 			f := func(target, hash id.Hash, dataType uint8) bool {
 				// Gossip to a random target and ensure the function does not
 				// panic.
@@ -155,7 +155,7 @@ type node struct {
 	dht      dht.DHT
 }
 
-func initNodes(ctx context.Context, n uint, alpha int, bias float64) []node {
+func initNodes(ctx context.Context, n uint, alpha int) []node {
 	nodes := make([]node, n)
 	for i := range nodes {
 		privKey := id.NewPrivKey()
@@ -183,8 +183,7 @@ func initNodes(ctx context.Context, n uint, alpha int, bias float64) []node {
 		)
 		gossiper := gossip.New(
 			gossip.DefaultOptions().
-				WithAlpha(alpha).
-				WithBias(bias),
+				WithAlpha(int(n)),
 			signatory,
 			dht,
 			trans,
