@@ -87,9 +87,9 @@ func (g *Gossiper) Gossip(target, hash id.Hash, dataType uint8) {
 	addr, ok := g.dht.Addr(id.Signatory(target))
 	if ok {
 		marshaledPushV1, err := surge.ToBinary(wire.PushV1{
-			Subnet: id.Hash{},
-			Hash:   hash,
-			Type:   dataType,
+			Subnet:      id.Hash{},
+			ContentHash: hash,
+			ContentType: dataType,
 		})
 		if err != nil {
 			g.opts.Logger.Fatalf("marshaling push: %v", err)
@@ -103,9 +103,9 @@ func (g *Gossiper) Gossip(target, hash id.Hash, dataType uint8) {
 	}
 
 	marshaledPushV1, err := surge.ToBinary(wire.PushV1{
-		Subnet: target,
-		Hash:   hash,
-		Type:   dataType,
+		Subnet:      target,
+		ContentHash: hash,
+		ContentType: dataType,
 	})
 	if err != nil {
 		g.opts.Logger.Fatalf("marshaling push: %v", err)
@@ -120,9 +120,9 @@ func (g *Gossiper) Gossip(target, hash id.Hash, dataType uint8) {
 // Sync a message from members of a particular Subnet.
 func (g *Gossiper) Sync(ctx context.Context, subnet, hash id.Hash, dataType uint8) ([]byte, error) {
 	pullV1 := wire.PullV1{
-		Subnet: subnet,
-		Hash:   hash,
-		Type:   dataType,
+		Subnet:      subnet,
+		ContentHash: hash,
+		ContentType: dataType,
 	}
 	marshaledPullV1, err := surge.ToBinary(pullV1)
 	if err != nil {
@@ -158,7 +158,7 @@ func (g *Gossiper) Sync(ctx context.Context, subnet, hash id.Hash, dataType uint
 	}
 }
 
-func (g *Gossiper) DidReceivePush(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
+func (g *Gossiper) DidReceivePush(version wire.Version, data []byte, from id.Signatory) (wire.Message, error) {
 	if version != wire.V1 {
 		return wire.Message{}, fmt.Errorf("unsupported version=%v", version)
 	}
@@ -176,16 +176,16 @@ func (g *Gossiper) DidReceivePush(version uint8, data []byte, from id.Signatory)
 	// Process response.
 	//
 
-	if !g.dht.HasContent(pushV1.Hash, pushV1.Type) {
-		g.dht.InsertContent(pushV1.Hash, pushV1.Type, []byte{})
+	if !g.dht.HasContent(pushV1.ContentHash, pushV1.ContentType) {
+		g.dht.InsertContent(pushV1.ContentHash, pushV1.ContentType, []byte{})
 		// Beacuse we do not have the content associated with this hash, we try
 		// to pull the data from the sender.
 		fromAddr, ok := g.dht.Addr(from)
 		if ok {
 			pullV1 := wire.PullV1{
-				Subnet: pushV1.Subnet,
-				Hash:   pushV1.Hash,
-				Type:   pushV1.Type,
+				Subnet:      pushV1.Subnet,
+				ContentHash: pushV1.ContentHash,
+				ContentType: pushV1.ContentType,
 			}
 			marshaledPullV1, err := surge.ToBinary(pullV1)
 			if err != nil {
@@ -202,7 +202,7 @@ func (g *Gossiper) DidReceivePush(version uint8, data []byte, from id.Signatory)
 	return wire.Message{Version: wire.V1, Type: wire.PushAck, Data: []byte{}}, nil
 }
 
-func (g *Gossiper) DidReceivePushAck(version uint8, data []byte, from id.Signatory) error {
+func (g *Gossiper) DidReceivePushAck(version wire.Version, data []byte, from id.Signatory) error {
 	if version != wire.V1 {
 		return fmt.Errorf("unsupported version=%v", version)
 	}
@@ -223,7 +223,7 @@ func (g *Gossiper) DidReceivePushAck(version uint8, data []byte, from id.Signato
 	return nil
 }
 
-func (g *Gossiper) DidReceivePull(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
+func (g *Gossiper) DidReceivePull(version wire.Version, data []byte, from id.Signatory) (wire.Message, error) {
 	if version != wire.V1 {
 		return wire.Message{}, fmt.Errorf("unsupported version=%v", version)
 	}
@@ -241,7 +241,7 @@ func (g *Gossiper) DidReceivePull(version uint8, data []byte, from id.Signatory)
 	// Acknowledge request.
 	//
 
-	content, ok := g.dht.Content(pullV1.Hash, pullV1.Type)
+	content, ok := g.dht.Content(pullV1.ContentHash, pullV1.ContentType)
 	if !ok {
 		// We do not have the content being requested, so we return empty bytes.
 		// It is up to the requester to follow up with others in the network.
@@ -249,10 +249,10 @@ func (g *Gossiper) DidReceivePull(version uint8, data []byte, from id.Signatory)
 	}
 
 	pullAckV1 := wire.PullAckV1{
-		Subnet:  pullV1.Subnet,
-		Hash:    pullV1.Hash,
-		Type:    pullV1.Type,
-		Content: content,
+		Subnet:      pullV1.Subnet,
+		ContentHash: pullV1.ContentHash,
+		ContentType: pullV1.ContentType,
+		Content:     content,
 	}
 	pullAckV1Marshaled, err := surge.ToBinary(pullAckV1)
 	if err != nil {
@@ -261,7 +261,7 @@ func (g *Gossiper) DidReceivePull(version uint8, data []byte, from id.Signatory)
 	return wire.Message{Version: wire.V1, Type: wire.PullAck, Data: pullAckV1Marshaled}, nil
 }
 
-func (g *Gossiper) DidReceivePullAck(version uint8, data []byte, from id.Signatory) error {
+func (g *Gossiper) DidReceivePullAck(version wire.Version, data []byte, from id.Signatory) error {
 	if version != wire.V1 {
 		return fmt.Errorf("unsupported version=%v", version)
 	}
@@ -288,7 +288,7 @@ func (g *Gossiper) DidReceivePullAck(version uint8, data []byte, from id.Signato
 	g.syncRespondersMu.Lock()
 	defer g.syncRespondersMu.Unlock()
 
-	responders, ok := g.syncResponders[pullAckV1.Hash]
+	responders, ok := g.syncResponders[pullAckV1.ContentHash]
 	if ok {
 		// Write the response to any listeners.
 		for _, responder := range responders {
@@ -304,14 +304,14 @@ func (g *Gossiper) DidReceivePullAck(version uint8, data []byte, from id.Signato
 		// TODO: There needs to be a way to prune this map if the gossiper
 		// does not receive a pull acknowledgement (or receives one but the
 		// content is empty so it does not get to this stage).
-		delete(g.syncResponders, pullAckV1.Hash)
+		delete(g.syncResponders, pullAckV1.ContentHash)
 	}
 
 	// Only copy the content into the DHT if we do not have this content at the
 	// moment.
-	if !g.dht.HasContent(pullAckV1.Hash, pullAckV1.Type) || g.dht.HasEmptyContent(pullAckV1.Hash, pullAckV1.Type) {
-		g.dht.InsertContent(pullAckV1.Hash, pullAckV1.Type, pullAckV1.Content)
-		g.Gossip(pullAckV1.Subnet, pullAckV1.Hash, pullAckV1.Type)
+	if !g.dht.HasContent(pullAckV1.ContentHash, pullAckV1.ContentType) || g.dht.HasEmptyContent(pullAckV1.ContentHash, pullAckV1.ContentType) {
+		g.dht.InsertContent(pullAckV1.ContentHash, pullAckV1.ContentType, pullAckV1.Content)
+		g.Gossip(pullAckV1.Subnet, pullAckV1.ContentHash, pullAckV1.ContentType)
 	}
 	return nil
 }

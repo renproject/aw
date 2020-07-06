@@ -238,7 +238,7 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		case wire.V1:
 			// Ok; do nothing.
 		default:
-			server.opts.Logger.Error("bad message", zap.Uint8("version", msg.Version))
+			server.opts.Logger.Error("bad message", zap.Uint8("version", uint8(msg.Version)))
 			return
 		}
 		// Check that the message type is supported.
@@ -247,10 +247,10 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 			// Ok; do nothing.
 		case wire.PingAck, wire.PushAck, wire.PullAck:
 			// Not ok; only clients expect to receive acks.
-			server.opts.Logger.Error("bad message ack", zap.Uint8("type", msg.Type))
+			server.opts.Logger.Error("bad message ack", zap.Uint8("type", uint8(msg.Type)))
 			return
 		default:
-			server.opts.Logger.Error("bad message", zap.Uint8("type", msg.Type))
+			server.opts.Logger.Error("bad message", zap.Uint8("type", uint8(msg.Type)))
 			return
 		}
 
