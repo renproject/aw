@@ -220,6 +220,7 @@ func (dht *distributedHashTable) AddSubnet(signatories []id.Signatory) id.Hash {
 	copied := make([]id.Signatory, len(signatories))
 	copy(copied, signatories)
 	sort.Slice(copied, func(i, j int) bool {
+		// Sort signatories in order of their XOR distance from our own address.
 		for b := 0; b < 32; b++ {
 			d1 := dht.identity[b] ^ copied[i][b]
 			d2 := dht.identity[b] ^ copied[j][b]

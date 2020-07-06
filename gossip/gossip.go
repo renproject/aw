@@ -332,7 +332,7 @@ func (g *Gossiper) sendToSubnet(subnet id.Hash, msg wire.Message) {
 			subnetSignatories = append(subnetSignatories, sig)
 		}
 	} else {
-		subnetSignatories = g.dht.Subnet(subnet) // TODO: Load signatories in order of their XOR distance from our own address.
+		subnetSignatories = g.dht.Subnet(subnet)
 	}
 
 	// Loop indefinitely until we have sent min(alpha, n) messages.
