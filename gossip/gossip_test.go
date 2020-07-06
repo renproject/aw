@@ -109,7 +109,7 @@ var _ = Describe("Gossip", func() {
 				// Gossip to the default subnet.
 				nodes[fromIndex].gossiper.Gossip(gossip.DefaultSubnet, hash, dataType)
 
-				// We expect alpha nodes to receive the data.
+				// We expect at least alpha nodes to receive the data.
 				Eventually(func() bool {
 					numReceived := 0
 					for i := range nodes {
@@ -117,7 +117,7 @@ var _ = Describe("Gossip", func() {
 							numReceived++
 						}
 					}
-					return numReceived == alpha
+					return numReceived >= alpha
 				}).Should(BeTrue())
 				return true
 			}
