@@ -355,7 +355,6 @@ func (g *Gossiper) sendToSubnet(subnet id.Hash, msg wire.Message) {
 				// from the slice so that we do not gossip to it multiple times.
 				addr, ok := g.dht.Addr(subnetSignatories[i])
 				subnetSignatories = append(subnetSignatories[:i], subnetSignatories[i+1:]...)
-				i--
 				alpha--
 				if ok {
 					g.send(addr, msg)
