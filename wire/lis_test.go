@@ -13,7 +13,7 @@ import (
 var _ = Describe("Listener", func() {
 	Context("when callbacks are nil", func() {
 		It("should not panic", func() {
-			f := func(version uint8, data []byte, from id.Signatory) bool {
+			f := func(version wire.Version, data []byte, from id.Signatory) bool {
 				var err error
 
 				cb := wire.Callbacks{}
@@ -41,7 +41,7 @@ var _ = Describe("Listener", func() {
 
 	Context("when callbacks are not nil", func() {
 		It("should call them", func() {
-			f := func(version uint8, data []byte, from id.Signatory) bool {
+			f := func(version wire.Version, data []byte, from id.Signatory) bool {
 				var err error
 
 				didReceivePing := false
@@ -51,27 +51,27 @@ var _ = Describe("Listener", func() {
 				didReceivePull := false
 				didReceivePullAck := false
 				cb := wire.Callbacks{
-					ReceivePing: func(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
+					ReceivePing: func(version wire.Version, data []byte, from id.Signatory) (wire.Message, error) {
 						didReceivePing = true
 						return wire.Message{}, nil
 					},
-					ReceivePingAck: func(version uint8, data []byte, from id.Signatory) error {
+					ReceivePingAck: func(version wire.Version, data []byte, from id.Signatory) error {
 						didReceivePingAck = true
 						return nil
 					},
-					ReceivePush: func(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
+					ReceivePush: func(version wire.Version, data []byte, from id.Signatory) (wire.Message, error) {
 						didReceivePush = true
 						return wire.Message{}, nil
 					},
-					ReceivePushAck: func(version uint8, data []byte, from id.Signatory) error {
+					ReceivePushAck: func(version wire.Version, data []byte, from id.Signatory) error {
 						didReceivePushAck = true
 						return nil
 					},
-					ReceivePull: func(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
+					ReceivePull: func(version wire.Version, data []byte, from id.Signatory) (wire.Message, error) {
 						didReceivePull = true
 						return wire.Message{}, nil
 					},
-					ReceivePullAck: func(version uint8, data []byte, from id.Signatory) error {
+					ReceivePullAck: func(version wire.Version, data []byte, from id.Signatory) error {
 						didReceivePullAck = true
 						return nil
 					},
