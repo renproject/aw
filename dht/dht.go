@@ -242,7 +242,7 @@ func (dht *distributedHashTable) AddSubnet(signatories []id.Signatory) id.Hash {
 		return dht.isCloser(copied[i], copied[j])
 	})
 
-	hash := id.NewMerkleHashFromSignatories(copied)
+	hash := id.NewMerkleHashFromSignatories(signatories)
 
 	dht.subnetsByHashMu.Lock()
 	defer dht.subnetsByHashMu.Unlock()
