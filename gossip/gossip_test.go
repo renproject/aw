@@ -279,7 +279,8 @@ func initNodes(ctx context.Context, n uint, alpha int) []node {
 				WithTCPServerOptions(
 					tcp.DefaultServerOptions().
 						WithHost(host).
-						WithPort(port),
+						WithPort(port).
+						WithPreventDuplicateConns(false),
 				),
 			handshake.NewInsecure(
 				handshake.DefaultOptions().

@@ -21,28 +21,31 @@ import (
 var (
 	DefaultServerTimeout    = 10 * time.Second
 	DefaultServerTimeToLive = 24 * time.Hour
-	DefaultServerMaxConns   = 128
+	DefaultServerMaxConns   = 5000
 	DefaultServerHost       = "0.0.0.0"
 	DefaultServerPort       = uint16(18514)
 
-	DefaultConnRateLimit      = rate.Limit(0.1)
-	DefaultConnRateLimitBurst = 10
+	DefaultConnRateLimit      = rate.Limit(10000)
+	DefaultConnRateLimitBurst = 10000
 
-	DefaultBandwidthLimit      = rate.Limit(4 * 1024 * 1024) // 4 MB
-	DefaultBandwidthLimitBurst = 32 * 1024 * 1024            // 32 MB
+	DefaultBandwidthLimit      = rate.Limit(500 * 1024 * 1024) // 4 MB
+	DefaultBandwidthLimitBurst = 500 * 1024 * 1024             // 32 MB
+
+	DefaultPreventDuplicateConns = true
 )
 
 type ServerOptions struct {
-	Logger              *zap.Logger
-	Timeout             time.Duration
-	TimeToLive          time.Duration
-	MaxConns            int
-	Host                string
-	Port                uint16
-	RateLimit           rate.Limit
-	RateLimitBurst      int
-	BandwidthLimit      rate.Limit
-	BandwidthLimitBurst int
+	Logger                *zap.Logger
+	Timeout               time.Duration
+	TimeToLive            time.Duration
+	MaxConns              int
+	Host                  string
+	Port                  uint16
+	RateLimit             rate.Limit
+	RateLimitBurst        int
+	BandwidthLimit        rate.Limit
+	BandwidthLimitBurst   int
+	PreventDuplicateConns bool
 }
 
 func DefaultServerOptions() ServerOptions {
@@ -51,22 +54,38 @@ func DefaultServerOptions() ServerOptions {
 		panic(err)
 	}
 	return ServerOptions{
-		Logger:              logger,
-		Timeout:             DefaultServerTimeout,
-		TimeToLive:          DefaultServerTimeToLive,
-		MaxConns:            DefaultServerMaxConns,
-		Host:                DefaultServerHost,
-		Port:                DefaultServerPort,
-		RateLimit:           DefaultConnRateLimit,
-		RateLimitBurst:      DefaultConnRateLimitBurst,
-		BandwidthLimit:      DefaultBandwidthLimit,
-		BandwidthLimitBurst: DefaultBandwidthLimitBurst,
+		Logger:                logger,
+		Timeout:               DefaultServerTimeout,
+		TimeToLive:            DefaultServerTimeToLive,
+		MaxConns:              DefaultServerMaxConns,
+		Host:                  DefaultServerHost,
+		Port:                  DefaultServerPort,
+		RateLimit:             DefaultConnRateLimit,
+		RateLimitBurst:        DefaultConnRateLimitBurst,
+		BandwidthLimit:        DefaultBandwidthLimit,
+		BandwidthLimitBurst:   DefaultBandwidthLimitBurst,
+		PreventDuplicateConns: DefaultPreventDuplicateConns,
 	}
 }
 
 // WithLogger sets the logger that will be used by the server.
 func (opts ServerOptions) WithLogger(logger *zap.Logger) ServerOptions {
 	opts.Logger = logger
+	return opts
+}
+
+func (opts ServerOptions) WithTimeout(timeout time.Duration) ServerOptions {
+	opts.Timeout = timeout
+	return opts
+}
+
+func (opts ServerOptions) WithTimeToLive(timeToLive time.Duration) ServerOptions {
+	opts.TimeToLive = timeToLive
+	return opts
+}
+
+func (opts ServerOptions) WithMaxConns(maxConns int) ServerOptions {
+	opts.MaxConns = maxConns
 	return opts
 }
 
@@ -79,6 +98,31 @@ func (opts ServerOptions) WithHost(host string) ServerOptions {
 // WithPort sets the port that will be used for listening.
 func (opts ServerOptions) WithPort(port uint16) ServerOptions {
 	opts.Port = port
+	return opts
+}
+
+func (opts ServerOptions) WithRateLimit(rateLimit rate.Limit) ServerOptions {
+	opts.RateLimit = rateLimit
+	return opts
+}
+
+func (opts ServerOptions) WithRateLimitBurst(rateLimitBurst int) ServerOptions {
+	opts.RateLimitBurst = rateLimitBurst
+	return opts
+}
+
+func (opts ServerOptions) WithBandwidthLimit(bandwidthLimit rate.Limit) ServerOptions {
+	opts.BandwidthLimit = bandwidthLimit
+	return opts
+}
+
+func (opts ServerOptions) WithBandwidthLimitBurst(bandwidthLimitBurst int) ServerOptions {
+	opts.BandwidthLimitBurst = bandwidthLimitBurst
+	return opts
+}
+
+func (opts ServerOptions) WithPreventDuplicateConns(preventDuplicateConns bool) ServerOptions {
+	opts.PreventDuplicateConns = preventDuplicateConns
 	return opts
 }
 
@@ -105,7 +149,7 @@ func NewServer(opts ServerOptions, handshaker handshake.Handshaker, listener wir
 		handshaker: handshaker,
 		listener:   listener,
 
-		pool: NewServerConnPool(int64(opts.MaxConns)),
+		pool: NewServerConnPool(int64(opts.MaxConns), opts.PreventDuplicateConns),
 
 		rateLimitsMu:       new(sync.Mutex),
 		rateLimitsFront:    make(map[string]*rate.Limiter, 65535),
@@ -325,9 +369,10 @@ func (server *Server) allowRateLimit(remoteAddr string) bool {
 // every cryptographic identity only has one active connection, where new
 // connections will replace old connections.
 type ServerConnPool struct {
-	numConnsCond *sync.Cond
-	numConns     int64
-	maxConns     int64
+	numConnsCond          *sync.Cond
+	numConns              int64
+	maxConns              int64
+	preventDuplicateConns bool
 
 	perAddrMu   *sync.Mutex
 	perAddr     map[string]net.Conn
@@ -344,11 +389,12 @@ type ServerConnPool struct {
 // to prevent duplicate connections, and connections do not persist across
 // reboots, the pool does not need to be persisted across reboots. In other
 // words, this method is sufficient to construct a new connection pool.
-func NewServerConnPool(maxConns int64) ServerConnPool {
+func NewServerConnPool(maxConns int64, preventDuplicateConns bool) ServerConnPool {
 	return ServerConnPool{
-		numConnsCond: sync.NewCond(new(sync.Mutex)),
-		numConns:     0,
-		maxConns:     maxConns,
+		numConnsCond:          sync.NewCond(new(sync.Mutex)),
+		numConns:              0,
+		maxConns:              maxConns,
+		preventDuplicateConns: preventDuplicateConns,
 
 		perAddrMu:   new(sync.Mutex),
 		perAddr:     map[string]net.Conn{},
@@ -390,7 +436,7 @@ func (pool *ServerConnPool) AddToRemoteAddress(ip string, conn net.Conn) uint64 
 
 	token := atomic.AddUint64(&pool.nextToken, 1)
 
-	if prevConn, ok := pool.perAddr[ip]; ok {
+	if prevConn, ok := pool.perAddr[ip]; ok && pool.preventDuplicateConns {
 		if prevConn != nil {
 			prevConn.Close()
 		}
@@ -415,7 +461,7 @@ func (pool *ServerConnPool) AddToRemoteSignatory(signatory id.Signatory, conn ne
 
 	token := atomic.AddUint64(&pool.nextToken, 1)
 
-	if prevConn, ok := pool.perSignatory[signatory]; ok {
+	if prevConn, ok := pool.perSignatory[signatory]; ok && pool.preventDuplicateConns {
 		if prevConn != nil {
 			prevConn.Close()
 		}
@@ -438,7 +484,7 @@ func (pool *ServerConnPool) RemoveFromRemoteAddress(ip string, tok uint64) {
 	defer pool.perAddrMu.Unlock()
 
 	if currTok, ok := pool.perAddrToks[ip]; ok && currTok == tok {
-		if prevConn, ok := pool.perAddr[ip]; ok {
+		if prevConn, ok := pool.perAddr[ip]; ok && pool.preventDuplicateConns {
 			if prevConn != nil {
 				prevConn.Close()
 			}
@@ -456,7 +502,7 @@ func (pool *ServerConnPool) RemoveFromRemoteSignatory(signatory id.Signatory, to
 	defer pool.perSignatoryMu.Unlock()
 
 	if currTok, ok := pool.perSignatoryToks[signatory]; ok && currTok == tok {
-		if prevConn, ok := pool.perSignatory[signatory]; ok {
+		if prevConn, ok := pool.perSignatory[signatory]; ok && pool.preventDuplicateConns {
 			if prevConn != nil {
 				prevConn.Close()
 			}
