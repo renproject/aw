@@ -282,7 +282,8 @@ func initNodes(ctx context.Context, n uint, alpha int) []node {
 						WithPort(port),
 				),
 			handshake.NewInsecure(
-				handshake.DefaultOptions(),
+				handshake.DefaultOptions().
+					WithPrivKey(privKey),
 			),
 		)
 		gossiper := gossip.New(
