@@ -171,6 +171,23 @@ func (dht *distributedHashTable) Addrs(n int) []wire.Address {
 			break
 		}
 	}
+
+	// Sort addresses in order of their XOR distance from our own address.
+	sort.Slice(addrs, func(i, j int) bool {
+		fstSignatory, err := addrs[i].Signatory()
+		if err != nil {
+			// This is a defensive check although it should never occur as it
+			// should not be posssible to insert an address into the DHT with an
+			// invalid signatory.
+			return false
+		}
+		sndSignatory, err := addrs[i].Signatory()
+		if err != nil {
+			return false
+		}
+		return dht.isCloser(fstSignatory, sndSignatory)
+	})
+
 	return addrs
 }
 
@@ -219,20 +236,12 @@ func (dht *distributedHashTable) HasEmptyContent(hash id.Hash, contentType uint8
 func (dht *distributedHashTable) AddSubnet(signatories []id.Signatory) id.Hash {
 	copied := make([]id.Signatory, len(signatories))
 	copy(copied, signatories)
+
+	// Sort signatories in order of their XOR distance from our own address.
 	sort.Slice(copied, func(i, j int) bool {
-		// Sort signatories in order of their XOR distance from our own address.
-		for b := 0; b < 32; b++ {
-			d1 := dht.identity[b] ^ copied[i][b]
-			d2 := dht.identity[b] ^ copied[j][b]
-			if d1 < d2 {
-				return true
-			}
-			if d2 < d1 {
-				return false
-			}
-		}
-		return false
+		return dht.isCloser(copied[i], copied[j])
 	})
+
 	hash := id.NewMerkleHashFromSignatories(copied)
 
 	dht.subnetsByHashMu.Lock()
@@ -260,4 +269,20 @@ func (dht *distributedHashTable) Subnet(hash id.Hash) []id.Signatory {
 	copied := make([]id.Signatory, len(subnet))
 	copy(copied, subnet)
 	return copied
+}
+
+// isCloser compares two signatory addresses to our address and returns true if
+// the first is closer in XOR distance than the second.
+func (dht *distributedHashTable) isCloser(fst, snd id.Signatory) bool {
+	for b := 0; b < 32; b++ {
+		d1 := dht.identity[b] ^ fst[b]
+		d2 := dht.identity[b] ^ snd[b]
+		if d1 < d2 {
+			return true
+		}
+		if d2 < d1 {
+			return false
+		}
+	}
+	return false
 }
