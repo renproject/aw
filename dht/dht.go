@@ -65,6 +65,9 @@ type distributedHashTable struct {
 	identity        id.Signatory
 	contentResolver ContentResolver
 
+	addrsSortedMu *sync.Mutex
+	addrsSorted   []wire.Address
+
 	addrsBySignatoryMu *sync.Mutex
 	addrsBySignatory   map[id.Signatory]wire.Address
 
@@ -89,6 +92,9 @@ func New(identity id.Signatory, contentResolver ContentResolver) DHT {
 		identity:        identity,
 		contentResolver: contentResolver,
 
+		addrsSortedMu: new(sync.Mutex),
+		addrsSorted:   []wire.Address{},
+
 		addrsBySignatoryMu: new(sync.Mutex),
 		addrsBySignatory:   map[id.Signatory]wire.Address{},
 
@@ -101,7 +107,10 @@ func New(identity id.Signatory, contentResolver ContentResolver) DHT {
 // returns false.
 func (dht *distributedHashTable) InsertAddr(addr wire.Address) bool {
 	dht.addrsBySignatoryMu.Lock()
+	dht.addrsSortedMu.Lock()
+
 	defer dht.addrsBySignatoryMu.Unlock()
+	defer dht.addrsSortedMu.Unlock()
 
 	signatory, err := addr.Signatory()
 	if err != nil {
@@ -129,16 +138,58 @@ func (dht *distributedHashTable) InsertAddr(addr wire.Address) bool {
 		}
 	}
 
+	// Insert into the map to allow for address lookup using the signatory.
 	dht.addrsBySignatory[signatory] = addr
+
+	// Insert into the sorted address list based on its XOR distance from our
+	// own address.
+	i := sort.Search(len(dht.addrsSorted), func(i int) bool {
+		currentSig, err := dht.addrsSorted[i].Signatory()
+		if err != nil {
+			return false
+		}
+
+		return dht.isCloser(signatory, currentSig)
+	})
+	dht.addrsSorted = append(dht.addrsSorted, wire.Address{})
+	copy(dht.addrsSorted[i+1:], dht.addrsSorted[i:])
+	dht.addrsSorted[i] = addr
+
 	return true
 }
 
 // DeleteAddr from the DHT.
 func (dht *distributedHashTable) DeleteAddr(signatory id.Signatory) {
 	dht.addrsBySignatoryMu.Lock()
-	defer dht.addrsBySignatoryMu.Unlock()
+	dht.addrsSortedMu.Lock()
 
+	defer dht.addrsBySignatoryMu.Unlock()
+	defer dht.addrsSortedMu.Unlock()
+
+	// Delete from the map.
 	delete(dht.addrsBySignatory, signatory)
+
+	// Delete from the sorted list.
+	i := sort.Search(len(dht.addrsSorted), func(i int) bool {
+		currentSig, err := dht.addrsSorted[i].Signatory()
+		if err != nil {
+			return false
+		}
+
+		return dht.isCloser(signatory, currentSig)
+	})
+	if i < len(dht.addrsSorted) {
+		expectedSig, err := dht.addrsSorted[i].Signatory()
+		if err != nil {
+			// This should not be possible as only addresses with valid
+			// signatories are inserted into the DHT.
+			return
+		}
+
+		if expectedSig.Equal(&signatory) {
+			dht.addrsSorted = append(dht.addrsSorted[:i], dht.addrsSorted[i+1:]...)
+		}
+	}
 }
 
 // Addr returns the address associated with a signatory. If there is no
@@ -151,8 +202,9 @@ func (dht *distributedHashTable) Addr(signatory id.Signatory) (wire.Address, boo
 	return addr, ok
 }
 
-// Addrs returns a random subset of addresses in the store. The input argument
-// can be used to specify the maximum number of addresses returned.
+// Addrs returns a subset of addresses in the store ordered by their XOR
+// distance from our own address. The input argument can be used to specify the
+// maximum number of addresses returned.
 func (dht *distributedHashTable) Addrs(n int) []wire.Address {
 	dht.addrsBySignatoryMu.Lock()
 	defer dht.addrsBySignatoryMu.Unlock()
@@ -165,28 +217,12 @@ func (dht *distributedHashTable) Addrs(n int) []wire.Address {
 	}
 
 	addrs := make([]wire.Address, 0, n)
-	for _, addr := range dht.addrsBySignatory {
+	for _, addr := range dht.addrsSorted {
 		addrs = append(addrs, addr) // This is safe, because addresses are cloned by default.
 		if n--; n == 0 {
 			break
 		}
 	}
-
-	// Sort addresses in order of their XOR distance from our own address.
-	sort.Slice(addrs, func(i, j int) bool {
-		fstSignatory, err := addrs[i].Signatory()
-		if err != nil {
-			// This is a defensive check although it should never occur as it
-			// should not be posssible to insert an address into the DHT with an
-			// invalid signatory.
-			return false
-		}
-		sndSignatory, err := addrs[i].Signatory()
-		if err != nil {
-			return false
-		}
-		return dht.isCloser(fstSignatory, sndSignatory)
-	})
 
 	return addrs
 }

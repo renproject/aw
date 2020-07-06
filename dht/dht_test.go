@@ -135,12 +135,13 @@ var _ = Describe("DHT", func() {
 			})
 		})
 
-		Context("when querying random addresses", func() {
-			It("should eventually return all addresses", func() {
-				table, _ := initDHT()
+		Context("when querying addresses", func() {
+			It("should return them in order of their XOR distance", func() {
+				table, identity := initDHT()
 				numAddrs := rand.Intn(990) + 10 // [10, 1000)
 
 				// Insert `numAddrs` random addresses into the store.
+				addrs := make([]wire.Address, numAddrs)
 				for i := 0; i < numAddrs; i++ {
 					privKey := id.NewPrivKey()
 					addr := wireutil.NewAddressBuilder(
@@ -150,19 +151,20 @@ var _ = Describe("DHT", func() {
 
 					ok := table.InsertAddr(addr)
 					Expect(ok).To(BeTrue())
+
+					addrs = append(addrs, addr)
 				}
 
-				// When querying random addresses, eventually we should come
-				// across every address.
-				addrsMap := make(map[wire.Address]bool, numAddrs)
-				for len(addrsMap) < numAddrs {
-					addrs := table.Addrs(10)
-					Expect(len(addrs)).To(Equal(10))
+				// Check addresses are returned in order of their XOR distance
+				// from our own address.
+				numNewAddrs := rand.Intn(numAddrs)
+				newAddrs := table.Addrs(numNewAddrs)
+				Expect(len(newAddrs)).To(Equal(numNewAddrs))
 
-					for _, addr := range addrs {
-						addrsMap[addr] = true
-					}
-				}
+				sortedAddrs := make([]wire.Address, len(newAddrs))
+				copy(sortedAddrs, newAddrs)
+				sortAddrs(identity, sortedAddrs)
+				Expect(newAddrs).To(Equal(sortedAddrs))
 			})
 
 			Context("if there are less than n addresses in the store", func() {
@@ -413,6 +415,28 @@ func initDHT() (dht.DHT, id.Signatory) {
 	identity := id.NewSignatory(&privKey.PublicKey)
 	resolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
 	return dht.New(identity, resolver), identity
+}
+
+func sortAddrs(identity id.Signatory, addrs []wire.Address) {
+	sort.Slice(addrs, func(i, j int) bool {
+		fstSignatory, err := addrs[i].Signatory()
+		Expect(err).ToNot(HaveOccurred())
+
+		sndSignatory, err := addrs[j].Signatory()
+		Expect(err).ToNot(HaveOccurred())
+
+		for b := 0; b < 32; b++ {
+			d1 := identity[b] ^ fstSignatory[b]
+			d2 := identity[b] ^ sndSignatory[b]
+			if d1 < d2 {
+				return true
+			}
+			if d2 < d1 {
+				return false
+			}
+		}
+		return false
+	})
 }
 
 func sortSignatories(identity id.Signatory, signatories []id.Signatory) {
