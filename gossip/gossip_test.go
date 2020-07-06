@@ -1,6 +1,7 @@
 package gossip_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math/rand"
@@ -139,6 +140,109 @@ var _ = Describe("Gossip", func() {
 					nodes[0].gossiper.Gossip(target, hash, dataType)
 				}).ToNot(Panic())
 				return true
+			}
+			Expect(quick.Check(f, nil)).To(Succeed())
+		})
+	})
+
+	Context("when syncing data from a subnet", func() {
+		Context("if the data exists", func() {
+			It("should receive the data", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+
+				n := uint(rand.Intn(6) + 5)
+				nodes := initNodes(ctx, n, int(n))
+				f := func(syncIndex, subnetSize uint, hash id.Hash, dataType uint8, data []byte) bool {
+					// Restrict variables to a valid range.
+					syncIndex = syncIndex % n
+					subnetSize = subnetSize%(n-2) + 2 // Ensure the subnet has at least 2 members.
+
+					// Create a random subnet and insert it into the DHT.
+					nodeIndices := rand.Perm(int(subnetSize))
+					signatories := make([]id.Signatory, subnetSize)
+					for i, index := range nodeIndices {
+						signatories[i] = nodes[index].signatory
+
+						// Insert some data that the subnet knows about.
+						nodes[index].dht.InsertContent(hash, dataType, data)
+					}
+					subnet := nodes[syncIndex].dht.AddSubnet(signatories)
+
+					// Sync data from the subnet and ensure it is the same.
+					innerCtx, innerCancel := context.WithTimeout(ctx, 50*time.Millisecond)
+					defer innerCancel()
+
+					newData, err := nodes[syncIndex].gossiper.Sync(innerCtx, subnet, hash, dataType)
+					Expect(err).ToNot(HaveOccurred())
+
+					return bytes.Equal(newData, data)
+				}
+				Expect(quick.Check(f, nil)).To(Succeed())
+			})
+		})
+
+		Context("if the data does not exist", func() {
+			It("should receive the data", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+
+				n := uint(rand.Intn(10) + 1)
+				nodes := initNodes(ctx, n, int(n))
+				f := func(syncIndex, subnetSize uint, hash id.Hash, dataType uint8, data []byte) bool {
+					// Restrict variables to a valid range.
+					syncIndex = syncIndex % n
+					subnetSize = subnetSize % n
+
+					// Create a random subnet and insert it into the DHT.
+					nodeIndices := rand.Perm(int(subnetSize))
+					signatories := make([]id.Signatory, subnetSize)
+					for i, index := range nodeIndices {
+						signatories[i] = nodes[index].signatory
+					}
+					subnet := nodes[syncIndex].dht.AddSubnet(signatories)
+
+					// Sync data with an unknown hash from the subnet and ensure
+					// it returns an error.
+					innerCtx, innerCancel := context.WithTimeout(ctx, 50*time.Millisecond)
+					defer innerCancel()
+
+					_, err := nodes[syncIndex].gossiper.Sync(innerCtx, subnet, hash, dataType)
+					return err != nil
+				}
+				Expect(quick.Check(f, &quick.Config{MaxCount: 20})).To(Succeed())
+			})
+		})
+	})
+
+	Context("when syncing data from the default subnet", func() {
+		It("should receive the data", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			n := uint(rand.Intn(9) + 2)
+			nodes := initNodes(ctx, n, int(n))
+			f := func(syncIndex uint, hash id.Hash, dataType uint8, data []byte) bool {
+				// Restrict variables to a valid range.
+				syncIndex = syncIndex % n
+
+				// Insert data into all nodes except the one that is expected to
+				// sync it.
+				for i := range nodes {
+					if uint(i) == syncIndex {
+						continue
+					}
+					nodes[i].dht.InsertContent(hash, dataType, data)
+				}
+
+				// Sync data from the default subnet and ensure it is the same.
+				innerCtx, innerCancel := context.WithTimeout(ctx, 50*time.Millisecond)
+				defer innerCancel()
+
+				newData, err := nodes[syncIndex].gossiper.Sync(innerCtx, gossip.DefaultSubnet, hash, dataType)
+				Expect(err).ToNot(HaveOccurred())
+
+				return bytes.Equal(newData, data)
 			}
 			Expect(quick.Check(f, nil)).To(Succeed())
 		})
