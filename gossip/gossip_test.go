@@ -170,7 +170,7 @@ var _ = Describe("Gossip", func() {
 					subnet := nodes[syncIndex].dht.AddSubnet(signatories)
 
 					// Sync data from the subnet and ensure it is the same.
-					innerCtx, innerCancel := context.WithTimeout(ctx, 50*time.Millisecond)
+					innerCtx, innerCancel := context.WithTimeout(ctx, 100*time.Millisecond)
 					defer innerCancel()
 
 					newData, err := nodes[syncIndex].gossiper.Sync(innerCtx, subnet, hash, dataType)
@@ -204,7 +204,7 @@ var _ = Describe("Gossip", func() {
 
 					// Sync data with an unknown hash from the subnet and ensure
 					// it returns an error.
-					innerCtx, innerCancel := context.WithTimeout(ctx, 50*time.Millisecond)
+					innerCtx, innerCancel := context.WithTimeout(ctx, 100*time.Millisecond)
 					defer innerCancel()
 
 					_, err := nodes[syncIndex].gossiper.Sync(innerCtx, subnet, hash, dataType)
@@ -236,7 +236,7 @@ var _ = Describe("Gossip", func() {
 				}
 
 				// Sync data from the default subnet and ensure it is the same.
-				innerCtx, innerCancel := context.WithTimeout(ctx, 50*time.Millisecond)
+				innerCtx, innerCancel := context.WithTimeout(ctx, 100*time.Millisecond)
 				defer innerCancel()
 
 				newData, err := nodes[syncIndex].gossiper.Sync(innerCtx, gossip.DefaultSubnet, hash, dataType)
