@@ -150,6 +150,24 @@ func (g *Gossiper) Sync(ctx context.Context, subnet, hash id.Hash, dataType uint
 	// block for a substantial amount of time.
 	g.syncRespondersMu.Unlock()
 
+	defer func() {
+		g.syncRespondersMu.Lock()
+		defer g.syncRespondersMu.Unlock()
+		for i, ch := range g.syncResponders[hash] {
+			// Equality of channels is ok, according to the Go specification.
+			if ch == responder {
+				// https://github.com/golang/go/wiki/SliceTricks#delete-without-preserving-order
+				end := len(g.syncResponders[hash])-1
+				g.syncResponders[hash][i] = g.syncResponders[hash][end]
+				g.syncResponders[hash] = g.syncResponders[hash][:end]
+				break
+			}
+		}
+		if len(g.syncResponders[hash]) == 0 {
+			delete(g.syncResponders, hash)
+		}
+	}()
+	
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -300,10 +318,6 @@ func (g *Gossiper) DidReceivePullAck(version wire.Version, data []byte, from id.
 		}
 
 		// Clean up the map.
-		//
-		// TODO: There needs to be a way to prune this map if the gossiper
-		// does not receive a pull acknowledgement (or receives one but the
-		// content is empty so it does not get to this stage).
 		delete(g.syncResponders, pullAckV1.ContentHash)
 	}
 
