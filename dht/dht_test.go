@@ -156,14 +156,23 @@ var _ = Describe("DHT", func() {
 
 				// Check addresses are returned in order of their XOR distance
 				// from our own address.
-				numNewAddrs := rand.Intn(numAddrs)
-				newAddrs := table.Addrs(numNewAddrs)
-				Expect(len(newAddrs)).To(Equal(numNewAddrs))
+				numQueriedAddrs := rand.Intn(numAddrs)
+				queriedAddrs := table.Addrs(numQueriedAddrs)
+				Expect(len(queriedAddrs)).To(Equal(numQueriedAddrs))
+				Expect(dhtutil.IsSorted(identity, queriedAddrs)).To(BeTrue())
 
-				sortedAddrs := make([]wire.Address, len(newAddrs))
-				copy(sortedAddrs, newAddrs)
-				dhtutil.SortAddrs(identity, sortedAddrs)
-				Expect(newAddrs).To(Equal(sortedAddrs))
+				// Delete some addresses and make sure the list is still sorted.
+				numDeletedAddrs := rand.Intn(numAddrs)
+				for i := 0; i < numDeletedAddrs; i++ {
+					signatory, err := addrs[i].Signatory()
+					Expect(err).ToNot(HaveOccurred())
+
+					table.DeleteAddr(signatory)
+				}
+
+				queriedAddrs = table.Addrs(numAddrs - numDeletedAddrs)
+				Expect(len(queriedAddrs)).To(Equal(numAddrs - numDeletedAddrs))
+				Expect(dhtutil.IsSorted(identity, queriedAddrs)).To(BeTrue())
 			})
 
 			Context("if there are less than n addresses in the store", func() {
