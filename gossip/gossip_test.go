@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"sync"
 	"testing/quick"
 	"time"
 
@@ -245,6 +246,60 @@ var _ = Describe("Gossip", func() {
 				return bytes.Equal(newData, data)
 			}
 			Expect(quick.Check(f, nil)).To(Succeed())
+		})
+	})
+
+	Context("when syncing the same data multiple times", func() {
+		It("should return the response for all requests", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			n := uint(rand.Intn(6) + 5)
+			nodes := initNodes(ctx, n, int(n))
+			f := func(numSyncers, subnetSize uint, hash id.Hash, dataType uint8, data []byte) bool {
+				// Restrict variables to a valid range.
+				numSyncers = numSyncers%(n-2) + 2 // Ensure there are at least two syncers.
+				subnetSize = subnetSize%(n-2) + 2 // Ensure the subnet has at least 2 members.
+
+				// Create a random subnet.
+				subnetIndices := rand.Perm(int(subnetSize))
+				signatories := make([]id.Signatory, subnetSize)
+				for i, index := range subnetIndices {
+					signatories[i] = nodes[index].signatory
+
+					// Insert some data that the subnet knows about.
+					nodes[index].dht.InsertContent(hash, dataType, data)
+				}
+
+				// Insert the subnet into the DHTs of the nodes that will be
+				// syncing the data.
+				var subnet id.Hash
+				syncerIndices := rand.Perm(int(numSyncers))
+				for _, index := range syncerIndices {
+					subnet = nodes[index].dht.AddSubnet(signatories)
+				}
+
+				// Sync data from the subnet and ensure it is the same.
+				innerCtx, innerCancel := context.WithTimeout(ctx, 100*time.Millisecond)
+				defer innerCancel()
+
+				wg := new(sync.WaitGroup)
+				for _, index := range syncerIndices {
+					wg.Add(1)
+					go func(i int) {
+						defer GinkgoRecover()
+						defer wg.Done()
+
+						newData, err := nodes[i].gossiper.Sync(innerCtx, subnet, hash, dataType)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(newData).To(Equal(data))
+					}(index)
+				}
+				wg.Wait()
+
+				return true
+			}
+			Expect(quick.Check(f, &quick.Config{MaxCount: 5})).To(Succeed())
 		})
 	})
 })
