@@ -237,7 +237,7 @@ var _ = Describe("Gossip", func() {
 				}
 
 				// Sync data from the default subnet and ensure it is the same.
-				innerCtx, innerCancel := context.WithTimeout(ctx, 100*time.Millisecond)
+				innerCtx, innerCancel := context.WithTimeout(ctx, time.Second)
 				defer innerCancel()
 
 				newData, err := nodes[syncIndex].gossiper.Sync(innerCtx, gossip.DefaultSubnet, hash, dataType)
