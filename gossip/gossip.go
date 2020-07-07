@@ -157,7 +157,7 @@ func (g *Gossiper) Sync(ctx context.Context, subnet, hash id.Hash, dataType uint
 			// Equality of channels is ok, according to the Go specification.
 			if ch == responder {
 				// https://github.com/golang/go/wiki/SliceTricks#delete-without-preserving-order
-				end := len(g.syncResponders[hash])-1
+				end := len(g.syncResponders[hash]) - 1
 				g.syncResponders[hash][i] = g.syncResponders[hash][end]
 				g.syncResponders[hash] = g.syncResponders[hash][:end]
 				break
@@ -167,7 +167,7 @@ func (g *Gossiper) Sync(ctx context.Context, subnet, hash id.Hash, dataType uint
 			delete(g.syncResponders, hash)
 		}
 	}()
-	
+
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -316,9 +316,6 @@ func (g *Gossiper) DidReceivePullAck(version wire.Version, data []byte, from id.
 				// The reader is no longer waiting for the response.
 			}
 		}
-
-		// Clean up the map.
-		delete(g.syncResponders, pullAckV1.ContentHash)
 	}
 
 	// Only copy the content into the DHT if we do not have this content at the
