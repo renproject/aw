@@ -3,7 +3,6 @@ package dht_test
 import (
 	"crypto/sha256"
 	"math/rand"
-	"sort"
 	"testing/quick"
 	"time"
 
@@ -163,7 +162,7 @@ var _ = Describe("DHT", func() {
 
 				sortedAddrs := make([]wire.Address, len(newAddrs))
 				copy(sortedAddrs, newAddrs)
-				sortAddrs(identity, sortedAddrs)
+				dhtutil.SortAddrs(identity, sortedAddrs)
 				Expect(newAddrs).To(Equal(sortedAddrs))
 			})
 
@@ -369,7 +368,7 @@ var _ = Describe("DHT", func() {
 
 				// Sort the original slice by XOR distance from our address and
 				// verify it is equal to the result.
-				sortSignatories(identity, signatories)
+				dhtutil.SortSignatories(identity, signatories)
 				Expect(newSignatories).To(Equal(signatories))
 			})
 		})
@@ -415,42 +414,4 @@ func initDHT() (dht.DHT, id.Signatory) {
 	identity := id.NewSignatory(&privKey.PublicKey)
 	resolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
 	return dht.New(identity, resolver), identity
-}
-
-func sortAddrs(identity id.Signatory, addrs []wire.Address) {
-	sort.Slice(addrs, func(i, j int) bool {
-		fstSignatory, err := addrs[i].Signatory()
-		Expect(err).ToNot(HaveOccurred())
-
-		sndSignatory, err := addrs[j].Signatory()
-		Expect(err).ToNot(HaveOccurred())
-
-		for b := 0; b < 32; b++ {
-			d1 := identity[b] ^ fstSignatory[b]
-			d2 := identity[b] ^ sndSignatory[b]
-			if d1 < d2 {
-				return true
-			}
-			if d2 < d1 {
-				return false
-			}
-		}
-		return false
-	})
-}
-
-func sortSignatories(identity id.Signatory, signatories []id.Signatory) {
-	sort.Slice(signatories, func(i, j int) bool {
-		for b := 0; b < 32; b++ {
-			d1 := identity[b] ^ signatories[i][b]
-			d2 := identity[b] ^ signatories[j][b]
-			if d1 < d2 {
-				return true
-			}
-			if d2 < d1 {
-				return false
-			}
-		}
-		return false
-	})
 }
