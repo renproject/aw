@@ -153,7 +153,7 @@ func (peer *Peer) Ping(ctx context.Context) {
 	}
 }
 
-func (peer *Peer) DidReceivePing(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
+func (peer *Peer) DidReceivePing(version wire.Version, data []byte, from id.Signatory) (wire.Message, error) {
 	if version != wire.V1 {
 		return wire.Message{}, fmt.Errorf("unsupported version=%v", version)
 	}
@@ -194,7 +194,7 @@ func (peer *Peer) DidReceivePing(version uint8, data []byte, from id.Signatory) 
 	return pingAck, nil
 }
 
-func (peer *Peer) DidReceivePingAck(version uint8, data []byte, from id.Signatory) error {
+func (peer *Peer) DidReceivePingAck(version wire.Version, data []byte, from id.Signatory) error {
 	if version != wire.V1 {
 		return fmt.Errorf("unsupported version=%v", version)
 	}

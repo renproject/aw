@@ -12,12 +12,12 @@ type ContentResolver interface {
 	// Insert content with the given hash and type.
 	Insert(id.Hash, uint8, []byte)
 
-	// Delete content with the given hash.
-	Delete(id.Hash)
+	// Delete content with the given hash and type.
+	Delete(id.Hash, uint8)
 
 	// Content returns the content associated with a hash. If there is no
 	// associated content, it returns false. Otherwise, it returns true.
-	Content(id.Hash) ([]byte, bool)
+	Content(id.Hash, uint8, bool) ([]byte, bool)
 }
 
 var (
@@ -114,7 +114,7 @@ func (r *DoubleCacheContentResolver) Insert(hash id.Hash, contentType uint8, con
 
 // Delete content from the double-cache content resolver. This method will also
 // delete the content from the next content resolver (if one exists).
-func (r *DoubleCacheContentResolver) Delete(hash id.Hash) {
+func (r *DoubleCacheContentResolver) Delete(hash id.Hash, contentType uint8) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 
@@ -127,14 +127,14 @@ func (r *DoubleCacheContentResolver) Delete(hash id.Hash) {
 	delete(r.cacheBack, hash)
 
 	if r.next != nil {
-		r.next.Delete(hash)
+		r.next.Delete(hash, contentType)
 	}
 }
 
 // Content returns the content associated with the given hash. If the content is
 // not found in the double-cache content resolver, the next content resolver
 // will be checked (if one exists).
-func (r *DoubleCacheContentResolver) Content(hash id.Hash) ([]byte, bool) {
+func (r *DoubleCacheContentResolver) Content(hash id.Hash, contentType uint8, syncRequired bool) ([]byte, bool) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 
@@ -148,7 +148,7 @@ func (r *DoubleCacheContentResolver) Content(hash id.Hash) ([]byte, bool) {
 
 	// If the content has not been found, check the next resolver.
 	if r.next != nil {
-		return r.next.Content(hash)
+		return r.next.Content(hash, contentType, syncRequired)
 	}
 	return nil, false
 }
@@ -158,8 +158,8 @@ func (r *DoubleCacheContentResolver) Content(hash id.Hash) ([]byte, bool) {
 // implementation inline.
 type CallbackContentResolver struct {
 	InsertCallback  func(id.Hash, uint8, []byte)
-	DeleteCallback  func(id.Hash)
-	ContentCallback func(id.Hash) ([]byte, bool)
+	DeleteCallback  func(id.Hash, uint8)
+	ContentCallback func(id.Hash, uint8, bool) ([]byte, bool)
 }
 
 // Insert will delegate the implementation to the InsertCallback. If the
@@ -172,17 +172,17 @@ func (r CallbackContentResolver) Insert(hash id.Hash, contentType uint8, content
 
 // Delete will delegate the implementation to the DeleteCallback. If the
 // callback is nil, then this method will do nothing.
-func (r CallbackContentResolver) Delete(hash id.Hash) {
+func (r CallbackContentResolver) Delete(hash id.Hash, contentType uint8) {
 	if r.DeleteCallback != nil {
-		r.DeleteCallback(hash)
+		r.DeleteCallback(hash, contentType)
 	}
 }
 
 // Content will delegate the implementation to the ContentCallback. If the
 // callback is nil, then this method will return false.
-func (r CallbackContentResolver) Content(hash id.Hash) ([]byte, bool) {
+func (r CallbackContentResolver) Content(hash id.Hash, contentType uint8, syncRequired bool) ([]byte, bool) {
 	if r.ContentCallback != nil {
-		return r.ContentCallback(hash)
+		return r.ContentCallback(hash, contentType, syncRequired)
 	}
 	return nil, false
 }

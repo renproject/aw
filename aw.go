@@ -87,7 +87,7 @@ func (builder *Builder) Build() *Node {
 	handshaker := handshake.NewECDSA(builder.handshaker)
 	trans := transport.New(builder.trans, handshaker)
 	peer := peer.New(builder.peer, builder.dht, trans, builder.handshaker.PrivKey)
-	gossiper := gossip.New(builder.gossiper, builder.dht, trans)
+	gossiper := gossip.New(builder.gossiper, peer.Identity(), builder.dht, trans)
 	return &Node{
 		opts:     builder.opts,
 		dht:      builder.dht,
@@ -129,13 +129,13 @@ func (node *Node) Run(ctx context.Context) {
 func (node *Node) Send(ctx context.Context, signatory id.Signatory, dataType uint8, data []byte) {
 	hash := sha256.Sum256(data)
 	node.dht.InsertContent(hash, dataType, data)
-	node.gossiper.Gossip(id.Hash(signatory), hash)
+	node.gossiper.Gossip(id.Hash(signatory), hash, dataType)
 }
 
 func (node *Node) Broadcast(ctx context.Context, subnet id.Hash, dataType uint8, data []byte) {
 	hash := sha256.Sum256(data)
 	node.dht.InsertContent(hash, dataType, data)
-	node.gossiper.Gossip(subnet, hash)
+	node.gossiper.Gossip(subnet, hash, dataType)
 }
 
 func (node *Node) DHT() dht.DHT {

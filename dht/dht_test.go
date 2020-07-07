@@ -1,10 +1,8 @@
 package dht_test
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"math/rand"
-	"sort"
 	"testing/quick"
 	"time"
 
@@ -13,7 +11,6 @@ import (
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/aw/wire/wireutil"
 	"github.com/renproject/id"
-	"github.com/renproject/surge"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -23,7 +20,7 @@ var _ = Describe("DHT", func() {
 	Describe("Addresses", func() {
 		Context("when inserting an address", func() {
 			It("should be able to query it", func() {
-				table := initDHT()
+				table, _ := initDHT()
 
 				f := func(seed int64) bool {
 					privKey := id.NewPrivKey()
@@ -46,7 +43,7 @@ var _ = Describe("DHT", func() {
 
 			Context("if the address is new", func() {
 				It("should return true", func() {
-					table := initDHT()
+					table, _ := initDHT()
 
 					f := func(seed int64) bool {
 						addr := wireutil.NewAddressBuilder(
@@ -62,7 +59,7 @@ var _ = Describe("DHT", func() {
 
 			Context("if the address already exists", func() {
 				It("should return false", func() {
-					table := initDHT()
+					table, _ := initDHT()
 
 					f := func(seed int64) bool {
 						addr := wireutil.NewAddressBuilder(
@@ -81,7 +78,7 @@ var _ = Describe("DHT", func() {
 
 			Context("if the address is old", func() {
 				It("should return false", func() {
-					table := initDHT()
+					table, _ := initDHT()
 
 					f := func(seed int64) bool {
 						privKey := id.NewPrivKey()
@@ -108,7 +105,7 @@ var _ = Describe("DHT", func() {
 
 		Context("when deleting an address", func() {
 			It("should not be able to query it", func() {
-				table := initDHT()
+				table, _ := initDHT()
 
 				f := func(seed int64) bool {
 					privKey := id.NewPrivKey()
@@ -137,12 +134,13 @@ var _ = Describe("DHT", func() {
 			})
 		})
 
-		Context("when querying random addresses", func() {
-			It("should eventually return all addresses", func() {
-				table := initDHT()
+		Context("when querying addresses", func() {
+			It("should return them in order of their XOR distance", func() {
+				table, identity := initDHT()
 				numAddrs := rand.Intn(990) + 10 // [10, 1000)
 
 				// Insert `numAddrs` random addresses into the store.
+				addrs := make([]wire.Address, numAddrs)
 				for i := 0; i < numAddrs; i++ {
 					privKey := id.NewPrivKey()
 					addr := wireutil.NewAddressBuilder(
@@ -152,24 +150,34 @@ var _ = Describe("DHT", func() {
 
 					ok := table.InsertAddr(addr)
 					Expect(ok).To(BeTrue())
+
+					addrs = append(addrs, addr)
 				}
 
-				// When querying random addresses, eventually we should come
-				// across every address.
-				addrsMap := make(map[wire.Address]bool, numAddrs)
-				for len(addrsMap) < numAddrs {
-					addrs := table.Addrs(10)
-					Expect(len(addrs)).To(Equal(10))
+				// Check addresses are returned in order of their XOR distance
+				// from our own address.
+				numQueriedAddrs := rand.Intn(numAddrs)
+				queriedAddrs := table.Addrs(numQueriedAddrs)
+				Expect(len(queriedAddrs)).To(Equal(numQueriedAddrs))
+				Expect(dhtutil.IsSorted(identity, queriedAddrs)).To(BeTrue())
 
-					for _, addr := range addrs {
-						addrsMap[addr] = true
-					}
+				// Delete some addresses and make sure the list is still sorted.
+				numDeletedAddrs := rand.Intn(numAddrs)
+				for i := 0; i < numDeletedAddrs; i++ {
+					signatory, err := addrs[i].Signatory()
+					Expect(err).ToNot(HaveOccurred())
+
+					table.DeleteAddr(signatory)
 				}
+
+				queriedAddrs = table.Addrs(numAddrs - numDeletedAddrs)
+				Expect(len(queriedAddrs)).To(Equal(numAddrs - numDeletedAddrs))
+				Expect(dhtutil.IsSorted(identity, queriedAddrs)).To(BeTrue())
 			})
 
 			Context("if there are less than n addresses in the store", func() {
 				It("should return all the addresses", func() {
-					table := initDHT()
+					table, _ := initDHT()
 					numAddrs := rand.Intn(100)
 
 					// Insert `numAddrs` random addresses into the store.
@@ -191,7 +199,7 @@ var _ = Describe("DHT", func() {
 
 			Context("if there are no addresses in the store", func() {
 				It("should return no addresses", func() {
-					table := initDHT()
+					table, _ := initDHT()
 
 					addrs := table.Addrs(100)
 					Expect(len(addrs)).To(Equal(0))
@@ -204,7 +212,7 @@ var _ = Describe("DHT", func() {
 
 		Context("when querying the number of addresses", func() {
 			It("should return the correct amount", func() {
-				table := initDHT()
+				table, _ := initDHT()
 				numAddrs := rand.Intn(100)
 
 				// Insert `numAddrs` random addresses into the store.
@@ -243,13 +251,14 @@ var _ = Describe("DHT", func() {
 
 				privKey := id.NewPrivKey()
 				identity := id.NewSignatory(&privKey.PublicKey)
-				resolver := dhtutil.NewMockResolver(insertCh, deleteCh, contentCh)
+				resolver := dhtutil.NewChannelResolver(insertCh, deleteCh, contentCh)
 				table := dht.New(identity, resolver)
 
 				// Insert and wait on the channel to make sure the inner
 				// resolver received the message.
 				hash := id.Hash(sha256.Sum256(dhtutil.RandomContent()))
-				go table.InsertContent(hash, 0, nil)
+				contentType := uint8(0)
+				go table.InsertContent(hash, contentType, nil)
 
 				newHash := <-insertCh
 				Expect(newHash).To(Equal(hash))
@@ -257,7 +266,7 @@ var _ = Describe("DHT", func() {
 				// Delete and wait on the channel to make sure the inner
 				// resolver received the message.
 				hash = id.Hash(sha256.Sum256(dhtutil.RandomContent()))
-				go table.DeleteContent(hash)
+				go table.DeleteContent(hash, contentType)
 
 				newHash = <-deleteCh
 				Expect(newHash).To(Equal(hash))
@@ -265,7 +274,7 @@ var _ = Describe("DHT", func() {
 				// Get and wait on the channel to make sure the inner resolver
 				// received the message.
 				hash = id.Hash(sha256.Sum256(dhtutil.RandomContent()))
-				go table.Content(hash)
+				go table.Content(hash, contentType)
 
 				newHash = <-contentCh
 				Expect(newHash).To(Equal(hash))
@@ -286,11 +295,11 @@ var _ = Describe("DHT", func() {
 		Context("when checking if the DHT has content with a given hash", func() {
 			Context("if the content exists", func() {
 				It("should return true", func() {
-					table := initDHT()
+					table, _ := initDHT()
 
 					f := func(hash id.Hash, contentType uint8, content []byte) bool {
 						table.InsertContent(hash, contentType, content)
-						return table.HasContent(hash)
+						return table.HasContent(hash, contentType)
 					}
 					Expect(quick.Check(f, nil)).To(Succeed())
 				})
@@ -298,10 +307,10 @@ var _ = Describe("DHT", func() {
 
 			Context("if the content does not exist", func() {
 				It("should return false", func() {
-					table := initDHT()
+					table, _ := initDHT()
 
-					f := func(hash id.Hash) bool {
-						return !table.HasContent(hash)
+					f := func(hash id.Hash, contentType uint8) bool {
+						return !table.HasContent(hash, contentType)
 					}
 					Expect(quick.Check(f, nil)).To(Succeed())
 				})
@@ -311,11 +320,11 @@ var _ = Describe("DHT", func() {
 		Context("when checking if the DHT has empty content with a given hash", func() {
 			Context("if the content exists and is empty", func() {
 				It("should return true", func() {
-					table := initDHT()
+					table, _ := initDHT()
 
 					f := func(hash id.Hash, contentType uint8) bool {
 						table.InsertContent(hash, contentType, nil)
-						return table.HasEmptyContent(hash)
+						return table.HasEmptyContent(hash, contentType)
 					}
 					Expect(quick.Check(f, nil)).To(Succeed())
 				})
@@ -323,7 +332,7 @@ var _ = Describe("DHT", func() {
 
 			Context("if the content exists and is not empty", func() {
 				It("should return false", func() {
-					table := initDHT()
+					table, _ := initDHT()
 
 					f := func(hash id.Hash, contentType uint8, content []byte) bool {
 						// If the random content is empty, return true.
@@ -331,7 +340,7 @@ var _ = Describe("DHT", func() {
 							return true
 						}
 						table.InsertContent(hash, contentType, content)
-						return !table.HasEmptyContent(hash)
+						return !table.HasEmptyContent(hash, contentType)
 					}
 					Expect(quick.Check(f, nil)).To(Succeed())
 				})
@@ -339,10 +348,10 @@ var _ = Describe("DHT", func() {
 
 			Context("if the content does not exist", func() {
 				It("should return false", func() {
-					table := initDHT()
+					table, _ := initDHT()
 
-					f := func(hash id.Hash) bool {
-						return !table.HasEmptyContent(hash)
+					f := func(hash id.Hash, contentType uint8) bool {
+						return !table.HasEmptyContent(hash, contentType)
 					}
 					Expect(quick.Check(f, nil)).To(Succeed())
 				})
@@ -353,7 +362,7 @@ var _ = Describe("DHT", func() {
 	Describe("Subnets", func() {
 		Context("when adding a subnet", func() {
 			It("should be able to query it", func() {
-				table := initDHT()
+				table, identity := initDHT()
 
 				// Generate a random number of signatories.
 				numSignatories := rand.Intn(100)
@@ -366,16 +375,16 @@ var _ = Describe("DHT", func() {
 				hash := table.AddSubnet(signatories)
 				newSignatories := table.Subnet(hash)
 
-				// Sort slices and verify they are equal.
-				sortSignatories(signatories)
-				sortSignatories(newSignatories)
+				// Sort the original slice by XOR distance from our address and
+				// verify it is equal to the result.
+				dhtutil.SortSignatories(identity, signatories)
 				Expect(newSignatories).To(Equal(signatories))
 			})
 		})
 
 		Context("when deleting a subnet", func() {
 			It("should not be able to query it", func() {
-				table := initDHT()
+				table, _ := initDHT()
 
 				// Generate a random number of signatories.
 				numSignatories := rand.Intn(100)
@@ -395,7 +404,7 @@ var _ = Describe("DHT", func() {
 
 		Context("when querying a subnet that does not exist", func() {
 			It("should return an empty list", func() {
-				table := initDHT()
+				table, _ := initDHT()
 
 				data := make([]byte, 32)
 				_, err := rand.Read(data[:])
@@ -409,21 +418,9 @@ var _ = Describe("DHT", func() {
 	})
 })
 
-func initDHT() dht.DHT {
+func initDHT() (dht.DHT, id.Signatory) {
 	privKey := id.NewPrivKey()
 	identity := id.NewSignatory(&privKey.PublicKey)
 	resolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
-	return dht.New(identity, resolver)
-}
-
-func sortSignatories(signatories []id.Signatory) {
-	sort.Slice(signatories, func(i, j int) bool {
-		fst, err := surge.ToBinary(signatories[i])
-		Expect(err).ToNot(HaveOccurred())
-
-		snd, err := surge.ToBinary(signatories[j])
-		Expect(err).ToNot(HaveOccurred())
-
-		return bytes.Compare(fst, snd) < 0
-	})
+	return dht.New(identity, resolver), identity
 }

@@ -14,8 +14,8 @@ import (
 // ------
 
 type MessageBuilder struct {
-	version uint8
-	ty      uint8
+	version wire.Version
+	ty      wire.Type
 	data    []byte
 	r       *rand.Rand
 }
@@ -29,12 +29,12 @@ func NewMessageBuilder(r *rand.Rand) *MessageBuilder {
 	}
 }
 
-func (builder *MessageBuilder) WithVersion(version uint8) *MessageBuilder {
+func (builder *MessageBuilder) WithVersion(version wire.Version) *MessageBuilder {
 	builder.version = version
 	return builder
 }
 
-func (builder *MessageBuilder) WithType(ty uint8) *MessageBuilder {
+func (builder *MessageBuilder) WithType(ty wire.Type) *MessageBuilder {
 	builder.ty = ty
 	return builder
 }
@@ -62,7 +62,7 @@ func (builder *MessageBuilder) Build() wire.Message {
 //
 // ------
 
-func RandomMessageVersion(r *rand.Rand) uint8 {
+func RandomMessageVersion(r *rand.Rand) wire.Version {
 	switch r.Int() % 2 {
 	case 0:
 		return RandomOkMessageVersion(r)
@@ -71,7 +71,7 @@ func RandomMessageVersion(r *rand.Rand) uint8 {
 	}
 }
 
-func RandomMessageType(r *rand.Rand) uint8 {
+func RandomMessageType(r *rand.Rand) wire.Type {
 	switch r.Int() % 2 {
 	case 0:
 		return RandomOkMessageType(r)
@@ -95,11 +95,11 @@ func RandomMessageData(r *rand.Rand) []byte {
 //
 // ------
 
-func RandomOkMessageVersion(r *rand.Rand) uint8 {
+func RandomOkMessageVersion(r *rand.Rand) wire.Version {
 	return wire.V1
 }
 
-func RandomOkMessageType(r *rand.Rand) uint8 {
+func RandomOkMessageType(r *rand.Rand) wire.Type {
 	switch r.Int() % 6 {
 	case 0:
 		return wire.Ping
@@ -135,9 +135,9 @@ func RandomOkMessageData(r *rand.Rand) []byte {
 //
 // ------
 
-func RandomBadMessageVersion(r *rand.Rand) uint8 {
+func RandomBadMessageVersion(r *rand.Rand) wire.Version {
 	for {
-		version := uint8(r.Int())
+		version := wire.Version(r.Int())
 		switch version {
 		case wire.V1:
 			continue
@@ -147,9 +147,9 @@ func RandomBadMessageVersion(r *rand.Rand) uint8 {
 	}
 }
 
-func RandomBadMessageType(r *rand.Rand) uint8 {
+func RandomBadMessageType(r *rand.Rand) wire.Type {
 	for {
-		ty := uint8(r.Int())
+		ty := wire.Type(r.Int())
 		switch ty {
 		case wire.Ping, wire.PingAck, wire.Push, wire.PushAck, wire.Pull, wire.PullAck:
 			continue

@@ -131,7 +131,7 @@ func (trans *Transport) ListenForPulls(listener wire.PullListener) {
 
 // DidReceivePing is a callback that is invoked when a ping is received by the
 // transport.
-func (trans *Transport) DidReceivePing(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
+func (trans *Transport) DidReceivePing(version wire.Version, data []byte, from id.Signatory) (wire.Message, error) {
 	for _, listener := range trans.pingListeners {
 		// TODO: We need (a) aggregate multiple response into a single response,
 		// (b) make the request/response cycle asynchronous and explicitly
@@ -148,7 +148,7 @@ func (trans *Transport) DidReceivePing(version uint8, data []byte, from id.Signa
 
 // DidReceivePingAck is a callback that is invoked when a ping acknowledgement
 // is received by the transport.
-func (trans *Transport) DidReceivePingAck(version uint8, data []byte, from id.Signatory) error {
+func (trans *Transport) DidReceivePingAck(version wire.Version, data []byte, from id.Signatory) error {
 	for _, listener := range trans.pingListeners {
 		// TODO: We need (a) aggregate multiple response into a single response,
 		// (b) make the request/response cycle asynchronous and explicitly
@@ -162,7 +162,7 @@ func (trans *Transport) DidReceivePingAck(version uint8, data []byte, from id.Si
 
 // DidReceivePush is a callback that is invoked when a push is received by the
 // transport.
-func (trans *Transport) DidReceivePush(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
+func (trans *Transport) DidReceivePush(version wire.Version, data []byte, from id.Signatory) (wire.Message, error) {
 	for _, listener := range trans.pushListeners {
 		// TODO: We need (a) aggregate multiple response into a single response,
 		// (b) make the request/response cycle asynchronous and explicitly
@@ -179,7 +179,7 @@ func (trans *Transport) DidReceivePush(version uint8, data []byte, from id.Signa
 
 // DidReceivePushAck is a callback that is invoked when a push acknowledgement
 // is received by the transport.
-func (trans *Transport) DidReceivePushAck(version uint8, data []byte, from id.Signatory) error {
+func (trans *Transport) DidReceivePushAck(version wire.Version, data []byte, from id.Signatory) error {
 	for _, listener := range trans.pushListeners {
 		// TODO: We need (a) aggregate multiple response into a single response,
 		// (b) make the request/response cycle asynchronous and explicitly
@@ -193,7 +193,7 @@ func (trans *Transport) DidReceivePushAck(version uint8, data []byte, from id.Si
 
 // DidReceivePull is a callback that is invoked when a pull is received by the
 // transport.
-func (trans *Transport) DidReceivePull(version uint8, data []byte, from id.Signatory) (wire.Message, error) {
+func (trans *Transport) DidReceivePull(version wire.Version, data []byte, from id.Signatory) (wire.Message, error) {
 	for _, listener := range trans.pullListeners {
 		// TODO: We need (a) aggregate multiple response into a single response,
 		// (b) make the request/response cycle asynchronous and explicitly
@@ -210,7 +210,7 @@ func (trans *Transport) DidReceivePull(version uint8, data []byte, from id.Signa
 
 // DidReceivePullAck is a callback that is invoked when a pull acknowledgement
 // is received by the transport.
-func (trans *Transport) DidReceivePullAck(version uint8, data []byte, from id.Signatory) error {
+func (trans *Transport) DidReceivePullAck(version wire.Version, data []byte, from id.Signatory) error {
 	for _, listener := range trans.pullListeners {
 		// TODO: We need (a) aggregate multiple response into a single response,
 		// (b) make the request/response cycle asynchronous and explicitly

@@ -60,12 +60,12 @@ func (handshaker *insecureHandshaker) AcceptHandshake(ctx context.Context, conn 
 	// Read remote client identity.
 	//
 
-	clienSignatory := id.Signatory{}
+	clientSignatory := id.Signatory{}
 	conn.SetReadDeadline(time.Now().Add(handshaker.opts.Timeout / 2))
-	if _, err := clienSignatory.Unmarshal(conn, surge.MaxBytes); err != nil {
+	if _, err := clientSignatory.Unmarshal(conn, surge.MaxBytes); err != nil {
 		return nil, fmt.Errorf("unmarshaling client identity: %v", err)
 	}
-	if handshaker.opts.Filter != nil && !handshaker.opts.Filter.Filter(clienSignatory) {
+	if handshaker.opts.Filter != nil && !handshaker.opts.Filter.Filter(clientSignatory) {
 		return nil, fmt.Errorf("filtering: bad server")
 	}
 
@@ -78,7 +78,7 @@ func (handshaker *insecureHandshaker) AcceptHandshake(ctx context.Context, conn 
 		return nil, fmt.Errorf("marshaling identity: %v", err)
 	}
 
-	return insecureSession{remoteSignatory: clienSignatory}, nil
+	return insecureSession{remoteSignatory: clientSignatory}, nil
 }
 
 type insecureSession struct {

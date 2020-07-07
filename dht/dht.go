@@ -37,19 +37,19 @@ type DHT interface {
 	// check whether or not you are able to override existing content.
 	InsertContent(id.Hash, uint8, []byte)
 	// DeleteContent from the DHT.
-	DeleteContent(id.Hash)
+	DeleteContent(id.Hash, uint8)
 	// Content returns the content associated with a hash. If there is no
 	// associated content, it returns false. Otherwise, it returns true.
-	Content(id.Hash) ([]byte, bool)
+	Content(id.Hash, uint8) ([]byte, bool)
 	// HasContent returns true when there is content associated with the given
 	// hash. Otherwise, it returns false. This is more efficiently for checking
 	// existence than the Content method, because no bytes are copied.
-	HasContent(id.Hash) bool
+	HasContent(id.Hash, uint8) bool
 	// HasContent returns true when there empty/nil content associated with the
 	// given hash. Otherwise, it returns false. This is more efficiently for
 	// checking existence than the Content method, because no bytes are copied.
 	// Note: not having content is different from having empty/nil content.
-	HasEmptyContent(id.Hash) bool
+	HasEmptyContent(id.Hash, uint8) bool
 
 	// AddSubnet to the DHT. Returns the merkle root hash of the subnet.
 	AddSubnet([]id.Signatory) id.Hash
@@ -64,6 +64,9 @@ type DHT interface {
 type distributedHashTable struct {
 	identity        id.Signatory
 	contentResolver ContentResolver
+
+	addrsSortedMu *sync.Mutex
+	addrsSorted   []wire.Address
 
 	addrsBySignatoryMu *sync.Mutex
 	addrsBySignatory   map[id.Signatory]wire.Address
@@ -89,6 +92,9 @@ func New(identity id.Signatory, contentResolver ContentResolver) DHT {
 		identity:        identity,
 		contentResolver: contentResolver,
 
+		addrsSortedMu: new(sync.Mutex),
+		addrsSorted:   []wire.Address{},
+
 		addrsBySignatoryMu: new(sync.Mutex),
 		addrsBySignatory:   map[id.Signatory]wire.Address{},
 
@@ -101,11 +107,19 @@ func New(identity id.Signatory, contentResolver ContentResolver) DHT {
 // returns false.
 func (dht *distributedHashTable) InsertAddr(addr wire.Address) bool {
 	dht.addrsBySignatoryMu.Lock()
+	dht.addrsSortedMu.Lock()
+
 	defer dht.addrsBySignatoryMu.Unlock()
+	defer dht.addrsSortedMu.Unlock()
 
 	signatory, err := addr.Signatory()
 	if err != nil {
 		// If there is an error fetching the signatory, return false.
+		return false
+	}
+
+	if signatory.Equal(&dht.identity) {
+		// Do not insert our own address into the DHT.
 		return false
 	}
 
@@ -124,16 +138,58 @@ func (dht *distributedHashTable) InsertAddr(addr wire.Address) bool {
 		}
 	}
 
+	// Insert into the map to allow for address lookup using the signatory.
 	dht.addrsBySignatory[signatory] = addr
+
+	// Insert into the sorted address list based on its XOR distance from our
+	// own address.
+	i := sort.Search(len(dht.addrsSorted), func(i int) bool {
+		currentSig, err := dht.addrsSorted[i].Signatory()
+		if err != nil {
+			return false
+		}
+
+		return dht.isCloser(signatory, currentSig)
+	})
+	dht.addrsSorted = append(dht.addrsSorted, wire.Address{})
+	copy(dht.addrsSorted[i+1:], dht.addrsSorted[i:])
+	dht.addrsSorted[i] = addr
+
 	return true
 }
 
 // DeleteAddr from the DHT.
 func (dht *distributedHashTable) DeleteAddr(signatory id.Signatory) {
 	dht.addrsBySignatoryMu.Lock()
-	defer dht.addrsBySignatoryMu.Unlock()
+	dht.addrsSortedMu.Lock()
 
+	defer dht.addrsBySignatoryMu.Unlock()
+	defer dht.addrsSortedMu.Unlock()
+
+	// Delete from the map.
 	delete(dht.addrsBySignatory, signatory)
+
+	// Delete from the sorted list.
+	i := sort.Search(len(dht.addrsSorted), func(i int) bool {
+		currentSig, err := dht.addrsSorted[i].Signatory()
+		if err != nil {
+			return false
+		}
+
+		return dht.isCloser(signatory, currentSig)
+	})
+	if i < len(dht.addrsSorted) {
+		expectedSig, err := dht.addrsSorted[i].Signatory()
+		if err != nil {
+			// This should not be possible as only addresses with valid
+			// signatories are inserted into the DHT.
+			return
+		}
+
+		if expectedSig.Equal(&signatory) {
+			dht.addrsSorted = append(dht.addrsSorted[:i], dht.addrsSorted[i+1:]...)
+		}
+	}
 }
 
 // Addr returns the address associated with a signatory. If there is no
@@ -146,8 +202,9 @@ func (dht *distributedHashTable) Addr(signatory id.Signatory) (wire.Address, boo
 	return addr, ok
 }
 
-// Addrs returns a random subset of addresses in the store. The input argument
-// can be used to specify the maximum number of addresses returned.
+// Addrs returns a subset of addresses in the store ordered by their XOR
+// distance from our own address. The input argument can be used to specify the
+// maximum number of addresses returned.
 func (dht *distributedHashTable) Addrs(n int) []wire.Address {
 	dht.addrsBySignatoryMu.Lock()
 	defer dht.addrsBySignatoryMu.Unlock()
@@ -160,12 +217,13 @@ func (dht *distributedHashTable) Addrs(n int) []wire.Address {
 	}
 
 	addrs := make([]wire.Address, 0, n)
-	for _, addr := range dht.addrsBySignatory {
+	for _, addr := range dht.addrsSorted {
 		addrs = append(addrs, addr) // This is safe, because addresses are cloned by default.
 		if n--; n == 0 {
 			break
 		}
 	}
+
 	return addrs
 }
 
@@ -184,21 +242,21 @@ func (dht *distributedHashTable) InsertContent(hash id.Hash, contentType uint8, 
 }
 
 // DeleteContent from the DHT.
-func (dht *distributedHashTable) DeleteContent(hash id.Hash) {
-	dht.contentResolver.Delete(hash)
+func (dht *distributedHashTable) DeleteContent(hash id.Hash, contentType uint8) {
+	dht.contentResolver.Delete(hash, contentType)
 }
 
 // Content returns the content associated with a hash. If there is no
 // associated content, it returns false. Otherwise, it returns true.
-func (dht *distributedHashTable) Content(hash id.Hash) ([]byte, bool) {
-	return dht.contentResolver.Content(hash)
+func (dht *distributedHashTable) Content(hash id.Hash, contentType uint8) ([]byte, bool) {
+	return dht.contentResolver.Content(hash, contentType, true)
 }
 
 // HasContent returns true when there is content associated with the given hash.
 // Otherwise, it returns false. This is more efficient for checking existence
 // than the Content method, because no bytes are copied.
-func (dht *distributedHashTable) HasContent(hash id.Hash) bool {
-	_, ok := dht.contentResolver.Content(hash)
+func (dht *distributedHashTable) HasContent(hash id.Hash, contentType uint8) bool {
+	_, ok := dht.contentResolver.Content(hash, contentType, false)
 	return ok
 }
 
@@ -206,28 +264,21 @@ func (dht *distributedHashTable) HasContent(hash id.Hash) bool {
 // given hash. Otherwise, it returns false. This is more efficiently for
 // checking existence than the Content method, because no bytes are copied.
 // Note: not having content is different from having empty/nil content.
-func (dht *distributedHashTable) HasEmptyContent(hash id.Hash) bool {
-	content, ok := dht.contentResolver.Content(hash)
+func (dht *distributedHashTable) HasEmptyContent(hash id.Hash, contentType uint8) bool {
+	content, ok := dht.contentResolver.Content(hash, contentType, false)
 	return ok && len(content) == 0
 }
 
 func (dht *distributedHashTable) AddSubnet(signatories []id.Signatory) id.Hash {
 	copied := make([]id.Signatory, len(signatories))
 	copy(copied, signatories)
+
+	// Sort signatories in order of their XOR distance from our own address.
 	sort.Slice(copied, func(i, j int) bool {
-		for b := 0; b < 32; b++ {
-			d1 := dht.identity[b] ^ copied[i][b]
-			d2 := dht.identity[b] ^ copied[j][b]
-			if d1 < d2 {
-				return true
-			}
-			if d2 < d1 {
-				return false
-			}
-		}
-		return false
+		return dht.isCloser(copied[i], copied[j])
 	})
-	hash := id.NewMerkleHashFromSignatories(copied)
+
+	hash := id.NewMerkleHashFromSignatories(signatories)
 
 	dht.subnetsByHashMu.Lock()
 	defer dht.subnetsByHashMu.Unlock()
@@ -254,4 +305,20 @@ func (dht *distributedHashTable) Subnet(hash id.Hash) []id.Signatory {
 	copied := make([]id.Signatory, len(subnet))
 	copy(copied, subnet)
 	return copied
+}
+
+// isCloser compares two signatory addresses to our address and returns true if
+// the first is closer in XOR distance than the second.
+func (dht *distributedHashTable) isCloser(fst, snd id.Signatory) bool {
+	for b := 0; b < 32; b++ {
+		d1 := dht.identity[b] ^ fst[b]
+		d2 := dht.identity[b] ^ snd[b]
+		if d1 < d2 {
+			return true
+		}
+		if d2 < d1 {
+			return false
+		}
+	}
+	return false
 }
