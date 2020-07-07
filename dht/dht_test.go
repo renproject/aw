@@ -32,7 +32,7 @@ var _ = Describe("DHT", func() {
 					ok := table.InsertAddr(addr)
 					Expect(ok).To(BeTrue())
 
-					signatory := id.NewSignatory(&privKey.PublicKey)
+					signatory := id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
 					newAddr, ok := table.Addr(signatory)
 					Expect(ok).To(BeTrue())
 					Expect(newAddr).To(Equal(addr))
@@ -116,7 +116,7 @@ var _ = Describe("DHT", func() {
 
 					// Try to delete the address prior to inserting to make sure
 					// it does not panic.
-					signatory := id.NewSignatory(&privKey.PublicKey)
+					signatory := id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
 					table.DeleteAddr(signatory)
 
 					// Insert the address.
@@ -238,7 +238,7 @@ var _ = Describe("DHT", func() {
 		Context("when initialising a DHT without a content resolver", func() {
 			It("should panic", func() {
 				privKey := id.NewPrivKey()
-				identity := id.NewSignatory(&privKey.PublicKey)
+				identity := id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
 				Expect(func() { dht.New(identity, nil) }).To(Panic())
 			})
 		})
@@ -250,7 +250,7 @@ var _ = Describe("DHT", func() {
 				contentCh := make(chan id.Hash)
 
 				privKey := id.NewPrivKey()
-				identity := id.NewSignatory(&privKey.PublicKey)
+				identity := id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
 				resolver := dhtutil.NewChannelResolver(insertCh, deleteCh, contentCh)
 				table := dht.New(identity, resolver)
 
@@ -369,7 +369,7 @@ var _ = Describe("DHT", func() {
 				signatories := make([]id.Signatory, numSignatories)
 				for i := 0; i < numSignatories; i++ {
 					privKey := id.NewPrivKey()
-					signatories[i] = id.NewSignatory(&privKey.PublicKey)
+					signatories[i] = id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
 				}
 
 				hash := table.AddSubnet(signatories)
@@ -391,7 +391,7 @@ var _ = Describe("DHT", func() {
 				signatories := make([]id.Signatory, numSignatories)
 				for i := 0; i < numSignatories; i++ {
 					privKey := id.NewPrivKey()
-					signatories[i] = id.NewSignatory(&privKey.PublicKey)
+					signatories[i] = id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
 				}
 
 				hash := table.AddSubnet(signatories)
@@ -420,7 +420,7 @@ var _ = Describe("DHT", func() {
 
 func initDHT() (dht.DHT, id.Signatory) {
 	privKey := id.NewPrivKey()
-	identity := id.NewSignatory(&privKey.PublicKey)
+	identity := id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
 	resolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
 	return dht.New(identity, resolver), identity
 }

@@ -22,7 +22,7 @@ var _ = Describe("Address", func() {
 				data, err := surge.ToBinary(addr)
 				Expect(err).ToNot(HaveOccurred())
 				unmarshaledAddr := wire.Address{}
-				err = surge.FromBinary(data, &unmarshaledAddr)
+				err = surge.FromBinary(&unmarshaledAddr, data)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(addr.Equal(&unmarshaledAddr)).To(BeTrue())
 				return true

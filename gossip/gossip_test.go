@@ -318,7 +318,7 @@ func initNodes(ctx context.Context, n uint, alpha int) []node {
 	nodes := make([]node, n)
 	for i := range nodes {
 		privKey := id.NewPrivKey()
-		signatory := id.NewSignatory(&privKey.PublicKey)
+		signatory := id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
 		host := "0.0.0.0"
 		port := uint16(3000 + rand.Int()%3000)
 

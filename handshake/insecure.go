@@ -31,8 +31,12 @@ func (handshaker *insecureHandshaker) Handshake(ctx context.Context, conn net.Co
 	//
 
 	conn.SetWriteDeadline(time.Now().Add(handshaker.opts.Timeout / 2))
-	if _, err := id.NewSignatory(&handshaker.opts.PrivKey.PublicKey).Marshal(conn, surge.MaxBytes); err != nil {
+	identityBytes, err := surge.ToBinary(id.NewSignatory((*id.PubKey)(&handshaker.opts.PrivKey.PublicKey)))
+	if err != nil {
 		return nil, fmt.Errorf("marshaling identity: %v", err)
+	}
+	if _, err := conn.Write(identityBytes); err != nil {
+		return nil, fmt.Errorf("writing identity: %v", err)
 	}
 
 	//
@@ -41,7 +45,10 @@ func (handshaker *insecureHandshaker) Handshake(ctx context.Context, conn net.Co
 
 	serverSignatory := id.Signatory{}
 	conn.SetReadDeadline(time.Now().Add(handshaker.opts.Timeout / 2))
-	if _, err := serverSignatory.Unmarshal(conn, surge.MaxBytes); err != nil {
+	if _, err := conn.Read(identityBytes); err != nil {
+		return nil, fmt.Errorf("reading server identity: %v", err)
+	}
+	if err := surge.FromBinary(&serverSignatory, identityBytes); err != nil {
 		return nil, fmt.Errorf("unmarshaling server identity: %v", err)
 	}
 	if handshaker.opts.Filter != nil && !handshaker.opts.Filter.Filter(serverSignatory) {
@@ -62,11 +69,15 @@ func (handshaker *insecureHandshaker) AcceptHandshake(ctx context.Context, conn 
 
 	clientSignatory := id.Signatory{}
 	conn.SetReadDeadline(time.Now().Add(handshaker.opts.Timeout / 2))
-	if _, err := clientSignatory.Unmarshal(conn, surge.MaxBytes); err != nil {
+	identityBytes := make([]byte, 32)
+	if _, err := conn.Read(identityBytes); err != nil {
+		return nil, fmt.Errorf("reading client identity: %v", err)
+	}
+	if err := surge.FromBinary(&clientSignatory, identityBytes); err != nil {
 		return nil, fmt.Errorf("unmarshaling client identity: %v", err)
 	}
 	if handshaker.opts.Filter != nil && !handshaker.opts.Filter.Filter(clientSignatory) {
-		return nil, fmt.Errorf("filtering: bad server")
+		return nil, fmt.Errorf("filtering: bad client")
 	}
 
 	//
@@ -74,8 +85,12 @@ func (handshaker *insecureHandshaker) AcceptHandshake(ctx context.Context, conn 
 	//
 
 	conn.SetWriteDeadline(time.Now().Add(handshaker.opts.Timeout / 2))
-	if _, err := id.NewSignatory(&handshaker.opts.PrivKey.PublicKey).Marshal(conn, surge.MaxBytes); err != nil {
+	identityBytes, err := surge.ToBinary(id.NewSignatory((*id.PubKey)(&handshaker.opts.PrivKey.PublicKey)))
+	if err != nil {
 		return nil, fmt.Errorf("marshaling identity: %v", err)
+	}
+	if _, err := conn.Write(identityBytes); err != nil {
+		return nil, fmt.Errorf("writing identity: %v", err)
 	}
 
 	return insecureSession{remoteSignatory: clientSignatory}, nil

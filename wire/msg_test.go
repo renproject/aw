@@ -22,7 +22,7 @@ var _ = Describe("Message", func() {
 				data, err := surge.ToBinary(msg)
 				Expect(err).ToNot(HaveOccurred())
 				unmarshaledMsg := wire.Message{}
-				err = surge.FromBinary(data, &unmarshaledMsg)
+				err = surge.FromBinary(&unmarshaledMsg, data)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(msg.Equal(&unmarshaledMsg)).To(BeTrue())
 				return true
