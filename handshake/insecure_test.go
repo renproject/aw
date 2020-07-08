@@ -113,13 +113,13 @@ var _ = Describe("Insecure handshake", func() {
 			// Client signatory
 			//
 			clientPrivKey := id.NewPrivKey()
-			clientSignatory := id.NewSignatory(&clientPrivKey.PublicKey)
+			clientSignatory := id.NewSignatory((*id.PubKey)(&clientPrivKey.PublicKey))
 
 			//
 			// Server signatory
 			//
 			serverPrivKey := id.NewPrivKey()
-			serverSignatory := id.NewSignatory(&serverPrivKey.PublicKey)
+			serverSignatory := id.NewSignatory((*id.PubKey)(&serverPrivKey.PublicKey))
 
 			//
 			// Server connection
@@ -175,13 +175,13 @@ var _ = Describe("Insecure handshake", func() {
 			// Client signatory
 			//
 			clientPrivKey := id.NewPrivKey()
-			clientSignatory := id.NewSignatory(&clientPrivKey.PublicKey)
+			clientSignatory := id.NewSignatory((*id.PubKey)(&clientPrivKey.PublicKey))
 
 			//
 			// Server signatory
 			//
 			serverPrivKey := id.NewPrivKey()
-			serverSignatory := id.NewSignatory(&serverPrivKey.PublicKey)
+			serverSignatory := id.NewSignatory((*id.PubKey)(&serverPrivKey.PublicKey))
 
 			//
 			// Server connection

@@ -186,7 +186,7 @@ func (g *Gossiper) DidReceivePush(version wire.Version, data []byte, from id.Sig
 	//
 
 	pushV1 := wire.PushV1{}
-	if err := surge.FromBinary(data, &pushV1); err != nil {
+	if err := surge.FromBinary(&pushV1, data); err != nil {
 		return wire.Message{}, fmt.Errorf("unmarshaling push: %v", err)
 	}
 
@@ -230,7 +230,7 @@ func (g *Gossiper) DidReceivePushAck(version wire.Version, data []byte, from id.
 	//
 
 	pushAckV1 := wire.PushAckV1{}
-	if err := surge.FromBinary(data, &pushAckV1); err != nil {
+	if err := surge.FromBinary(&pushAckV1, data); err != nil {
 		g.opts.Logger.Fatalf("unmarshaling push ack: %v", err)
 	}
 
@@ -251,7 +251,7 @@ func (g *Gossiper) DidReceivePull(version wire.Version, data []byte, from id.Sig
 	//
 
 	pullV1 := wire.PullV1{}
-	if err := surge.FromBinary(data, &pullV1); err != nil {
+	if err := surge.FromBinary(&pullV1, data); err != nil {
 		return wire.Message{}, fmt.Errorf("unmarshaling pull: %v", err)
 	}
 
@@ -295,7 +295,7 @@ func (g *Gossiper) DidReceivePullAck(version wire.Version, data []byte, from id.
 		return nil
 	}
 	pullAckV1 := wire.PullAckV1{}
-	if err := surge.FromBinary(data, &pullAckV1); err != nil {
+	if err := surge.FromBinary(&pullAckV1, data); err != nil {
 		return fmt.Errorf("unmarshaling pull ack: %v", err)
 	}
 

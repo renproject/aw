@@ -113,13 +113,13 @@ var _ = Describe("ECDSA handshake", func() {
 			// Client privkey and signatory
 			//
 			clientPrivKey := id.NewPrivKey()
-			clientSignatory := id.NewSignatory(&clientPrivKey.PublicKey)
+			clientSignatory := id.NewSignatory((*id.PubKey)(&clientPrivKey.PublicKey))
 
 			//
 			// Server privkey and signatory
 			//
 			serverPrivKey := id.NewPrivKey()
-			serverSignatory := id.NewSignatory(&serverPrivKey.PublicKey)
+			serverSignatory := id.NewSignatory((*id.PubKey)(&serverPrivKey.PublicKey))
 
 			//
 			// Server connection
@@ -183,13 +183,13 @@ var _ = Describe("ECDSA handshake", func() {
 			// Client privkey and signatory
 			//
 			clientPrivKey := id.NewPrivKey()
-			clientSignatory := id.NewSignatory(&clientPrivKey.PublicKey)
+			clientSignatory := id.NewSignatory((*id.PubKey)(&clientPrivKey.PublicKey))
 
 			//
 			// Server privkey and signatory
 			//
 			serverPrivKey := id.NewPrivKey()
-			serverSignatory := id.NewSignatory(&serverPrivKey.PublicKey)
+			serverSignatory := id.NewSignatory((*id.PubKey)(&serverPrivKey.PublicKey))
 
 			//
 			// Server connection
@@ -197,7 +197,7 @@ var _ = Describe("ECDSA handshake", func() {
 			port := uint16(3000 + rand.Int()%3000)
 			listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%v", port))
 			Expect(err).ToNot(HaveOccurred())
-			
+
 			go func() {
 				defer GinkgoRecover()
 				defer listener.Close()

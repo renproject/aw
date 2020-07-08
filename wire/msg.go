@@ -2,7 +2,6 @@ package wire
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 
 	"github.com/renproject/id"
@@ -69,46 +68,30 @@ func (msg Message) Equal(other *Message) bool {
 	return msg.Version == other.Version && msg.Type == other.Type && bytes.Equal(msg.Data, other.Data)
 }
 
-// SizeHint returns the number of bytes required to represent this Message in
-// binary.
-func (msg Message) SizeHint() int {
-	return surge.SizeHint(msg.Version) +
-		surge.SizeHint(msg.Type) +
-		surge.SizeHint(msg.Data)
-}
-
 // Marshal this Message into binary.
-func (msg Message) Marshal(w io.Writer, m int) (int, error) {
-	m, err := surge.Marshal(w, uint8(msg.Version), m)
-	if err != nil {
-		return m, fmt.Errorf("marshaling version: %v", err)
+func (msg Message) Marshal(buf []byte, rem int) ([]byte, int, error) {
+	var err error
+	if buf, rem, err = surge.MarshalU8(uint8(msg.Version), buf, rem); err != nil {
+		return buf, rem, err
 	}
-	m, err = surge.Marshal(w, uint8(msg.Type), m)
-	if err != nil {
-		return m, fmt.Errorf("marshaling variant: %v", err)
+	if buf, rem, err = surge.MarshalU8(uint8(msg.Type), buf, rem); err != nil {
+		return buf, rem, err
 	}
-	m, err = surge.Marshal(w, msg.Data, m)
-	if err != nil {
-		return m, fmt.Errorf("marshaling data: %v", err)
-	}
-	return m, nil
+	return surge.MarshalBytes(msg.Data, buf, rem)
 }
 
 // Unmarshal from binary into this Message.
-func (msg *Message) Unmarshal(r io.Reader, m int) (int, error) {
-	m, err := surge.Unmarshal(r, (*uint8)(&msg.Version), m)
+func (msg *Message) Unmarshal(buf []byte, rem int) ([]byte, int, error) {
+	var err error
+	buf, rem, err = surge.UnmarshalU8((*uint8)(&msg.Version), buf, rem)
 	if err != nil {
-		return m, fmt.Errorf("unmarshaling version: %v", err)
+		return buf, rem, err
 	}
-	m, err = surge.Unmarshal(r, (*uint8)(&msg.Type), m)
+	buf, rem, err = surge.UnmarshalU8((*uint8)(&msg.Type), buf, rem)
 	if err != nil {
-		return m, fmt.Errorf("unmarshaling variant: %v", err)
+		return buf, rem, err
 	}
-	m, err = surge.Unmarshal(r, &msg.Data, m)
-	if err != nil {
-		return m, fmt.Errorf("unmarshaling data: %v", err)
-	}
-	return m, nil
+	return surge.UnmarshalBytes(&msg.Data, buf, rem)
 }
 
 type PingV1 struct {
@@ -118,15 +101,15 @@ type PingV1 struct {
 }
 
 func (ping PingV1) SizeHint() int {
-	return surge.SizeHint(ping.Addr)
+	return ping.Addr.SizeHint()
 }
 
-func (ping PingV1) Marshal(w io.Writer, m int) (int, error) {
-	return surge.Marshal(w, ping.Addr, m)
+func (ping PingV1) Marshal(buf []byte, rem int) ([]byte, int, error) {
+	return ping.Addr.Marshal(buf, rem)
 }
 
-func (ping *PingV1) Unmarshal(r io.Reader, m int) (int, error) {
-	return surge.Unmarshal(r, &ping.Addr, m)
+func (ping *PingV1) Unmarshal(buf []byte, rem int) ([]byte, int, error) {
+	return ping.Addr.Unmarshal(buf, rem)
 }
 
 type PingAckV1 struct {
@@ -137,12 +120,12 @@ func (pingAck PingAckV1) SizeHint() int {
 	return surge.SizeHint(pingAck.Addrs)
 }
 
-func (pingAck PingAckV1) Marshal(w io.Writer, m int) (int, error) {
-	return surge.Marshal(w, pingAck.Addrs, m)
+func (pingAck PingAckV1) Marshal(buf []byte, rem int) ([]byte, int, error) {
+	return surge.Marshal(pingAck.Addrs, buf, rem)
 }
 
-func (pingAck *PingAckV1) Unmarshal(r io.Reader, m int) (int, error) {
-	return surge.Unmarshal(r, &pingAck.Addrs, m)
+func (pingAck *PingAckV1) Unmarshal(buf []byte, rem int) ([]byte, int, error) {
+	return surge.Unmarshal(&pingAck.Addrs, buf, rem)
 }
 
 type PushV1 struct {
@@ -152,39 +135,31 @@ type PushV1 struct {
 }
 
 func (push PushV1) SizeHint() int {
-	return surge.SizeHint(push.Subnet) + surge.SizeHint(push.ContentHash)
+	return push.Subnet.SizeHint() + push.ContentHash.SizeHint() + surge.SizeHintU8
 }
 
-func (push PushV1) Marshal(w io.Writer, m int) (int, error) {
-	m, err := surge.Marshal(w, push.Subnet, m)
-	if err != nil {
-		return m, err
+func (push PushV1) Marshal(buf []byte, rem int) ([]byte, int, error) {
+	var err error
+	if buf, rem, err = push.Subnet.Marshal(buf, rem); err != nil {
+		return buf, rem, err
 	}
-	m, err = surge.Marshal(w, push.ContentHash, m)
-	if err != nil {
-		return m, err
+	if buf, rem, err = push.ContentHash.Marshal(buf, rem); err != nil {
+		return buf, rem, err
 	}
-	m, err = surge.Marshal(w, push.ContentType, m)
-	if err != nil {
-		return m, err
-	}
-	return m, nil
+	return surge.MarshalU8(push.ContentType, buf, rem)
 }
 
-func (push *PushV1) Unmarshal(r io.Reader, m int) (int, error) {
-	m, err := surge.Unmarshal(r, &push.Subnet, m)
+func (push *PushV1) Unmarshal(buf []byte, rem int) ([]byte, int, error) {
+	var err error
+	buf, rem, err = push.Subnet.Unmarshal(buf, rem)
 	if err != nil {
-		return m, err
+		return buf, rem, err
 	}
-	m, err = surge.Unmarshal(r, &push.ContentHash, m)
+	buf, rem, err = push.ContentHash.Unmarshal(buf, rem)
 	if err != nil {
-		return m, err
+		return buf, rem, err
 	}
-	m, err = surge.Unmarshal(r, &push.ContentType, m)
-	if err != nil {
-		return m, err
-	}
-	return m, nil
+	return surge.UnmarshalU8(&push.ContentType, buf, rem)
 }
 
 type PushAckV1 struct {
@@ -209,39 +184,31 @@ type PullV1 struct {
 }
 
 func (pull PullV1) SizeHint() int {
-	return surge.SizeHint(pull.Subnet) + surge.SizeHint(pull.ContentHash)
+	return pull.Subnet.SizeHint() + pull.ContentHash.SizeHint() + surge.SizeHintU8
 }
 
-func (pull PullV1) Marshal(w io.Writer, m int) (int, error) {
-	m, err := surge.Marshal(w, pull.Subnet, m)
-	if err != nil {
-		return m, err
+func (pull PullV1) Marshal(buf []byte, rem int) ([]byte, int, error) {
+	var err error
+	if buf, rem, err = pull.Subnet.Marshal(buf, rem); err != nil {
+		return buf, rem, err
 	}
-	m, err = surge.Marshal(w, pull.ContentHash, m)
-	if err != nil {
-		return m, err
+	if buf, rem, err = pull.ContentHash.Marshal(buf, rem); err != nil {
+		return buf, rem, err
 	}
-	m, err = surge.Marshal(w, pull.ContentType, m)
-	if err != nil {
-		return m, err
-	}
-	return m, nil
+	return surge.MarshalU8(pull.ContentType, buf, rem)
 }
 
-func (pull *PullV1) Unmarshal(r io.Reader, m int) (int, error) {
-	m, err := surge.Unmarshal(r, &pull.Subnet, m)
+func (pull *PullV1) Unmarshal(buf []byte, rem int) ([]byte, int, error) {
+	var err error
+	buf, rem, err = pull.Subnet.Unmarshal(buf, rem)
 	if err != nil {
-		return m, err
+		return buf, rem, err
 	}
-	m, err = surge.Unmarshal(r, &pull.ContentHash, m)
+	buf, rem, err = pull.ContentHash.Unmarshal(buf, rem)
 	if err != nil {
-		return m, err
+		return buf, rem, err
 	}
-	m, err = surge.Unmarshal(r, &pull.ContentType, m)
-	if err != nil {
-		return m, err
-	}
-	return m, nil
+	return surge.UnmarshalU8(&pull.ContentType, buf, rem)
 }
 
 type PullAckV1 struct {
@@ -252,45 +219,39 @@ type PullAckV1 struct {
 }
 
 func (pullAck PullAckV1) SizeHint() int {
-	return surge.SizeHint(pullAck.Subnet) + surge.SizeHint(pullAck.ContentHash) + surge.SizeHint(pullAck.Content)
+	return pullAck.Subnet.SizeHint() +
+		pullAck.ContentHash.SizeHint() +
+		surge.SizeHintU8 +
+		surge.SizeHintBytes(pullAck.Content)
 }
 
-func (pullAck PullAckV1) Marshal(w io.Writer, m int) (int, error) {
-	m, err := surge.Marshal(w, pullAck.Subnet, m)
-	if err != nil {
-		return m, err
+func (pullAck PullAckV1) Marshal(buf []byte, rem int) ([]byte, int, error) {
+	var err error
+	if buf, rem, err = pullAck.Subnet.Marshal(buf, rem); err != nil {
+		return buf, rem, err
 	}
-	m, err = surge.Marshal(w, pullAck.ContentHash, m)
-	if err != nil {
-		return m, err
+	if buf, rem, err = pullAck.ContentHash.Marshal(buf, rem); err != nil {
+		return buf, rem, err
 	}
-	m, err = surge.Marshal(w, pullAck.ContentType, m)
-	if err != nil {
-		return m, err
+	if buf, rem, err = surge.MarshalU8(pullAck.ContentType, buf, rem); err != nil {
+		return buf, rem, err
 	}
-	m, err = surge.Marshal(w, pullAck.Content, m)
-	if err != nil {
-		return m, err
-	}
-	return m, nil
+	return surge.MarshalBytes(pullAck.Content, buf, rem)
 }
 
-func (pullAck *PullAckV1) Unmarshal(r io.Reader, m int) (int, error) {
-	m, err := surge.Unmarshal(r, &pullAck.Subnet, m)
+func (pullAck *PullAckV1) Unmarshal(buf []byte, rem int) ([]byte, int, error) {
+	var err error
+	buf, rem, err = pullAck.Subnet.Unmarshal(buf, rem)
 	if err != nil {
-		return m, err
+		return buf, rem, err
 	}
-	m, err = surge.Unmarshal(r, &pullAck.ContentHash, m)
+	buf, rem, err = pullAck.ContentHash.Unmarshal(buf, rem)
 	if err != nil {
-		return m, err
+		return buf, rem, err
 	}
-	m, err = surge.Unmarshal(r, &pullAck.ContentType, m)
+	buf, rem, err = surge.UnmarshalU8(&pullAck.ContentType, buf, rem)
 	if err != nil {
-		return m, err
+		return buf, rem, err
 	}
-	m, err = surge.Unmarshal(r, &pullAck.Content, m)
-	if err != nil {
-		return m, err
-	}
-	return m, nil
+	return surge.UnmarshalBytes(&pullAck.Content, buf, rem)
 }

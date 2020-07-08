@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -251,6 +250,7 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 	// Read messages from the client until the time-to-live expires, or an error
 	// is encountered when trying to read.
 	server.opts.Logger.Info("handling", zap.String("remote", remoteAddr))
+	buf := make([]byte, surge.MaxBytes)
 	bufReader := bufio.NewReaderSize(conn, surge.MaxBytes)
 	bufWriter := bufio.NewWriterSize(conn, surge.MaxBytes)
 	for {
@@ -262,12 +262,12 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		}
 
 		// Read message from connection.
+		if _, err := bufReader.Read(buf); err != nil {
+			server.opts.Logger.Error("bad message", zap.Error(err))
+			return
+		}
 		msg := wire.Message{}
-		if _, err := msg.Unmarshal(bufReader, surge.MaxBytes); err != nil {
-			if err != io.EOF {
-				server.opts.Logger.Error("bad message", zap.Error(err))
-				return
-			}
+		if err := surge.FromBinary(&msg, buf); err != nil {
 			server.opts.Logger.Info("closing connection", zap.String("remote", conn.RemoteAddr().String()))
 			return
 		}
@@ -334,7 +334,12 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 			server.opts.Logger.Error("bad response: %v", zap.Error(err))
 			return
 		}
-		if _, err := response.Marshal(bufWriter, surge.MaxBytes); err != nil {
+		responseBytes, err := surge.ToBinary(response)
+		if err != nil {
+			server.opts.Logger.Info("closing connection", zap.String("remote", conn.RemoteAddr().String()))
+			return
+		}
+		if _, err := bufWriter.Write(responseBytes); err != nil {
 			server.opts.Logger.Error("bad response", zap.Error(err))
 			return
 		}

@@ -75,7 +75,7 @@ func (peer *Peer) Run(ctx context.Context) {
 
 // Identity returns the signatory of the peer.
 func (peer *Peer) Identity() id.Signatory {
-	return id.NewSignatory(&peer.privKey.PublicKey)
+	return id.NewSignatory((*id.PubKey)(&peer.privKey.PublicKey))
 }
 
 // Addr returns the network address of this peer.
@@ -159,7 +159,7 @@ func (peer *Peer) DidReceivePing(version wire.Version, data []byte, from id.Sign
 	}
 
 	remoteAddr := wire.Address{}
-	if err := surge.FromBinary(data, &remoteAddr); err != nil {
+	if err := surge.FromBinary(&remoteAddr, data); err != nil {
 		return wire.Message{}, fmt.Errorf("unsupported remote address: %v", err)
 	}
 
@@ -202,7 +202,7 @@ func (peer *Peer) DidReceivePingAck(version wire.Version, data []byte, from id.S
 	// Unmarshal the remote addresses returned to us in the PingAck response,
 	// and limit the number of addreses to prevent spam.
 	pingAckV1 := wire.PingAckV1{}
-	if err := surge.FromBinary(data, &pingAckV1); err != nil {
+	if err := surge.FromBinary(&pingAckV1, data); err != nil {
 		return fmt.Errorf("unsupported remote address: %v", err)
 	}
 	if len(pingAckV1.Addrs) > peer.opts.Alpha {

@@ -77,7 +77,7 @@ func (handshaker *ecdsaHandshaker) Handshake(ctx context.Context, conn net.Conn)
 		return nil, fmt.Errorf("reading and decrypting server key: %v", err)
 	}
 
-	return NewGCMSession(xor(clientKey[:], serverKey), id.NewSignatory(serverPubKey))
+	return NewGCMSession(xor(clientKey[:], serverKey), id.NewSignatory((*id.PubKey)(serverPubKey)))
 }
 
 func (handshaker *ecdsaHandshaker) AcceptHandshake(ctx context.Context, conn net.Conn) (Session, error) {
@@ -119,7 +119,7 @@ func (handshaker *ecdsaHandshaker) AcceptHandshake(ctx context.Context, conn net
 		return nil, fmt.Errorf("writing server key: %v", err)
 	}
 
-	return NewGCMSession(xor(clientKey, serverKey[:]), id.NewSignatory(clientPubKey))
+	return NewGCMSession(xor(clientKey, serverKey[:]), id.NewSignatory((*id.PubKey)(clientPubKey)))
 }
 
 func encryptAndWriteKey(w io.Writer, localKey []byte, pubKey *ecdsa.PublicKey) error {
@@ -127,15 +127,15 @@ func encryptAndWriteKey(w io.Writer, localKey []byte, pubKey *ecdsa.PublicKey) e
 	if err != nil {
 		return fmt.Errorf("encrypting key: %v", err)
 	}
-	if _, err := surge.Marshal(w, encryptedKey, surge.MaxBytes); err != nil {
+	if _, err := w.Write(encryptedKey); err != nil {
 		return fmt.Errorf("writing key: %v", err)
 	}
 	return nil
 }
 
 func readAndDecryptKey(r io.Reader, privKey *id.PrivKey) ([]byte, error) {
-	encryptedKey := []byte{}
-	if _, err := surge.Unmarshal(r, &encryptedKey, surge.MaxBytes); err != nil {
+	encryptedKey := make([]byte, 145)
+	if _, err := r.Read(encryptedKey); err != nil {
 		return nil, fmt.Errorf("reading key: %v", err)
 	}
 	eciesPrivKey := ecies.ImportECDSA((*ecdsa.PrivateKey)(privKey))
@@ -148,41 +148,43 @@ func readAndDecryptKey(r io.Reader, privKey *id.PrivKey) ([]byte, error) {
 
 func writePubKeyWithSignature(w io.Writer, pubKey *ecdsa.PublicKey, signer *id.PrivKey) error {
 	compressedPubKey := crypto.CompressPubkey(pubKey)
-	if _, err := surge.Marshal(w, compressedPubKey, surge.MaxBytes); err != nil {
-		return fmt.Errorf("marshaling pubkey: %v", err)
+	if _, err := w.Write(compressedPubKey); err != nil {
+		return fmt.Errorf("writing pubkey: %v", err)
 	}
-	signatory := id.NewSignatory(pubKey)
+	signatory := id.NewSignatory((*id.PubKey)(pubKey))
 	rawSignature, err := crypto.Sign(signatory[:], (*ecdsa.PrivateKey)(signer))
 	if err != nil {
 		return fmt.Errorf("signing pubkey: %v", err)
 	}
-	signature := id.Signature{}
-	copy(signature[:], rawSignature)
-	if _, err := surge.Marshal(w, signature, surge.MaxBytes); err != nil {
-		return fmt.Errorf("marshaling signature: %v", err)
+	if _, err := w.Write(rawSignature); err != nil {
+		return fmt.Errorf("writing signature: %v", err)
 	}
 	return nil
 }
 
 func readPubKeyWithSignature(r io.Reader) (*ecdsa.PublicKey, id.Signatory, error) {
-	compressedPubKey := []byte{}
-	if _, err := surge.Unmarshal(r, &compressedPubKey, surge.MaxBytes); err != nil {
-		return nil, id.Signatory{}, fmt.Errorf("unmarshaling pubkey: %v", err)
+	compressedPubKey := make([]byte, 33)
+	if _, err := r.Read(compressedPubKey); err != nil {
+		return nil, id.Signatory{}, fmt.Errorf("reading pubkey: %v", err)
 	}
 	pubKey, err := crypto.DecompressPubkey(compressedPubKey)
 	if err != nil {
 		return nil, id.Signatory{}, fmt.Errorf("decompressing pubkey: %v", err)
 	}
-	signatory := id.NewSignatory(pubKey)
+	signatory := id.NewSignatory((*id.PubKey)(pubKey))
+	signatureBytes := make([]byte, 65)
+	if _, err := r.Read(signatureBytes); err != nil {
+		return nil, id.Signatory{}, fmt.Errorf("reading signature: %v", err)
+	}
 	signature := id.Signature{}
-	if _, err := surge.Unmarshal(r, &signature, surge.MaxBytes); err != nil {
+	if err := surge.FromBinary(&signature, signatureBytes); err != nil {
 		return nil, id.Signatory{}, fmt.Errorf("unmarshaling signature: %v", err)
 	}
 	verifiedPubKey, err := crypto.SigToPub(signatory[:], signature[:])
 	if err != nil {
 		return nil, id.Signatory{}, fmt.Errorf("verifying pubkey: %v", err)
 	}
-	if !id.NewSignatory(verifiedPubKey).Equal(&signatory) {
+	if !id.NewSignatory((*id.PubKey)(verifiedPubKey)).Equal(&signatory) {
 		return nil, id.Signatory{}, fmt.Errorf("verifying signatory: %v", err)
 	}
 	return pubKey, signatory, nil
