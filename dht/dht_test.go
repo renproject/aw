@@ -251,7 +251,18 @@ var _ = Describe("DHT", func() {
 
 				privKey := id.NewPrivKey()
 				identity := id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
-				resolver := dhtutil.NewChannelResolver(insertCh, deleteCh, contentCh)
+				resolver := dht.CallbackContentResolver{
+					InsertCallback: func(hash id.Hash, ty uint8, data []byte) {
+						insertCh <- hash
+					},
+					DeleteCallback: func(hash id.Hash, ty uint8) {
+						deleteCh <- hash
+					},
+					ContentCallback: func(hash id.Hash, ty uint8) ([]byte, bool) {
+						contentCh <- hash
+						return []byte{}, true
+					},
+				}
 				table := dht.New(identity, resolver)
 
 				// Insert and wait on the channel to make sure the inner

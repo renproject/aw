@@ -17,7 +17,7 @@ type ContentResolver interface {
 
 	// Content returns the content associated with a hash. If there is no
 	// associated content, it returns false. Otherwise, it returns true.
-	Content(id.Hash, uint8, bool) ([]byte, bool)
+	Content(id.Hash, uint8) ([]byte, bool)
 }
 
 var (
@@ -134,7 +134,7 @@ func (r *DoubleCacheContentResolver) Delete(hash id.Hash, contentType uint8) {
 // Content returns the content associated with the given hash. If the content is
 // not found in the double-cache content resolver, the next content resolver
 // will be checked (if one exists).
-func (r *DoubleCacheContentResolver) Content(hash id.Hash, contentType uint8, syncRequired bool) ([]byte, bool) {
+func (r *DoubleCacheContentResolver) Content(hash id.Hash, contentType uint8) ([]byte, bool) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 
@@ -148,7 +148,7 @@ func (r *DoubleCacheContentResolver) Content(hash id.Hash, contentType uint8, sy
 
 	// If the content has not been found, check the next resolver.
 	if r.next != nil {
-		return r.next.Content(hash, contentType, syncRequired)
+		return r.next.Content(hash, contentType)
 	}
 	return nil, false
 }
@@ -159,7 +159,7 @@ func (r *DoubleCacheContentResolver) Content(hash id.Hash, contentType uint8, sy
 type CallbackContentResolver struct {
 	InsertCallback  func(id.Hash, uint8, []byte)
 	DeleteCallback  func(id.Hash, uint8)
-	ContentCallback func(id.Hash, uint8, bool) ([]byte, bool)
+	ContentCallback func(id.Hash, uint8) ([]byte, bool)
 }
 
 // Insert will delegate the implementation to the InsertCallback. If the
@@ -180,9 +180,9 @@ func (r CallbackContentResolver) Delete(hash id.Hash, contentType uint8) {
 
 // Content will delegate the implementation to the ContentCallback. If the
 // callback is nil, then this method will return false.
-func (r CallbackContentResolver) Content(hash id.Hash, contentType uint8, syncRequired bool) ([]byte, bool) {
+func (r CallbackContentResolver) Content(hash id.Hash, contentType uint8) ([]byte, bool) {
 	if r.ContentCallback != nil {
-		return r.ContentCallback(hash, contentType, syncRequired)
+		return r.ContentCallback(hash, contentType)
 	}
 	return nil, false
 }
