@@ -12,7 +12,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = FDescribe("Message builder", func() {
+var _ = Describe("Message builder", func() {
 	Context("when building messages", func() {
 		Context("when settting the version", func() {
 			It("should build a message with that version", func() {

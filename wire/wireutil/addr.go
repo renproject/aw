@@ -159,8 +159,9 @@ func RandomBadAddrValue(r *rand.Rand) string {
 		return ""
 	default:
 		str := make([]byte, r.Int()%1024)
-		for i := range str {
-			str[i] = byte(rand.Int())
+		_, err := rand.Read(str)
+		if err != nil {
+			panic(err)
 		}
 		return string(str)
 	}
@@ -171,15 +172,12 @@ func RandomBadAddrSignature(r *rand.Rand) id.Signature {
 	case 0:
 		return id.Signature{}
 	case 1:
-		sig := id.Signature{}
-		for i := range sig {
-			sig[i] = 0xFF
-		}
-		return sig
+		return id.Signature{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
 	default:
 		sig := id.Signature{}
-		for i := range sig {
-			sig[i] = byte(r.Int())
+		_, err := rand.Read(sig[:])
+		if err != nil {
+			panic(err)
 		}
 		return sig
 	}
