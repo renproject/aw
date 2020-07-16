@@ -11,6 +11,7 @@ import (
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 	"github.com/renproject/surge"
+	"go.uber.org/zap"
 )
 
 type Peer struct {
@@ -27,7 +28,7 @@ func New(opts Options, dht dht.DHT, trans *transport.Transport, privKey *id.Priv
 	// to let other Peers know we exist. If we cannot sign the address, then we
 	// log a fatal error.
 	if err := opts.Addr.Sign(privKey); err != nil {
-		opts.Logger.Fatalf("signing address=%v: %v", opts.Addr, err)
+		opts.Logger.Fatal("signing address", zap.String("address", opts.Addr.String()), zap.Error(err))
 	}
 
 	// Given the number of parallel pings that can happen, the number of pings
@@ -38,7 +39,7 @@ func New(opts Options, dht dht.DHT, trans *transport.Transport, privKey *id.Priv
 	// to make sure there is plenty of margin for error.
 	expectedPingInterval := 2 * time.Duration(math.Ceil(float64(opts.Alpha)/float64(opts.NumBackgroundWorkers))) * opts.PingTimeout
 	if opts.PingInterval < expectedPingInterval {
-		opts.Logger.Warnf("ping interval is too low: expected>=%v, got=%v", expectedPingInterval, opts.PingInterval)
+		opts.Logger.Warn("ping interval is too low", zap.Duration("expected", expectedPingInterval), zap.Duration("got", opts.PingInterval))
 	}
 
 	// Create the peer.
@@ -57,7 +58,7 @@ func New(opts Options, dht dht.DHT, trans *transport.Transport, privKey *id.Priv
 // Run the Peer. This will periodically attempt to Ping random addresses in the
 // DHT. If the Ping is not successful, the address will be removed from the DHT.
 func (peer *Peer) Run(ctx context.Context) {
-	peer.opts.Logger.Infof("peering with address=%v", peer.opts.Addr)
+	peer.opts.Logger.Info("peering", zap.String("address", peer.opts.Addr.String()))
 
 	// Start by pinging some random addresses from the DHT.
 	peer.Ping(ctx)
@@ -97,7 +98,7 @@ func (peer *Peer) Ping(ctx context.Context) {
 	// Marshal our own address, so that we can ping it to other Peers.
 	marshaledPing, err := surge.ToBinary(wire.PingV1{Addr: peer.opts.Addr})
 	if err != nil {
-		peer.opts.Logger.Fatalf("marshaling ping: %v", err)
+		peer.opts.Logger.Fatal("marshaling ping", zap.Error(err))
 	}
 	ping := wire.Message{
 		Version: wire.V1,
@@ -116,7 +117,7 @@ func (peer *Peer) Ping(ctx context.Context) {
 				case <-ctx.Done():
 					return
 				case signatoryAndAddr := <-queue:
-					peer.opts.Logger.Debugf("dequeuing signatory=%v at address=%v", signatoryAndAddr.Signatory, signatoryAndAddr.Addr)
+					peer.opts.Logger.Debug("dequeuing", zap.String("signatory", signatoryAndAddr.Signatory.String()), zap.String("address", signatoryAndAddr.Addr.String()))
 
 					// Ping the address with our own address. If the Ping
 					// returns an error, then we remove the address from the
@@ -125,8 +126,8 @@ func (peer *Peer) Ping(ctx context.Context) {
 						innerCtx, innerCancel := context.WithTimeout(ctx, peer.opts.PingTimeout)
 						defer innerCancel()
 						if err := peer.trans.Send(innerCtx, signatoryAndAddr.Addr, ping); err != nil {
-							peer.opts.Logger.Warnf("pinging address=%v: %v", signatoryAndAddr.Addr, err)
-							peer.opts.Logger.Infof("deleting address=%v", signatoryAndAddr.Addr)
+							peer.opts.Logger.Warn("pinging", zap.String("address", signatoryAndAddr.Addr.String()), zap.Error(err))
+							peer.opts.Logger.Info("deleting", zap.String("address", signatoryAndAddr.Addr.String()))
 							peer.dht.DeleteAddr(signatoryAndAddr.Signatory)
 						}
 					}()
@@ -141,14 +142,14 @@ func (peer *Peer) Ping(ctx context.Context) {
 	for _, addr := range addrsBySignatory {
 		signatory, err := addr.Signatory()
 		if err != nil {
-			peer.opts.Logger.Errorf("fetching signatory from address=%v: %v", addr, err)
+			peer.opts.Logger.Error("fetching signatory", zap.String("address", addr.String()), zap.Error(err))
 			return
 		}
 		select {
 		case <-ctx.Done():
 			return
 		case queue <- SignatoryAndAddress{Signatory: signatory, Addr: addr}:
-			peer.opts.Logger.Debugf("pinging signatory=%v at address=%v", signatory, addr)
+			peer.opts.Logger.Debug("pinging", zap.String("signatory", signatory.String()), zap.String("address", addr.String()))
 		}
 	}
 }
@@ -164,7 +165,7 @@ func (peer *Peer) DidReceivePing(version wire.Version, data []byte, from id.Sign
 	}
 
 	if peer.dht.InsertAddr(remoteAddr) {
-		peer.opts.Logger.Infof("peer found with remote address=%v", remoteAddr)
+		peer.opts.Logger.Info("peer found", zap.String("address", remoteAddr.String()))
 	}
 
 	addrsBySignatory := peer.dht.Addrs(peer.opts.Alpha)
@@ -180,7 +181,7 @@ func (peer *Peer) DidReceivePing(version wire.Version, data []byte, from id.Sign
 		// Being unable to marshal addresses is a fatal error. We should never
 		// admit addresses into the DHT that are invalid, or that cannot be
 		// marshaled.
-		peer.opts.Logger.Fatalf("marshaling ping ack: %v", len(pingAckV1.Addrs), err)
+		peer.opts.Logger.Fatal("marshaling ping ack", zap.Error(err))
 	}
 
 	// Send a ping acknowledgemet, containing our own address, to the address in

@@ -2,6 +2,7 @@ package gossip
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 	"github.com/renproject/surge"
+	"go.uber.org/zap"
 )
 
 var (
@@ -59,7 +61,7 @@ func New(opts Options, self id.Signatory, dht dht.DHT, trans *transport.Transpor
 }
 
 func (g *Gossiper) Run(ctx context.Context) {
-	g.opts.Logger.Infof("gossiping with alpha=%v", g.opts.Alpha)
+	g.opts.Logger.Info("gossiping", zap.Int("alpha", g.opts.Alpha))
 
 	for {
 		select {
@@ -70,7 +72,7 @@ func (g *Gossiper) Run(ctx context.Context) {
 				ctx, cancel := context.WithTimeout(ctx, g.opts.Timeout)
 				defer cancel()
 				if err := g.trans.Send(ctx, job.Address, job.Message); err != nil {
-					g.opts.Logger.Errorf("sending to address=%v: %v", job.Address, err)
+					g.opts.Logger.Error("sending", zap.String("to", job.Address.String()), zap.Error(err))
 				}
 			}()
 		}
@@ -92,7 +94,7 @@ func (g *Gossiper) Gossip(target, hash id.Hash, dataType uint8) {
 			ContentType: dataType,
 		})
 		if err != nil {
-			g.opts.Logger.Fatalf("marshaling push: %v", err)
+			g.opts.Logger.Fatal("marshaling push", zap.Error(err))
 		}
 		g.send(addr, wire.Message{
 			Version: wire.V1,
@@ -108,7 +110,7 @@ func (g *Gossiper) Gossip(target, hash id.Hash, dataType uint8) {
 		ContentType: dataType,
 	})
 	if err != nil {
-		g.opts.Logger.Fatalf("marshaling push: %v", err)
+		g.opts.Logger.Fatal("marshaling push", zap.Error(err))
 	}
 	g.sendToSubnet(target, wire.Message{
 		Version: wire.V1,
@@ -126,7 +128,7 @@ func (g *Gossiper) Sync(ctx context.Context, subnet, hash id.Hash, dataType uint
 	}
 	marshaledPullV1, err := surge.ToBinary(pullV1)
 	if err != nil {
-		g.opts.Logger.Fatalf("marshaling pull: %v", err)
+		g.opts.Logger.Fatal("marshaling pull", zap.Error(err))
 	}
 	msg := wire.Message{
 		Version: wire.V1,
@@ -207,7 +209,7 @@ func (g *Gossiper) DidReceivePush(version wire.Version, data []byte, from id.Sig
 			}
 			marshaledPullV1, err := surge.ToBinary(pullV1)
 			if err != nil {
-				g.opts.Logger.Fatalf("marshaling pull: %v", err)
+				g.opts.Logger.Fatal("marshaling pull", zap.Error(err))
 			}
 			msg := wire.Message{
 				Version: wire.V1,
@@ -231,7 +233,7 @@ func (g *Gossiper) DidReceivePushAck(version wire.Version, data []byte, from id.
 
 	pushAckV1 := wire.PushAckV1{}
 	if err := surge.FromBinary(&pushAckV1, data); err != nil {
-		g.opts.Logger.Fatalf("unmarshaling push ack: %v", err)
+		g.opts.Logger.Fatal("unmarshaling push ack", zap.Error(err))
 	}
 
 	//
@@ -274,7 +276,7 @@ func (g *Gossiper) DidReceivePull(version wire.Version, data []byte, from id.Sig
 	}
 	pullAckV1Marshaled, err := surge.ToBinary(pullAckV1)
 	if err != nil {
-		g.opts.Logger.Fatalf("marshaling pull: %v", err)
+		g.opts.Logger.Fatal("marshaling pull", zap.Error(err))
 	}
 	return wire.Message{Version: wire.V1, Type: wire.PullAck, Data: pullAckV1Marshaled}, nil
 }
@@ -337,7 +339,7 @@ func (g *Gossiper) sendToSubnet(subnet id.Hash, msg wire.Message) {
 		for _, addr := range addrs {
 			sig, err := addr.Signatory()
 			if err != nil {
-				g.opts.Logger.Errorf("failed to get signatory from %v: err", addr.String(), err)
+				g.opts.Logger.Error("bad signatory", zap.String("address", addr.String()), zap.Error(err))
 				continue
 			}
 			subnetSignatories = append(subnetSignatories, sig)
@@ -386,6 +388,6 @@ func (g *Gossiper) send(addr wire.Address, msg wire.Message) {
 		wire.Message
 	}{addr, msg}:
 	default:
-		g.opts.Logger.Warnf("sending to address=%v: too much back-pressure", addr)
+		g.opts.Logger.Warn("sending", zap.String("to", addr.String()), zap.Error(errors.New("too much back-pressure")))
 	}
 }

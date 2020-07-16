@@ -1,21 +1,24 @@
 package aw
 
-import "github.com/sirupsen/logrus"
+import (
+	"go.uber.org/zap"
+)
 
 type Options struct {
-	Logger logrus.FieldLogger
+	Logger *zap.Logger
 }
 
 func DefaultOptions() Options {
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		panic(err)
+	}
 	return Options{
-		Logger: logrus.New().
-			WithField("lib", "airwave").
-			WithField("pkg", "aw").
-			WithField("com", "node"),
+		Logger: logger,
 	}
 }
 
-func (opts Options) WithLogger(logger logrus.FieldLogger) Options {
+func (opts Options) WithLogger(logger *zap.Logger) Options {
 	opts.Logger = logger
 	return opts
 }

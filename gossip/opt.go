@@ -3,7 +3,7 @@ package gossip
 import (
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 )
 
 var (
@@ -14,7 +14,7 @@ var (
 )
 
 type Options struct {
-	Logger logrus.FieldLogger
+	Logger *zap.Logger
 
 	Alpha       int
 	Bias        float64
@@ -23,11 +23,12 @@ type Options struct {
 }
 
 func DefaultOptions() Options {
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		panic(err)
+	}
 	return Options{
-		Logger: logrus.New().
-			WithField("lib", "airwave").
-			WithField("pkg", "gossip").
-			WithField("com", "gossiper"),
+		Logger:      logger,
 		Alpha:       DefaultAlpha,
 		Bias:        DefaultBias,
 		Timeout:     DefaultTimeout,
@@ -35,7 +36,7 @@ func DefaultOptions() Options {
 	}
 }
 
-func (opts Options) WithLogger(logger logrus.FieldLogger) Options {
+func (opts Options) WithLogger(logger *zap.Logger) Options {
 	opts.Logger = logger
 	return opts
 }

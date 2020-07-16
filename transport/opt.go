@@ -2,7 +2,7 @@ package transport
 
 import (
 	"github.com/renproject/aw/tcp"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 )
 
 type TCPOptions struct {
@@ -14,23 +14,24 @@ type WSOptions struct {
 }
 
 type Options struct {
-	Logger        logrus.FieldLogger
+	Logger        *zap.Logger
 	TCPClientOpts tcp.ClientOptions
 	TCPServerOpts tcp.ServerOptions
 }
 
 func DefaultOptions() Options {
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		panic(err)
+	}
 	return Options{
-		Logger: logrus.New().
-			WithField("lib", "airwave").
-			WithField("pkg", "transport").
-			WithField("com", "transport"),
+		Logger:        logger,
 		TCPClientOpts: tcp.DefaultClientOptions(),
 		TCPServerOpts: tcp.DefaultServerOptions(),
 	}
 }
 
-func (opts Options) WithLogger(logger logrus.FieldLogger) Options {
+func (opts Options) WithLogger(logger *zap.Logger) Options {
 	opts.Logger = logger
 	return opts
 }

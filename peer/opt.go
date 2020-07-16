@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/renproject/aw/wire"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 )
 
 var (
@@ -17,7 +17,7 @@ var (
 )
 
 type Options struct {
-	Logger logrus.FieldLogger
+	Logger *zap.Logger
 
 	Addr                 wire.Address
 	Alpha                int
@@ -27,11 +27,12 @@ type Options struct {
 }
 
 func DefaultOptions() Options {
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		panic(err)
+	}
 	return Options{
-		Logger: logrus.New().
-			WithField("lib", "airwave").
-			WithField("pkg", "peer").
-			WithField("com", "peer"),
+		Logger: logger,
 
 		Addr:                 DefaultAddr,
 		Alpha:                DefaultAlpha,

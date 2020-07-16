@@ -68,11 +68,11 @@ func (trans *Transport) Run(ctx context.Context) {
 func (trans *Transport) run(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
-			trans.opts.Logger.Errorf("recovering: %v", r)
+			trans.opts.Logger.Error("recovering", zap.Error(fmt.Errorf("%v", r)))
 		}
 	}()
 	if err := trans.tcpserver.Listen(ctx); err != nil {
-		trans.opts.Logger.Errorf("%v", err)
+		trans.opts.Logger.Error("listening", zap.Error(err))
 	}
 }
 

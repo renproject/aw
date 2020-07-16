@@ -12,6 +12,7 @@ import (
 	"github.com/renproject/aw/transport"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
+	"go.uber.org/zap"
 )
 
 type Builder struct {
@@ -53,7 +54,7 @@ func (builder *Builder) WithPrivKey(privKey *id.PrivKey) *Builder {
 		builder.contentResolver,
 	)
 	if err := builder.peer.Addr.Sign(builder.handshaker.PrivKey); err != nil {
-		builder.opts.Logger.Fatalf("signing address=%v: %v", builder.peer.Addr, err)
+		builder.opts.Logger.Fatal("signing address", zap.String("address", builder.peer.Addr.String()), zap.Error(err))
 	}
 	return builder
 }
@@ -70,7 +71,7 @@ func (builder *Builder) WithContentResolver(contentResolver dht.ContentResolver)
 func (builder *Builder) WithAddr(addr wire.Address) *Builder {
 	builder.peer.Addr = addr
 	if err := builder.peer.Addr.Sign(builder.handshaker.PrivKey); err != nil {
-		builder.opts.Logger.Fatalf("signing address=%v: %v", addr, err)
+		builder.opts.Logger.Fatal("signing address", zap.String("address", addr.String()), zap.Error(err))
 	}
 	return builder
 }
