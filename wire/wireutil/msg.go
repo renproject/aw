@@ -46,9 +46,7 @@ func (builder *MessageBuilder) WithData(data []byte) *MessageBuilder {
 
 func (builder *MessageBuilder) Build() wire.Message {
 	copied := make([]byte, len(builder.data))
-	for i := range copied {
-		copied[i] = builder.data[i]
-	}
+	copy(copied, builder.data)
 	return wire.Message{
 		Version: builder.version,
 		Type:    builder.ty,
@@ -122,8 +120,9 @@ func RandomOkMessageData(r *rand.Rand) []byte {
 		return []byte{}
 	default:
 		data := make([]byte, r.Int()%surge.MaxBytes)
-		for i := range data {
-			data[i] = byte(r.Int())
+		_, err := rand.Read(data)
+		if err != nil {
+			panic(err)
 		}
 		return data
 	}
