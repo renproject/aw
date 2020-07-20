@@ -423,15 +423,14 @@ func (client *Client) dial(ctx context.Context, addr string) (net.Conn, handshak
 	dialCtx, dialCancel := context.WithTimeout(ctx, client.opts.TimeToLive)
 	defer dialCancel()
 
-	// Remember the number of dial attempts for this connection. If this
-	// exceeds MaxDialAttempts, the connection will be dropped.
+	// Remember the number of dial attempts for this connection. If this exceeds
+	// MaxDialAttempts, the connection will be dropped.
 	numDialAttempts := 0
 	for {
 		select {
 		case <-dialCtx.Done():
-			// dial must only return an error if it cannot successful
-			// dial within the TimeToLive duration. Othewise, it will keep
-			// retrying.
+			// dial must only return an error if it cannot successful dial
+			// within the TimeToLive duration. Othewise, it will keep retrying.
 			return nil, nil, dialCtx.Err()
 		default:
 		}
@@ -439,43 +438,45 @@ func (client *Client) dial(ctx context.Context, addr string) (net.Conn, handshak
 		// Increment the number of dial attempts.
 		numDialAttempts++
 
+		// If the number of dial attempts has exceeded the maximum, return an
+		// error.
+		if numDialAttempts > client.opts.MaxDialAttempts {
+			return nil, nil, fmt.Errorf("dialing: exceeded max dial attempts")
+		}
+
 		// Attempt to dial a new connection for TimeToDial seconds. If we are
 		// not successful, then wait until the end of the TimeToDial second
 		// timeout and try again.
 		innerDialCtx, innerDialCancel := context.WithTimeout(dialCtx, client.opts.TimeToDial)
-		conn, err := new(net.Dialer).DialContext(innerDialCtx, "tcp", addr)
+		conn, session, err := func() (net.Conn, handshake.Session, error) {
+			conn, err := new(net.Dialer).DialContext(innerDialCtx, "tcp", addr)
+			if err != nil {
+				return nil, nil, fmt.Errorf("dialing: %v", err)
+			}
+
+			// Handshake with the server to establish authentication and
+			// encryption on the connection.
+			session, err := client.handshaker.Handshake(dialCtx, conn)
+			if err != nil {
+				return conn, nil, fmt.Errorf("handshaking: %v", err)
+			}
+			if session == nil {
+				return conn, nil, fmt.Errorf("handshaking: nil")
+			}
+			return conn, session, nil
+		}()
 		if err != nil {
+			client.opts.Logger.Error(err.Error())
+
 			// Make sure to wait until the entire TimeToDial seconds has passed,
 			// otherwise we might attempt to re-dial too quickly.
 			<-innerDialCtx.Done()
 			innerDialCancel()
 
-			// If the number of dial attempts has exceeded the maximum, return
-			// an error.
-			if numDialAttempts >= client.opts.MaxDialAttempts {
-				return nil, nil, fmt.Errorf("dialing: exceeded max dial attempts: %v", err)
-			}
-
-			client.opts.Logger.Warn("dialing", zap.Error(err))
-			continue
-		}
-
-		// Handshake with the server to establish authentication and encryption
-		// on the connection.
-		session, err := client.handshaker.Handshake(dialCtx, conn)
-		if err != nil {
-			innerDialCancel()
-			client.opts.Logger.Error("handshaking", zap.Error(err))
-			if err := conn.Close(); err != nil {
-				client.opts.Logger.Error("closing connection", zap.Error(err))
-			}
-			continue
-		}
-		if session == nil {
-			innerDialCancel()
-			client.opts.Logger.Error("handshaking: nil")
-			if err := conn.Close(); err != nil {
-				client.opts.Logger.Error("closing connection", zap.Error(err))
+			if conn != nil {
+				if err := conn.Close(); err != nil {
+					client.opts.Logger.Error("closing connection", zap.Error(err))
+				}
 			}
 			continue
 		}
