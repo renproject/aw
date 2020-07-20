@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"sync"
 	"time"
@@ -22,6 +23,8 @@ var (
 	// takes longer than this duration, it will be dropped (and a new attempt
 	// may begin).
 	DefaultClientTimeToDial = 15 * time.Second
+	// DefaultClientTimeToDialBackoff is set to 1.2.
+	DefaultClientTimeToDialBackoff = 1.2
 	// DefaultClientMaxDialAttempts is set to 5. If the first 5 dial attempts
 	// fail, the connection will be dropped.
 	DefaultClientMaxDialAttempts = 5
@@ -48,6 +51,9 @@ type ClientOptions struct {
 	// be started, assuming that the client has not been attempting dials for
 	// longer than the TimeToLive.
 	TimeToDial time.Duration
+	// TimeToDialBackoff when establishing new connections. This is the
+	// multiplier added to the TimeToDial variable in the case an attempt fails.
+	TimeToDialBackoff float64
 	// MaxDialAttempts when establishing new connections.
 	MaxDialAttempts int
 	// MaxCapacity of messages that can be bufferred while waiting to write
@@ -65,12 +71,13 @@ func DefaultClientOptions() ClientOptions {
 		panic(err)
 	}
 	return ClientOptions{
-		Logger:          logger,
-		TimeToLive:      DefaultClientTimeToLive,
-		TimeToDial:      DefaultClientTimeToDial,
-		MaxDialAttempts: DefaultClientMaxDialAttempts,
-		MaxCapacity:     DefaultClientMaxCapacity,
-		MaxConnections:  DefaultClientMaxConnections,
+		Logger:            logger,
+		TimeToLive:        DefaultClientTimeToLive,
+		TimeToDial:        DefaultClientTimeToDial,
+		TimeToDialBackoff: DefaultClientTimeToDialBackoff,
+		MaxDialAttempts:   DefaultClientMaxDialAttempts,
+		MaxCapacity:       DefaultClientMaxCapacity,
+		MaxConnections:    DefaultClientMaxConnections,
 	}
 }
 
@@ -81,6 +88,16 @@ func (opts ClientOptions) WithLogger(logger *zap.Logger) ClientOptions {
 
 func (opts ClientOptions) WithTimeToLive(ttl time.Duration) ClientOptions {
 	opts.TimeToLive = ttl
+	return opts
+}
+
+func (opts ClientOptions) WithTimeToDial(ttd time.Duration) ClientOptions {
+	opts.TimeToDial = ttd
+	return opts
+}
+
+func (opts ClientOptions) WithTimeToDialBackoff(backoff float64) ClientOptions {
+	opts.TimeToDialBackoff = backoff
 	return opts
 }
 
@@ -444,10 +461,11 @@ func (client *Client) dial(ctx context.Context, addr string) (net.Conn, handshak
 			return nil, nil, fmt.Errorf("dialing: exceeded max dial attempts")
 		}
 
-		// Attempt to dial a new connection for TimeToDial seconds. If we are
-		// not successful, then wait until the end of the TimeToDial second
-		// timeout and try again.
-		innerDialCtx, innerDialCancel := context.WithTimeout(dialCtx, client.opts.TimeToDial)
+		// Attempt to dial a new connection for TimeToDial duration. If we are
+		// not successful, then wait until the end of the TimeToDial timeout and
+		// try again.
+		backoff := math.Pow(client.opts.TimeToDialBackoff, float64(numDialAttempts))
+		innerDialCtx, innerDialCancel := context.WithTimeout(dialCtx, client.opts.TimeToDial*time.Duration(backoff))
 		conn, session, err := func() (net.Conn, handshake.Session, error) {
 			conn, err := new(net.Dialer).DialContext(innerDialCtx, "tcp", addr)
 			if err != nil {
