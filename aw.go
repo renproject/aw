@@ -75,10 +75,12 @@ func (builder *Builder) WithAddr(addr wire.Address) *Builder {
 	}
 	return builder
 }
+
 func (builder *Builder) WithHost(host string) *Builder {
 	builder.trans.TCPServerOpts = builder.trans.TCPServerOpts.WithHost(host)
 	return builder
 }
+
 func (builder *Builder) WithPort(port uint16) *Builder {
 	builder.trans.TCPServerOpts = builder.trans.TCPServerOpts.WithPort(port)
 	return builder
