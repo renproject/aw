@@ -39,6 +39,7 @@ var _ = Describe("Airwave", func() {
 				privKey1 := id.NewPrivKey()
 				Expect(addr1.Sign(privKey1)).To(Succeed())
 				node1 := aw.New().
+					WithPrivKey(privKey1).
 					WithAddr(addr1).
 					WithHost("0.0.0.0").
 					WithPort(port1).
@@ -49,6 +50,7 @@ var _ = Describe("Airwave", func() {
 				privKey2 := id.NewPrivKey()
 				Expect(addr2.Sign(privKey2)).To(Succeed())
 				node2 := aw.New().
+					WithPrivKey(privKey2).
 					WithAddr(addr2).
 					WithHost("0.0.0.0").
 					WithPort(port2).
