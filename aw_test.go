@@ -11,6 +11,7 @@ import (
 
 	"github.com/renproject/aw"
 	"github.com/renproject/aw/dht"
+	"github.com/renproject/aw/gossip"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 
@@ -34,15 +35,21 @@ var _ = Describe("Airwave", func() {
 				defer cancel()
 
 				port1 := uint16(3000 + r.Int()%3000)
+				addr1 := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port1), uint64(time.Now().UnixNano()))
+				privKey1 := id.NewPrivKey()
+				Expect(addr1.Sign(privKey1)).To(Succeed())
 				node1 := aw.New().
-					WithAddr(wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port1), uint64(time.Now().UnixNano()))).
+					WithAddr(addr1).
 					WithHost("0.0.0.0").
 					WithPort(port1).
 					Build()
 
 				port2 := uint16(3000 + r.Int()%3000)
+				addr2 := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port2), uint64(time.Now().UnixNano()))
+				privKey2 := id.NewPrivKey()
+				Expect(addr2.Sign(privKey2)).To(Succeed())
 				node2 := aw.New().
-					WithAddr(wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port2), uint64(time.Now().UnixNano()))).
+					WithAddr(addr2).
 					WithHost("0.0.0.0").
 					WithPort(port2).
 					WithContentResolver(
@@ -98,19 +105,24 @@ var _ = Describe("Airwave", func() {
 
 	Context("when gossiping", func() {
 		Context("when fully connected", func() {
-			FIt("should return content from all nodes", func() {
+			It("should return content from all nodes", func() {
 				defer time.Sleep(time.Millisecond)
 
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
 				// Initialise nodes.
-				n := 3
+				n := 2
 				nodes := make([]*aw.Node, n)
+				addrs := make([]wire.Address, n)
 				for i := range nodes {
 					port := uint16(3000 + i)
+					addrs[i] = wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port), uint64(time.Now().UnixNano()))
+					privKey := id.NewPrivKey()
+					Expect(addrs[i].Sign(privKey)).To(Succeed())
 					node := aw.New().
-						WithAddr(wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port), uint64(time.Now().UnixNano()))).
+						WithPrivKey(privKey).
+						WithAddr(addrs[i]).
 						WithHost("0.0.0.0").
 						WithPort(port).
 						Build()
@@ -123,7 +135,7 @@ var _ = Describe("Airwave", func() {
 						if i == j {
 							continue
 						}
-						nodes[i].DHT().InsertAddr(nodes[j].Addr())
+						nodes[i].DHT().InsertAddr(addrs[j])
 					}
 				}
 
@@ -139,7 +151,7 @@ var _ = Describe("Airwave", func() {
 				contentHash := sha256.Sum256([]byte("hello!"))
 				contentType := uint8(1)
 				content := []byte("hello!")
-				// nodes[0].Broadcast(ctx, gossip.DefaultSubnet, contentType, content)
+				nodes[0].Broadcast(ctx, gossip.DefaultSubnet, contentType, content)
 
 				found := map[id.Signatory]struct{}{}
 				for {
