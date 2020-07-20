@@ -114,7 +114,7 @@ var _ = Describe("Airwave", func() {
 				defer cancel()
 
 				// Initialise nodes.
-				n := 2
+				n := 3
 				nodes := make([]*aw.Node, n)
 				addrs := make([]wire.Address, n)
 				for i := range nodes {
