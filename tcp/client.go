@@ -10,7 +10,6 @@ import (
 
 	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/wire"
-	"github.com/renproject/surge"
 	"go.uber.org/zap"
 )
 
@@ -275,18 +274,17 @@ func (client *Client) run(ctx context.Context, deadline *time.Timer, addr string
 	// Run the message loop until the context is cancelled, or the deadline is
 	// exceeded.
 	rw := bufio.NewReadWriter(
-		bufio.NewReaderSize(conn, surge.MaxBytes),
-		bufio.NewWriterSize(conn, surge.MaxBytes),
+		bufio.NewReaderSize(conn, 1024),
+		bufio.NewWriterSize(conn, 1024),
 	)
 
-	buf := make([]byte, surge.MaxBytes)
 	if lastMessage != nil {
 		// Failing to write a message should not result in the
 		// connection/channel being killed, and should not result in all pending
 		// messages being lost. Therefore, we consume the error, and return a
 		// nil-error.
 		client.opts.Logger.Info("resending last message sent")
-		if err := client.write(session, rw, *lastMessage, buf); err != nil {
+		if err := client.write(session, rw, *lastMessage); err != nil {
 			client.opts.Logger.Error("writing", zap.Error(err))
 			return lastMessage, nil
 		}
@@ -331,7 +329,7 @@ func (client *Client) run(ctx context.Context, deadline *time.Timer, addr string
 			// connection/channel being killed, and should not result in all pending
 			// messages being lost. Therefore, we consume the error, and return a
 			// nil-error.
-			if err := client.write(session, rw, msg, buf); err != nil {
+			if err := client.write(session, rw, msg); err != nil {
 				client.opts.Logger.Error("writing", zap.Error(err))
 				return &msg, nil
 			}
@@ -339,7 +337,7 @@ func (client *Client) run(ctx context.Context, deadline *time.Timer, addr string
 	}
 }
 
-func (client *Client) write(session handshake.Session, rw *bufio.ReadWriter, msg wire.Message, buf []byte) error {
+func (client *Client) write(session handshake.Session, rw *bufio.ReadWriter, msg wire.Message) error {
 	var err error
 
 	//
@@ -352,11 +350,7 @@ func (client *Client) write(session handshake.Session, rw *bufio.ReadWriter, msg
 		return fmt.Errorf("encrypting message: %v", err)
 	}
 	// Write the encrypted message to the connection.
-	msgBytes, err := surge.ToBinary(msg)
-	if err != nil {
-		return fmt.Errorf("marshaling message: %v", err)
-	}
-	if _, err := rw.Write(msgBytes); err != nil {
+	if err := msg.Write(rw); err != nil {
 		return fmt.Errorf("writing message: %v", err)
 	}
 	if err := rw.Flush(); err != nil {
@@ -368,14 +362,10 @@ func (client *Client) write(session handshake.Session, rw *bufio.ReadWriter, msg
 	//
 
 	// Read an encrypted response from the connection.
-	if _, err := rw.Read(buf); err != nil {
-		return fmt.Errorf("reading response: %v", err)
-	}
 	response := wire.Message{}
-	if err := surge.FromBinary(&response, buf); err != nil {
+	if err := response.Read(rw); err != nil {
 		return fmt.Errorf("unmarshaling response: %v", err)
 	}
-	buf = buf[:0]
 	// Check that the response version is supported.
 	switch response.Version {
 	case wire.V1:

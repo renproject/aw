@@ -12,7 +12,6 @@ import (
 	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
-	"github.com/renproject/surge"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
@@ -250,9 +249,8 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 	// Read messages from the client until the time-to-live expires, or an error
 	// is encountered when trying to read.
 	server.opts.Logger.Info("handling", zap.String("remote", remoteAddr))
-	buf := make([]byte, surge.MaxBytes)
-	bufReader := bufio.NewReaderSize(conn, surge.MaxBytes)
-	bufWriter := bufio.NewWriterSize(conn, surge.MaxBytes)
+	bufReader := bufio.NewReaderSize(conn, 1024)
+	bufWriter := bufio.NewWriterSize(conn, 1024)
 	for {
 		// We have "time-to-live" amount of time to read a message and write a
 		// response to the message.
@@ -262,12 +260,8 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		}
 
 		// Read message from connection.
-		if _, err := bufReader.Read(buf); err != nil {
-			server.opts.Logger.Error("bad message", zap.Error(err))
-			return
-		}
 		msg := wire.Message{}
-		if err := surge.FromBinary(&msg, buf); err != nil {
+		if err := msg.Read(bufReader); err != nil {
 			server.opts.Logger.Info("closing connection", zap.String("remote", conn.RemoteAddr().String()))
 			return
 		}
@@ -331,15 +325,10 @@ func (server *Server) handle(ctx context.Context, conn net.Conn) {
 		// sending it.
 		response.Data, err = session.Encrypt(response.Data)
 		if err != nil {
-			server.opts.Logger.Error("bad response: %v", zap.Error(err))
+			server.opts.Logger.Error("bad response", zap.Error(err))
 			return
 		}
-		responseBytes, err := surge.ToBinary(response)
-		if err != nil {
-			server.opts.Logger.Info("closing connection", zap.String("remote", conn.RemoteAddr().String()))
-			return
-		}
-		if _, err := bufWriter.Write(responseBytes); err != nil {
+		if err := response.Write(bufWriter); err != nil {
 			server.opts.Logger.Error("bad response", zap.Error(err))
 			return
 		}
