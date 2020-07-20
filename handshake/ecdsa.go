@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"time"
 
@@ -35,7 +34,6 @@ func (handshaker *ecdsaHandshaker) Handshake(ctx context.Context, conn net.Conn)
 	if err := conn.SetWriteDeadline(time.Now().Add(handshaker.opts.Timeout / 4)); err != nil {
 		return nil, fmt.Errorf("setting deadline: %v", err)
 	}
-	log.Println("[Handshake] writing pubkey with signature")
 	if err := writePubKeyWithSignature(conn, &handshaker.opts.PrivKey.PublicKey, handshaker.opts.PrivKey); err != nil {
 		return nil, fmt.Errorf("writing client pubkey with signature: %v", err)
 	}
@@ -46,7 +44,6 @@ func (handshaker *ecdsaHandshaker) Handshake(ctx context.Context, conn net.Conn)
 	if err := conn.SetReadDeadline(time.Now().Add(handshaker.opts.Timeout / 4)); err != nil {
 		return nil, fmt.Errorf("setting deadline: %v", err)
 	}
-	log.Println("[Handshake] reading pubkey with signature")
 	serverPubKey, serverSignatory, err := readPubKeyWithSignature(conn)
 	if err != nil {
 		return nil, fmt.Errorf("reading server pubkey with signature: %v", err)
