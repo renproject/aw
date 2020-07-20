@@ -4,13 +4,13 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/wire"
-	"github.com/renproject/surge"
 	"go.uber.org/zap"
 )
 
@@ -23,6 +23,8 @@ var (
 	// takes longer than this duration, it will be dropped (and a new attempt
 	// may begin).
 	DefaultClientTimeToDial = 15 * time.Second
+	// DefaultClientTimeToDialBackoff is set to 1.2.
+	DefaultClientTimeToDialBackoff = 1.2
 	// DefaultClientMaxDialAttempts is set to 5. If the first 5 dial attempts
 	// fail, the connection will be dropped.
 	DefaultClientMaxDialAttempts = 5
@@ -49,6 +51,9 @@ type ClientOptions struct {
 	// be started, assuming that the client has not been attempting dials for
 	// longer than the TimeToLive.
 	TimeToDial time.Duration
+	// TimeToDialBackoff when establishing new connections. This is the
+	// multiplier added to the TimeToDial variable in the case an attempt fails.
+	TimeToDialBackoff float64
 	// MaxDialAttempts when establishing new connections.
 	MaxDialAttempts int
 	// MaxCapacity of messages that can be bufferred while waiting to write
@@ -66,12 +71,13 @@ func DefaultClientOptions() ClientOptions {
 		panic(err)
 	}
 	return ClientOptions{
-		Logger:          logger,
-		TimeToLive:      DefaultClientTimeToLive,
-		TimeToDial:      DefaultClientTimeToDial,
-		MaxDialAttempts: DefaultClientMaxDialAttempts,
-		MaxCapacity:     DefaultClientMaxCapacity,
-		MaxConnections:  DefaultClientMaxConnections,
+		Logger:            logger,
+		TimeToLive:        DefaultClientTimeToLive,
+		TimeToDial:        DefaultClientTimeToDial,
+		TimeToDialBackoff: DefaultClientTimeToDialBackoff,
+		MaxDialAttempts:   DefaultClientMaxDialAttempts,
+		MaxCapacity:       DefaultClientMaxCapacity,
+		MaxConnections:    DefaultClientMaxConnections,
 	}
 }
 
@@ -82,6 +88,16 @@ func (opts ClientOptions) WithLogger(logger *zap.Logger) ClientOptions {
 
 func (opts ClientOptions) WithTimeToLive(ttl time.Duration) ClientOptions {
 	opts.TimeToLive = ttl
+	return opts
+}
+
+func (opts ClientOptions) WithTimeToDial(ttd time.Duration) ClientOptions {
+	opts.TimeToDial = ttd
+	return opts
+}
+
+func (opts ClientOptions) WithTimeToDialBackoff(backoff float64) ClientOptions {
+	opts.TimeToDialBackoff = backoff
 	return opts
 }
 
@@ -275,18 +291,17 @@ func (client *Client) run(ctx context.Context, deadline *time.Timer, addr string
 	// Run the message loop until the context is cancelled, or the deadline is
 	// exceeded.
 	rw := bufio.NewReadWriter(
-		bufio.NewReaderSize(conn, surge.MaxBytes),
-		bufio.NewWriterSize(conn, surge.MaxBytes),
+		bufio.NewReaderSize(conn, 1024),
+		bufio.NewWriterSize(conn, 1024),
 	)
 
-	buf := make([]byte, surge.MaxBytes)
 	if lastMessage != nil {
 		// Failing to write a message should not result in the
 		// connection/channel being killed, and should not result in all pending
 		// messages being lost. Therefore, we consume the error, and return a
 		// nil-error.
 		client.opts.Logger.Info("resending last message sent")
-		if err := client.write(session, rw, *lastMessage, buf); err != nil {
+		if err := client.write(session, rw, *lastMessage); err != nil {
 			client.opts.Logger.Error("writing", zap.Error(err))
 			return lastMessage, nil
 		}
@@ -331,7 +346,7 @@ func (client *Client) run(ctx context.Context, deadline *time.Timer, addr string
 			// connection/channel being killed, and should not result in all pending
 			// messages being lost. Therefore, we consume the error, and return a
 			// nil-error.
-			if err := client.write(session, rw, msg, buf); err != nil {
+			if err := client.write(session, rw, msg); err != nil {
 				client.opts.Logger.Error("writing", zap.Error(err))
 				return &msg, nil
 			}
@@ -339,7 +354,7 @@ func (client *Client) run(ctx context.Context, deadline *time.Timer, addr string
 	}
 }
 
-func (client *Client) write(session handshake.Session, rw *bufio.ReadWriter, msg wire.Message, buf []byte) error {
+func (client *Client) write(session handshake.Session, rw *bufio.ReadWriter, msg wire.Message) error {
 	var err error
 
 	//
@@ -352,11 +367,7 @@ func (client *Client) write(session handshake.Session, rw *bufio.ReadWriter, msg
 		return fmt.Errorf("encrypting message: %v", err)
 	}
 	// Write the encrypted message to the connection.
-	msgBytes, err := surge.ToBinary(msg)
-	if err != nil {
-		return fmt.Errorf("marshaling message: %v", err)
-	}
-	if _, err := rw.Write(msgBytes); err != nil {
+	if err := msg.Write(rw); err != nil {
 		return fmt.Errorf("writing message: %v", err)
 	}
 	if err := rw.Flush(); err != nil {
@@ -368,14 +379,10 @@ func (client *Client) write(session handshake.Session, rw *bufio.ReadWriter, msg
 	//
 
 	// Read an encrypted response from the connection.
-	if _, err := rw.Read(buf); err != nil {
-		return fmt.Errorf("reading response: %v", err)
-	}
 	response := wire.Message{}
-	if err := surge.FromBinary(&response, buf); err != nil {
+	if err := response.Read(rw); err != nil {
 		return fmt.Errorf("unmarshaling response: %v", err)
 	}
-	buf = buf[:0]
 	// Check that the response version is supported.
 	switch response.Version {
 	case wire.V1:
@@ -433,15 +440,14 @@ func (client *Client) dial(ctx context.Context, addr string) (net.Conn, handshak
 	dialCtx, dialCancel := context.WithTimeout(ctx, client.opts.TimeToLive)
 	defer dialCancel()
 
-	// Remember the number of dial attempts for this connection. If this
-	// exceeds MaxDialAttempts, the connection will be dropped.
+	// Remember the number of dial attempts for this connection. If this exceeds
+	// MaxDialAttempts, the connection will be dropped.
 	numDialAttempts := 0
 	for {
 		select {
 		case <-dialCtx.Done():
-			// dial must only return an error if it cannot successful
-			// dial within the TimeToLive duration. Othewise, it will keep
-			// retrying.
+			// dial must only return an error if it cannot successful dial
+			// within the TimeToLive duration. Othewise, it will keep retrying.
 			return nil, nil, dialCtx.Err()
 		default:
 		}
@@ -449,43 +455,46 @@ func (client *Client) dial(ctx context.Context, addr string) (net.Conn, handshak
 		// Increment the number of dial attempts.
 		numDialAttempts++
 
-		// Attempt to dial a new connection for TimeToDial seconds. If we are
-		// not successful, then wait until the end of the TimeToDial second
-		// timeout and try again.
-		innerDialCtx, innerDialCancel := context.WithTimeout(dialCtx, client.opts.TimeToDial)
-		conn, err := new(net.Dialer).DialContext(innerDialCtx, "tcp", addr)
+		// If the number of dial attempts has exceeded the maximum, return an
+		// error.
+		if numDialAttempts > client.opts.MaxDialAttempts {
+			return nil, nil, fmt.Errorf("dialing: exceeded max dial attempts")
+		}
+
+		// Attempt to dial a new connection for TimeToDial duration. If we are
+		// not successful, then wait until the end of the TimeToDial timeout and
+		// try again.
+		backoff := math.Pow(client.opts.TimeToDialBackoff, float64(numDialAttempts))
+		innerDialCtx, innerDialCancel := context.WithTimeout(dialCtx, client.opts.TimeToDial*time.Duration(backoff))
+		conn, session, err := func() (net.Conn, handshake.Session, error) {
+			conn, err := new(net.Dialer).DialContext(innerDialCtx, "tcp", addr)
+			if err != nil {
+				return nil, nil, fmt.Errorf("dialing: %v", err)
+			}
+
+			// Handshake with the server to establish authentication and
+			// encryption on the connection.
+			session, err := client.handshaker.Handshake(dialCtx, conn)
+			if err != nil {
+				return conn, nil, fmt.Errorf("handshaking: %v", err)
+			}
+			if session == nil {
+				return conn, nil, fmt.Errorf("handshaking: nil")
+			}
+			return conn, session, nil
+		}()
 		if err != nil {
+			client.opts.Logger.Error(err.Error())
+
 			// Make sure to wait until the entire TimeToDial seconds has passed,
 			// otherwise we might attempt to re-dial too quickly.
 			<-innerDialCtx.Done()
 			innerDialCancel()
 
-			// If the number of dial attempts has exceeded the maximum, return
-			// an error.
-			if numDialAttempts >= client.opts.MaxDialAttempts {
-				return nil, nil, fmt.Errorf("dialing: exceeded max dial attempts: %v", err)
-			}
-
-			client.opts.Logger.Warn("dialing", zap.Error(err))
-			continue
-		}
-
-		// Handshake with the server to establish authentication and encryption
-		// on the connection.
-		session, err := client.handshaker.Handshake(dialCtx, conn)
-		if err != nil {
-			innerDialCancel()
-			client.opts.Logger.Error("handshaking", zap.Error(err))
-			if err := conn.Close(); err != nil {
-				client.opts.Logger.Error("closing connection", zap.Error(err))
-			}
-			continue
-		}
-		if session == nil {
-			innerDialCancel()
-			client.opts.Logger.Error("handshaking: nil")
-			if err := conn.Close(); err != nil {
-				client.opts.Logger.Error("closing connection", zap.Error(err))
+			if conn != nil {
+				if err := conn.Close(); err != nil {
+					client.opts.Logger.Error("closing connection", zap.Error(err))
+				}
 			}
 			continue
 		}

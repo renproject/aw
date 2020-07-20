@@ -2,6 +2,8 @@ package wire
 
 import (
 	"bytes"
+	"encoding/binary"
+	"fmt"
 	"io"
 
 	"github.com/renproject/id"
@@ -51,6 +53,9 @@ const (
 	PullAck = Type(7)
 )
 
+// Data is an alias of a byte slice.
+type Data = []byte
+
 // A Message defines all of the information needed to gossip information on the
 // wire.
 type Message struct {
@@ -59,7 +64,7 @@ type Message struct {
 	// Version.
 	Version Version `json:"version"`
 	Type    Type    `json:"type"`
-	Data    []byte  `json:"data"`
+	Data    Data    `json:"data"`
 }
 
 // Equal compares one Message to another. It returns true if they are equal,
@@ -68,30 +73,43 @@ func (msg Message) Equal(other *Message) bool {
 	return msg.Version == other.Version && msg.Type == other.Type && bytes.Equal(msg.Data, other.Data)
 }
 
-// Marshal this Message into binary.
-func (msg Message) Marshal(buf []byte, rem int) ([]byte, int, error) {
-	var err error
-	if buf, rem, err = surge.MarshalU8(uint8(msg.Version), buf, rem); err != nil {
-		return buf, rem, err
+// Write the message into an I/O writer.
+func (msg Message) Write(w io.Writer) error {
+	if err := binary.Write(w, binary.BigEndian, uint8(msg.Version)); err != nil {
+		return err
 	}
-	if buf, rem, err = surge.MarshalU8(uint8(msg.Type), buf, rem); err != nil {
-		return buf, rem, err
+	if err := binary.Write(w, binary.BigEndian, uint8(msg.Type)); err != nil {
+		return err
 	}
-	return surge.MarshalBytes(msg.Data, buf, rem)
+	if err := binary.Write(w, binary.BigEndian, uint32(len(msg.Data))); err != nil {
+		return err
+	}
+	if err := binary.Write(w, binary.BigEndian, msg.Data); err != nil {
+		return err
+	}
+	return nil
 }
 
-// Unmarshal from binary into this Message.
-func (msg *Message) Unmarshal(buf []byte, rem int) ([]byte, int, error) {
-	var err error
-	buf, rem, err = surge.UnmarshalU8((*uint8)(&msg.Version), buf, rem)
-	if err != nil {
-		return buf, rem, err
+// Read the message from an I/O writer.
+func (msg *Message) Read(r io.Reader) error {
+	if err := binary.Read(r, binary.BigEndian, (*uint8)(&msg.Version)); err != nil {
+		return err
 	}
-	buf, rem, err = surge.UnmarshalU8((*uint8)(&msg.Type), buf, rem)
-	if err != nil {
-		return buf, rem, err
+	if err := binary.Read(r, binary.BigEndian, (*uint8)(&msg.Type)); err != nil {
+		return err
 	}
-	return surge.UnmarshalBytes(&msg.Data, buf, rem)
+	dataLen := uint32(0)
+	if err := binary.Read(r, binary.BigEndian, &dataLen); err != nil {
+		return err
+	}
+	if dataLen > uint32(surge.MaxBytes) {
+		return fmt.Errorf("message length exceeds max bytes")
+	}
+	msg.Data = make([]byte, dataLen)
+	if err := binary.Read(r, binary.BigEndian, &msg.Data); err != nil {
+		return err
+	}
+	return nil
 }
 
 type PingV1 struct {

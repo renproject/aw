@@ -15,6 +15,10 @@ import (
 	"go.uber.org/zap"
 )
 
+type (
+	ContentResolver = dht.ContentResolver
+)
+
 type Builder struct {
 	opts Options
 
@@ -75,10 +79,12 @@ func (builder *Builder) WithAddr(addr wire.Address) *Builder {
 	}
 	return builder
 }
+
 func (builder *Builder) WithHost(host string) *Builder {
 	builder.trans.TCPServerOpts = builder.trans.TCPServerOpts.WithHost(host)
 	return builder
 }
+
 func (builder *Builder) WithPort(port uint16) *Builder {
 	builder.trans.TCPServerOpts = builder.trans.TCPServerOpts.WithPort(port)
 	return builder
@@ -153,6 +159,10 @@ func (node *Node) Peer() *peer.Peer {
 
 func (node *Node) Gossiper() *gossip.Gossiper {
 	return node.gossiper
+}
+
+func (node *Node) Sync(ctx context.Context, subnet, hash id.Hash, dataType uint8) ([]byte, error) {
+	return node.gossiper.Sync(ctx, subnet, hash, dataType)
 }
 
 func (node *Node) Identity() id.Signatory {

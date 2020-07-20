@@ -95,8 +95,7 @@ func (handshaker *ecdsaHandshaker) AcceptHandshake(ctx context.Context, conn net
 	//
 	// 2
 	//
-	err = writePubKeyWithSignature(conn, &handshaker.opts.PrivKey.PublicKey, handshaker.opts.PrivKey)
-	if err != nil {
+	if err := writePubKeyWithSignature(conn, &handshaker.opts.PrivKey.PublicKey, handshaker.opts.PrivKey); err != nil {
 		return nil, fmt.Errorf("writing server pubkey with signature: %v", err)
 	}
 

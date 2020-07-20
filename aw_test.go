@@ -1,7 +1,9 @@
 package aw_test
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"math/rand"
 	"sync/atomic"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/renproject/aw"
 	"github.com/renproject/aw/dht"
+	"github.com/renproject/aw/gossip"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 
@@ -32,15 +35,23 @@ var _ = Describe("Airwave", func() {
 				defer cancel()
 
 				port1 := uint16(3000 + r.Int()%3000)
+				addr1 := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port1), uint64(time.Now().UnixNano()))
+				privKey1 := id.NewPrivKey()
+				Expect(addr1.Sign(privKey1)).To(Succeed())
 				node1 := aw.New().
-					WithAddr(wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port1), uint64(time.Now().UnixNano()))).
+					WithPrivKey(privKey1).
+					WithAddr(addr1).
 					WithHost("0.0.0.0").
 					WithPort(port1).
 					Build()
 
 				port2 := uint16(3000 + r.Int()%3000)
+				addr2 := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port2), uint64(time.Now().UnixNano()))
+				privKey2 := id.NewPrivKey()
+				Expect(addr2.Sign(privKey2)).To(Succeed())
 				node2 := aw.New().
-					WithAddr(wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port2), uint64(time.Now().UnixNano()))).
+					WithPrivKey(privKey2).
+					WithAddr(addr2).
 					WithHost("0.0.0.0").
 					WithPort(port2).
 					WithContentResolver(
@@ -90,6 +101,76 @@ var _ = Describe("Airwave", func() {
 				Expect(didReceiveN).To(Equal(willSendN))
 				Expect(didReceiveOnce).To(BeTrue())
 				Expect(didReceiveDone).To(BeTrue())
+			})
+		})
+	})
+
+	Context("when gossiping", func() {
+		Context("when fully connected", func() {
+			It("should return content from all nodes", func() {
+				defer time.Sleep(time.Millisecond)
+
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+
+				// Initialise nodes.
+				n := 3
+				nodes := make([]*aw.Node, n)
+				addrs := make([]wire.Address, n)
+				for i := range nodes {
+					port := uint16(3000 + i)
+					addrs[i] = wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port), uint64(time.Now().UnixNano()))
+					privKey := id.NewPrivKey()
+					Expect(addrs[i].Sign(privKey)).To(Succeed())
+					node := aw.New().
+						WithPrivKey(privKey).
+						WithAddr(addrs[i]).
+						WithHost("0.0.0.0").
+						WithPort(port).
+						Build()
+					nodes[i] = node
+				}
+
+				// Connect nodes in a fully connected cyclic graph.
+				for i := range nodes {
+					for j := range nodes {
+						if i == j {
+							continue
+						}
+						nodes[i].DHT().InsertAddr(addrs[j])
+					}
+				}
+
+				// Run the nodes.
+				for i := range nodes {
+					go nodes[i].Run(ctx)
+				}
+
+				// Sleep for enough time for nodes to find each other by pinging
+				// each other.
+				time.Sleep(100 * time.Millisecond)
+
+				contentHash := sha256.Sum256([]byte("hello!"))
+				contentType := uint8(1)
+				content := []byte("hello!")
+				nodes[0].Broadcast(ctx, gossip.DefaultSubnet, contentType, content)
+
+				found := map[id.Signatory]struct{}{}
+				for {
+					time.Sleep(time.Millisecond)
+					for i := range nodes {
+						data, ok := nodes[i].DHT().Content(contentHash, contentType)
+						if !ok {
+							continue
+						}
+						if bytes.Equal(content, data) {
+							found[nodes[i].Identity()] = struct{}{}
+						}
+					}
+					if len(found) == n {
+						return
+					}
+				}
 			})
 		})
 	})
