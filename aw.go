@@ -9,6 +9,7 @@ import (
 	"github.com/renproject/aw/gossip"
 	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/peer"
+	"github.com/renproject/aw/tcp"
 	"github.com/renproject/aw/transport"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
@@ -90,6 +91,16 @@ func (builder *Builder) WithPort(port uint16) *Builder {
 	return builder
 }
 
+func (builder *Builder) WithTCPClientOptions(opts tcp.ClientOptions) *Builder {
+	builder.trans.TCPClientOpts = opts
+	return builder
+}
+
+func (builder *Builder) WithTCPServerOptions(opts tcp.ServerOptions) *Builder {
+	builder.trans.TCPServerOpts = opts
+	return builder
+}
+
 func (builder *Builder) Build() *Node {
 	handshaker := handshake.NewECDSA(builder.handshaker)
 	trans := transport.New(builder.trans, handshaker)
@@ -134,12 +145,12 @@ func (node *Node) Run(ctx context.Context) {
 }
 
 func (node *Node) Send(ctx context.Context, signatory id.Signatory, dataType uint8, data []byte) {
-	hash := sha256.Sum256(data)
+	hash := Hash(dataType, data)
 	node.gossiper.Gossip(id.Hash(signatory), hash, dataType)
 }
 
 func (node *Node) Broadcast(ctx context.Context, subnet id.Hash, dataType uint8, data []byte) {
-	hash := sha256.Sum256(data)
+	hash := Hash(dataType, data)
 	node.gossiper.Gossip(subnet, hash, dataType)
 }
 
@@ -169,4 +180,9 @@ func (node *Node) Identity() id.Signatory {
 
 func (node *Node) Addr() wire.Address {
 	return node.peer.Addr()
+}
+
+func Hash(dataType uint8, data []byte) id.Hash {
+	data = append(data, byte(dataType))
+	return sha256.Sum256(data)
 }
