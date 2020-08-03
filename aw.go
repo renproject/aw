@@ -144,13 +144,11 @@ func (node *Node) Run(ctx context.Context) {
 	wg.Wait()
 }
 
-func (node *Node) Send(ctx context.Context, signatory id.Signatory, dataType uint8, data []byte) {
-	hash := Hash(dataType, data)
+func (node *Node) Send(ctx context.Context, signatory id.Signatory, hash id.Hash, dataType uint8, data []byte) {
 	node.gossiper.Gossip(id.Hash(signatory), hash, dataType)
 }
 
-func (node *Node) Broadcast(ctx context.Context, subnet id.Hash, dataType uint8, data []byte) {
-	hash := Hash(dataType, data)
+func (node *Node) Broadcast(ctx context.Context, subnet id.Hash, hash id.Hash, dataType uint8, data []byte) {
 	node.gossiper.Gossip(subnet, hash, dataType)
 }
 
