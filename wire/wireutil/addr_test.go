@@ -13,7 +13,7 @@ import (
 
 var _ = Describe("Address builder", func() {
 	Context("when building messages", func() {
-		Context("when settting the protocol", func() {
+		Context("when setting the protocol", func() {
 			It("should build a message with that protocol", func() {
 				f := func() bool {
 					r := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -26,7 +26,7 @@ var _ = Describe("Address builder", func() {
 			})
 		})
 
-		Context("when settting the value", func() {
+		Context("when setting the value", func() {
 			It("should build a message with that value", func() {
 				f := func() bool {
 					r := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -39,7 +39,7 @@ var _ = Describe("Address builder", func() {
 			})
 		})
 
-		Context("when settting the nonce", func() {
+		Context("when setting the nonce", func() {
 			It("should build a message with that nonce", func() {
 				f := func() bool {
 					r := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -52,7 +52,7 @@ var _ = Describe("Address builder", func() {
 			})
 		})
 
-		Context("when settting the signature", func() {
+		Context("when setting the signature", func() {
 			It("should build a message with that signature", func() {
 				f := func() bool {
 					r := rand.New(rand.NewSource(time.Now().UnixNano()))
