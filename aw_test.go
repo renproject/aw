@@ -3,7 +3,6 @@ package aw_test
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"math/rand"
 	"sync/atomic"
@@ -12,8 +11,11 @@ import (
 	"github.com/renproject/aw"
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/gossip"
+	"github.com/renproject/aw/tcp"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -38,21 +40,37 @@ var _ = Describe("Airwave", func() {
 				addr1 := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port1), uint64(time.Now().UnixNano()))
 				privKey1 := id.NewPrivKey()
 				Expect(addr1.Sign(privKey1)).To(Succeed())
+
+				tcpClientOpts := tcp.DefaultClientOptions().
+					WithTimeToDial(1 * time.Second)
+				tcpServerOpts := tcp.DefaultServerOptions().
+					WithHost("0.0.0.0").
+					WithPreventDuplicateConns(false)
+
+				logger, _ := zap.Config{
+					Encoding: "json",
+					Level:    zap.NewAtomicLevelAt(zapcore.ErrorLevel),
+				}.Build()
+
 				node1 := aw.New().
 					WithPrivKey(privKey1).
 					WithAddr(addr1).
-					WithHost("0.0.0.0").
+					WithTCPClientOptions(tcpClientOpts).
+					WithTCPServerOptions(tcpServerOpts).
 					WithPort(port1).
+					WithLogger(logger).
 					Build()
 
 				port2 := uint16(3000 + r.Int()%3000)
 				addr2 := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port2), uint64(time.Now().UnixNano()))
 				privKey2 := id.NewPrivKey()
 				Expect(addr2.Sign(privKey2)).To(Succeed())
+
 				node2 := aw.New().
 					WithPrivKey(privKey2).
 					WithAddr(addr2).
-					WithHost("0.0.0.0").
+					WithTCPClientOptions(tcpClientOpts).
+					WithTCPServerOptions(tcpServerOpts).
 					WithPort(port2).
 					WithContentResolver(
 						dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), dht.CallbackContentResolver{
@@ -77,6 +95,7 @@ var _ = Describe("Airwave", func() {
 							},
 						}),
 					).
+					WithLogger(logger).
 					Build()
 
 				node1.DHT().InsertAddr(node2.Addr())
@@ -89,12 +108,21 @@ var _ = Describe("Airwave", func() {
 				time.Sleep(100 * time.Millisecond)
 
 				subnet := node1.DHT().AddSubnet([]id.Signatory{node2.Identity()})
-				fmt.Printf("%v\n", subnet)
 				for i := uint64(0); i < willSendN; i++ {
-					node1.Broadcast(ctx, subnet, 0, []byte("once"))
-					node1.Broadcast(ctx, subnet, 0, []byte(fmt.Sprintf("message #%v", i)))
+					data1 := []byte("once")
+					data2 := []byte(fmt.Sprintf("message #%v", i))
+					hash1 := aw.Hash(0, data1)
+					hash2 := aw.Hash(0, data2)
+
+					node1.DHT().InsertContent(hash1, 0, data1)
+					node1.Broadcast(ctx, subnet, hash1, 0, data1)
+					node1.DHT().InsertContent(hash2, 0, data2)
+					node1.Broadcast(ctx, subnet, hash2, 0, data2)
 				}
-				node1.Broadcast(ctx, subnet, 0, []byte("done"))
+				data := []byte("done")
+				hash := aw.Hash(0, data)
+				node1.DHT().InsertContent(hash, 0, data)
+				node1.Broadcast(ctx, subnet, hash, 0, data)
 
 				<-ctx.Done()
 
@@ -117,17 +145,33 @@ var _ = Describe("Airwave", func() {
 				n := 3
 				nodes := make([]*aw.Node, n)
 				addrs := make([]wire.Address, n)
+
+				tcpClientOpts := tcp.DefaultClientOptions().
+					WithTimeToDial(1 * time.Second)
+				tcpServerOpts := tcp.DefaultServerOptions().
+					WithHost("0.0.0.0").
+					WithPreventDuplicateConns(false)
+
+				logger, _ := zap.Config{
+					Encoding: "json",
+					Level:    zap.NewAtomicLevelAt(zapcore.ErrorLevel),
+				}.Build()
+
 				for i := range nodes {
 					port := uint16(3000 + i)
 					addrs[i] = wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("0.0.0.0:%v", port), uint64(time.Now().UnixNano()))
 					privKey := id.NewPrivKey()
 					Expect(addrs[i].Sign(privKey)).To(Succeed())
+
 					node := aw.New().
 						WithPrivKey(privKey).
 						WithAddr(addrs[i]).
-						WithHost("0.0.0.0").
+						WithTCPClientOptions(tcpClientOpts).
+						WithTCPServerOptions(tcpServerOpts).
 						WithPort(port).
+						WithLogger(logger).
 						Build()
+
 					nodes[i] = node
 				}
 
@@ -150,10 +194,11 @@ var _ = Describe("Airwave", func() {
 				// each other.
 				time.Sleep(100 * time.Millisecond)
 
-				contentHash := sha256.Sum256([]byte("hello!"))
-				contentType := uint8(1)
 				content := []byte("hello!")
-				nodes[0].Broadcast(ctx, gossip.DefaultSubnet, contentType, content)
+				contentType := uint8(1)
+				contentHash := aw.Hash(contentType, content)
+				nodes[0].DHT().InsertContent(contentHash, contentType, content)
+				nodes[0].Broadcast(ctx, gossip.DefaultSubnet, contentHash, contentType, content)
 
 				found := map[id.Signatory]struct{}{}
 				for {

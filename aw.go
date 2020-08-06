@@ -52,6 +52,19 @@ func New() *Builder {
 	return builder
 }
 
+// WithLogger consumes a logger instance and updates the Airwave Builder to
+// use this logger for all its components
+func (builder *Builder) WithLogger(logger *zap.Logger) *Builder {
+	builder.opts = builder.opts.WithLogger(logger)
+	builder.handshaker = builder.handshaker.WithLogger(logger)
+	builder.trans = builder.trans.WithLogger(logger)
+	builder.trans.TCPClientOpts = builder.trans.TCPClientOpts.WithLogger(logger)
+	builder.trans.TCPServerOpts = builder.trans.TCPServerOpts.WithLogger(logger)
+	builder.peer = builder.peer.WithLogger(logger)
+	builder.gossiper = builder.gossiper.WithLogger(logger)
+	return builder
+}
+
 func (builder *Builder) WithPrivKey(privKey *id.PrivKey) *Builder {
 	builder.handshaker.PrivKey = privKey
 	builder.dht = dht.New(
