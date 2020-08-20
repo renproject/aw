@@ -15,7 +15,7 @@ import (
 
 var _ = Describe("Message", func() {
 	Context("when marshaling and unmarshaling", func() {
-		It("shoudl equal itself", func() {
+		It("should equal itself", func() {
 			f := func() bool {
 				r := rand.New(rand.NewSource(time.Now().UnixNano()))
 				msg := wireutil.NewMessageBuilder(r).Build()
@@ -27,7 +27,7 @@ var _ = Describe("Message", func() {
 				Expect(msg.Equal(&unmarshaledMsg)).To(BeTrue())
 				return true
 			}
-			Expect(quick.Check(f, nil)).To(Succeed())
+			Expect(quick.Check(f, &quick.Config{MaxCount: 10})).To(Succeed())
 		})
 	})
 })

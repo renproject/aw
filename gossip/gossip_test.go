@@ -16,6 +16,8 @@ import (
 	"github.com/renproject/aw/transport"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -321,6 +323,10 @@ func initNodes(ctx context.Context, n uint, alpha int) []node {
 		signatory := id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
 		host := "0.0.0.0"
 		port := uint16(3000 + rand.Int()%3000)
+		logger, _ := zap.Config{
+			Encoding: "json",
+			Level:    zap.NewAtomicLevelAt(zapcore.ErrorLevel),
+		}.Build()
 
 		dht := dht.New(
 			signatory,
@@ -333,6 +339,7 @@ func initNodes(ctx context.Context, n uint, alpha int) []node {
 			transport.DefaultOptions().
 				WithTCPServerOptions(
 					tcp.DefaultServerOptions().
+						WithLogger(logger).
 						WithHost(host).
 						WithPort(port).
 						WithPreventDuplicateConns(false),
@@ -344,6 +351,7 @@ func initNodes(ctx context.Context, n uint, alpha int) []node {
 		)
 		gossiper := gossip.New(
 			gossip.DefaultOptions().
+				WithLogger(logger).
 				WithAlpha(int(n)),
 			signatory,
 			dht,

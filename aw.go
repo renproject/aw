@@ -9,6 +9,7 @@ import (
 	"github.com/renproject/aw/gossip"
 	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/peer"
+	"github.com/renproject/aw/tcp"
 	"github.com/renproject/aw/transport"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
@@ -51,6 +52,19 @@ func New() *Builder {
 	return builder
 }
 
+// WithLogger consumes a logger instance and updates the Airwave Builder to
+// use this logger for all its components
+func (builder *Builder) WithLogger(logger *zap.Logger) *Builder {
+	builder.opts = builder.opts.WithLogger(logger)
+	builder.handshaker = builder.handshaker.WithLogger(logger)
+	builder.trans = builder.trans.WithLogger(logger)
+	builder.trans.TCPClientOpts = builder.trans.TCPClientOpts.WithLogger(logger)
+	builder.trans.TCPServerOpts = builder.trans.TCPServerOpts.WithLogger(logger)
+	builder.peer = builder.peer.WithLogger(logger)
+	builder.gossiper = builder.gossiper.WithLogger(logger)
+	return builder
+}
+
 func (builder *Builder) WithPrivKey(privKey *id.PrivKey) *Builder {
 	builder.handshaker.PrivKey = privKey
 	builder.dht = dht.New(
@@ -87,6 +101,16 @@ func (builder *Builder) WithHost(host string) *Builder {
 
 func (builder *Builder) WithPort(port uint16) *Builder {
 	builder.trans.TCPServerOpts = builder.trans.TCPServerOpts.WithPort(port)
+	return builder
+}
+
+func (builder *Builder) WithTCPClientOptions(opts tcp.ClientOptions) *Builder {
+	builder.trans.TCPClientOpts = opts
+	return builder
+}
+
+func (builder *Builder) WithTCPServerOptions(opts tcp.ServerOptions) *Builder {
+	builder.trans.TCPServerOpts = opts
 	return builder
 }
 
@@ -133,13 +157,11 @@ func (node *Node) Run(ctx context.Context) {
 	wg.Wait()
 }
 
-func (node *Node) Send(ctx context.Context, signatory id.Signatory, dataType uint8, data []byte) {
-	hash := sha256.Sum256(data)
+func (node *Node) Send(ctx context.Context, signatory id.Signatory, hash id.Hash, dataType uint8, data []byte) {
 	node.gossiper.Gossip(id.Hash(signatory), hash, dataType)
 }
 
-func (node *Node) Broadcast(ctx context.Context, subnet id.Hash, dataType uint8, data []byte) {
-	hash := sha256.Sum256(data)
+func (node *Node) Broadcast(ctx context.Context, subnet id.Hash, hash id.Hash, dataType uint8, data []byte) {
 	node.gossiper.Gossip(subnet, hash, dataType)
 }
 
@@ -169,4 +191,9 @@ func (node *Node) Identity() id.Signatory {
 
 func (node *Node) Addr() wire.Address {
 	return node.peer.Addr()
+}
+
+func Hash(dataType uint8, data []byte) id.Hash {
+	data = append(data, byte(dataType))
+	return sha256.Sum256(data)
 }

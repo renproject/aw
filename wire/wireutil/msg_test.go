@@ -14,7 +14,7 @@ import (
 
 var _ = Describe("Message builder", func() {
 	Context("when building messages", func() {
-		Context("when settting the version", func() {
+		Context("when setting the version", func() {
 			It("should build a message with that version", func() {
 				r := rand.New(rand.NewSource(time.Now().UnixNano()))
 				f := func() bool {
@@ -23,11 +23,11 @@ var _ = Describe("Message builder", func() {
 					Expect(msg.Version).To(Equal(version))
 					return true
 				}
-				Expect(quick.Check(f, nil)).To(Succeed())
+				Expect(quick.Check(f, &quick.Config{MaxCount: 10})).To(Succeed())
 			})
 		})
 
-		Context("when settting the type", func() {
+		Context("when setting the type", func() {
 			It("should build a message with that type", func() {
 				r := rand.New(rand.NewSource(time.Now().UnixNano()))
 				f := func() bool {
@@ -36,11 +36,11 @@ var _ = Describe("Message builder", func() {
 					Expect(msg.Type).To(Equal(ty))
 					return true
 				}
-				Expect(quick.Check(f, nil)).To(Succeed())
+				Expect(quick.Check(f, &quick.Config{MaxCount: 10})).To(Succeed())
 			})
 		})
 
-		Context("when settting the data", func() {
+		Context("when setting the data", func() {
 			It("should build a message with that data", func() {
 				r := rand.New(rand.NewSource(time.Now().UnixNano()))
 				f := func() bool {
@@ -49,7 +49,7 @@ var _ = Describe("Message builder", func() {
 					Expect(bytes.Equal(msg.Data, data)).To(BeTrue())
 					return true
 				}
-				Expect(quick.Check(f, nil)).To(Succeed())
+				Expect(quick.Check(f, &quick.Config{MaxCount: 10})).To(Succeed())
 			})
 		})
 	})

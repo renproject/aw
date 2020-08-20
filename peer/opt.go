@@ -42,6 +42,11 @@ func DefaultOptions() Options {
 	}
 }
 
+func (opts Options) WithLogger(logger *zap.Logger) Options {
+	opts.Logger = logger
+	return opts
+}
+
 func (opts Options) WithAddr(addr wire.Address) Options {
 	opts.Addr = addr
 	return opts
