@@ -217,6 +217,9 @@ func (addr *Address) Equal(other *Address) bool {
 // DecodeString into a wire-compatible Address.
 func DecodeString(addr string) (Address, error) {
 	addrParts := strings.Split(addr, "/")
+	if len(addrParts) != 5 {
+		return Address{}, fmt.Errorf("decoding string: invalid format=%v", addr)
+	}
 	var protocol uint8
 	switch addrParts[1] {
 	case "tcp":
