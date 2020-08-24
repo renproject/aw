@@ -3,7 +3,10 @@ package wire
 import (
 	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/renproject/id"
@@ -209,4 +212,35 @@ func (addr *Address) Equal(other *Address) bool {
 		addr.Value == other.Value &&
 		addr.Nonce == other.Nonce &&
 		addr.Signature.Equal(&other.Signature)
+}
+
+// DecodeString into a wire-compatible Address.
+func DecodeString(addr string) (Address, error) {
+	addrParts := strings.Split(addr, "/")
+	var protocol uint8
+	switch addrParts[1] {
+	case "tcp":
+		protocol = TCP
+	case "udp":
+		protocol = UDP
+	case "ws":
+		protocol = WebSocket
+	}
+	value := addrParts[2]
+	nonce, err := strconv.ParseUint(addrParts[3], 10, 64)
+	if err != nil {
+		return Address{}, err
+	}
+	var sig id.Signature
+	sigBytes, err := base64.RawURLEncoding.DecodeString(addrParts[4])
+	if err != nil {
+		return Address{}, err
+	}
+	copy(sig[:], sigBytes)
+	return Address{
+		Protocol:  protocol,
+		Value:     value,
+		Nonce:     nonce,
+		Signature: sig,
+	}, nil
 }
