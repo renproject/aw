@@ -216,12 +216,17 @@ func (addr *Address) Equal(other *Address) bool {
 
 // DecodeString into a wire-compatible Address.
 func DecodeString(addr string) (Address, error) {
+	// Remove any leading slashes.
+	if addr[:1] == "/" {
+		addr = addr[1:]
+	}
+
 	addrParts := strings.Split(addr, "/")
-	if len(addrParts) != 5 {
+	if len(addrParts) != 4 {
 		return Address{}, fmt.Errorf("decoding string: invalid format=%v", addr)
 	}
 	var protocol uint8
-	switch addrParts[1] {
+	switch addrParts[0] {
 	case "tcp":
 		protocol = TCP
 	case "udp":
@@ -229,13 +234,13 @@ func DecodeString(addr string) (Address, error) {
 	case "ws":
 		protocol = WebSocket
 	}
-	value := addrParts[2]
-	nonce, err := strconv.ParseUint(addrParts[3], 10, 64)
+	value := addrParts[1]
+	nonce, err := strconv.ParseUint(addrParts[2], 10, 64)
 	if err != nil {
 		return Address{}, err
 	}
 	var sig id.Signature
-	sigBytes, err := base64.RawURLEncoding.DecodeString(addrParts[4])
+	sigBytes, err := base64.RawURLEncoding.DecodeString(addrParts[3])
 	if err != nil {
 		return Address{}, err
 	}

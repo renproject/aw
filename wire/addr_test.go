@@ -40,6 +40,12 @@ var _ = Describe("Address", func() {
 				decodedAddr, err := wire.DecodeString(addrString)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(decodedAddr.Equal(&addr)).To(BeTrue())
+
+				// Remove the leading slash and make sure it still succeeds.
+				addrString = addrString[1:]
+				decodedAddr, err = wire.DecodeString(addrString)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(decodedAddr.Equal(&addr)).To(BeTrue())
 				return true
 			}
 			Expect(quick.Check(f, nil)).To(Succeed())
