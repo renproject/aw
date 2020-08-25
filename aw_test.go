@@ -56,8 +56,7 @@ var _ = Describe("Airwave", func() {
 					WithPrivKey(privKey1).
 					WithAddr(addr1).
 					WithTCPClientOptions(tcpClientOpts).
-					WithTCPServerOptions(tcpServerOpts).
-					WithPort(port1).
+					WithTCPServerOptions(tcpServerOpts.WithPort(port1)).
 					WithLogger(logger).
 					Build()
 
@@ -70,8 +69,7 @@ var _ = Describe("Airwave", func() {
 					WithPrivKey(privKey2).
 					WithAddr(addr2).
 					WithTCPClientOptions(tcpClientOpts).
-					WithTCPServerOptions(tcpServerOpts).
-					WithPort(port2).
+					WithTCPServerOptions(tcpServerOpts.WithPort(port2)).
 					WithContentResolver(
 						dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), dht.CallbackContentResolver{
 							InsertCallback: func(hash id.Hash, contentType uint8, content []byte) {
@@ -167,8 +165,7 @@ var _ = Describe("Airwave", func() {
 						WithPrivKey(privKey).
 						WithAddr(addrs[i]).
 						WithTCPClientOptions(tcpClientOpts).
-						WithTCPServerOptions(tcpServerOpts).
-						WithPort(port).
+						WithTCPServerOptions(tcpServerOpts.WithPort(port)).
 						WithLogger(logger).
 						Build()
 

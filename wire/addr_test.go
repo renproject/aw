@@ -32,6 +32,27 @@ var _ = Describe("Address", func() {
 		})
 	})
 
+	Context("when stringifying and decoding", func() {
+		It("should equal itself", func() {
+			f := func() bool {
+				r := rand.New(rand.NewSource(time.Now().UnixNano()))
+				addr := wireutil.NewAddressBuilder(wireutil.RandomPrivKey(), r).Build()
+				addrString := addr.String()
+				decodedAddr, err := wire.DecodeString(addrString)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(decodedAddr.Equal(&addr)).To(BeTrue())
+
+				// Remove the leading slash and make sure it still succeeds.
+				addrString = addrString[1:]
+				decodedAddr, err = wire.DecodeString(addrString)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(decodedAddr.Equal(&addr)).To(BeTrue())
+				return true
+			}
+			Expect(quick.Check(f, nil)).To(Succeed())
+		})
+	})
+
 	Context("when recovering signature", func() {
 		It("should be the correct signatory", func() {
 			f := func() bool {

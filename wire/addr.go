@@ -3,7 +3,10 @@ package wire
 import (
 	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/renproject/id"
@@ -209,4 +212,48 @@ func (addr *Address) Equal(other *Address) bool {
 		addr.Value == other.Value &&
 		addr.Nonce == other.Nonce &&
 		addr.Signature.Equal(&other.Signature)
+}
+
+// DecodeString into a wire-compatible Address.
+func DecodeString(addr string) (Address, error) {
+	// Remove any leading slashes.
+	if strings.HasPrefix(addr, "/") {
+		addr = addr[1:]
+	}
+
+	addrParts := strings.Split(addr, "/")
+	if len(addrParts) != 4 {
+		return Address{}, fmt.Errorf("invalid format=%v", addr)
+	}
+	var protocol uint8
+	switch addrParts[0] {
+	case "tcp":
+		protocol = TCP
+	case "udp":
+		protocol = UDP
+	case "ws":
+		protocol = WebSocket
+	default:
+		return Address{}, fmt.Errorf("invalid protocol=%v", addrParts[0])
+	}
+	value := addrParts[1]
+	nonce, err := strconv.ParseUint(addrParts[2], 10, 64)
+	if err != nil {
+		return Address{}, err
+	}
+	var sig id.Signature
+	sigBytes, err := base64.RawURLEncoding.DecodeString(addrParts[3])
+	if err != nil {
+		return Address{}, err
+	}
+	if len(sigBytes) != 65 {
+		return Address{}, fmt.Errorf("invalid signature=%v", addrParts[3])
+	}
+	copy(sig[:], sigBytes)
+	return Address{
+		Protocol:  protocol,
+		Value:     value,
+		Nonce:     nonce,
+		Signature: sig,
+	}, nil
 }
