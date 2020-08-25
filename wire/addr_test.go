@@ -7,6 +7,7 @@ import (
 
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/aw/wire/wireutil"
+	"github.com/renproject/id"
 	"github.com/renproject/surge"
 
 	. "github.com/onsi/ginkgo"
@@ -46,6 +47,21 @@ var _ = Describe("Address", func() {
 				decodedAddr, err = wire.DecodeString(addrString)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(decodedAddr.Equal(&addr)).To(BeTrue())
+        return true
+			}
+			Expect(quick.Check(f, nil)).To(Succeed())
+		})
+
+	Context("when recovering signature", func() {
+		It("should be the correct signatory", func() {
+			f := func() bool {
+				pk := id.NewPrivKey()
+				expectedSignatory := pk.Signatory()
+				wireAddress := wire.NewUnsignedAddress(wire.TCP, "0.0.0.0", uint64(time.Now().UnixNano()))
+				wireAddress.Sign(pk)
+				recoveredSignatory, err := wireAddress.Signatory()
+				Expect(err).ToNot(HaveOccurred())
+				Expect(recoveredSignatory.Equal(&expectedSignatory)).To(BeTrue())
 				return true
 			}
 			Expect(quick.Check(f, nil)).To(Succeed())
