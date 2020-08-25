@@ -47,10 +47,11 @@ var _ = Describe("Address", func() {
 				decodedAddr, err = wire.DecodeString(addrString)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(decodedAddr.Equal(&addr)).To(BeTrue())
-        return true
+				return true
 			}
 			Expect(quick.Check(f, nil)).To(Succeed())
 		})
+	})
 
 	Context("when recovering signature", func() {
 		It("should be the correct signatory", func() {
