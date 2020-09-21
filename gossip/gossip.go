@@ -1,6 +1,7 @@
 package gossip
 
 import (
+	"container/list"
 	"context"
 	"errors"
 	"fmt"
@@ -330,31 +331,34 @@ func (g *Gossiper) DidReceivePullAck(version wire.Version, data []byte, from id.
 }
 
 func (g *Gossiper) sendToSubnet(subnet id.Hash, msg wire.Message) {
-	var subnetSignatories []id.Signatory
+	// var subnetSignatories []id.Signatory
+	subnetSignatories := list.New()
 	if subnet == DefaultSubnet {
 		// If the default subnet hash is provided, return a random subset of all
 		// known signatories.
 		addrs := g.dht.Addrs(g.opts.Alpha)
-		subnetSignatories = make([]id.Signatory, 0, len(addrs))
 		for _, addr := range addrs {
 			sig, err := addr.Signatory()
 			if err != nil {
 				g.opts.Logger.Error("bad signatory", zap.String("address", addr.String()), zap.Error(err))
 				continue
 			}
-			subnetSignatories = append(subnetSignatories, sig)
+			subnetSignatories.PushBack(sig)
 		}
 	} else {
-		subnetSignatories = g.dht.Subnet(subnet)
+		for _, sig := range g.dht.Subnet(subnet) {
+			subnetSignatories.PushBack(sig)
+		}
 	}
 
 	// Loop indefinitely until we have sent min(alpha, n) messages.
 	alpha := g.opts.Alpha
-	if alpha > len(subnetSignatories) {
-		alpha = len(subnetSignatories)
+	numSignatories := subnetSignatories.Len()
+	if alpha > numSignatories {
+		alpha = numSignatories
 	}
 	for {
-		for i := 0; i < len(subnetSignatories); i++ {
+		for sig := subnetSignatories.Front(); sig != nil; sig = sig.Next() {
 			// We express an exponential bias for the signatories that are
 			// earlier in the queue (i.e. have pubkey hashes that are similar to
 			// our own).
@@ -366,8 +370,8 @@ func (g *Gossiper) sendToSubnet(subnet id.Hash, msg wire.Message) {
 			if g.r.Float64() < g.opts.Bias {
 				// Get the associated address, and then remove this signatory
 				// from the slice so that we do not gossip to it multiple times.
-				addr, ok := g.dht.Addr(subnetSignatories[i])
-				subnetSignatories = append(subnetSignatories[:i], subnetSignatories[i+1:]...)
+				addr, ok := g.dht.Addr(sig.Value.(id.Signatory))
+				subnetSignatories.Remove(sig)
 				alpha--
 				if ok {
 					g.send(addr, msg)
