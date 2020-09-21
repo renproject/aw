@@ -345,9 +345,9 @@ func (g *Gossiper) sendToSubnet(subnet id.Hash, msg wire.Message) {
 			subnetSignatories.PushBack(sig)
 		}
 	} else {
-		for _, sig := range g.dht.Subnet(subnet) {
-			subnetSignatories.PushBack(sig)
-		}
+		// If default subnet is not used for gossipping, use slice rather than list
+		g.sendToSubnetHelper(g.dht.Subnet(subnet), &msg)
+		return
 	}
 
 	// Loop indefinitely until we have sent min(alpha, n) messages.
@@ -374,6 +374,40 @@ func (g *Gossiper) sendToSubnet(subnet id.Hash, msg wire.Message) {
 				alpha--
 				if ok {
 					g.send(addr, msg)
+				}
+				break
+			}
+		}
+		if alpha == 0 {
+			break
+		}
+	}
+}
+
+func (g *Gossiper) sendToSubnetHelper(subnetSignatories []id.Signatory, msg *wire.Message) {
+	alpha := g.opts.Alpha
+	numSignatories := len(subnetSignatories)
+	if alpha > numSignatories {
+		alpha = numSignatories
+	}
+	for {
+		for i := 0; i <= numSignatories; i++ {
+			// We express an exponential bias for the signatories that are
+			// earlier in the queue (i.e. have pubkey hashes that are similar to
+			// our own).
+			//
+			// The smaller the bias, the more connections we are likely to be
+			// maintaining at any one time. However, if the bias is too small,
+			// we will not maintain any connections and are more likely to be
+			// constantly creating new ones on-demand.
+			if g.r.Float64() < g.opts.Bias {
+				// Get the associated address, and then remove this signatory
+				// from the slice so that we do not gossip to it multiple times.
+				addr, ok := g.dht.Addr(subnetSignatories[i])
+				subnetSignatories = append(subnetSignatories[:i], subnetSignatories[i+1:]...)
+				alpha--
+				if ok {
+					g.send(addr, *msg)
 				}
 				break
 			}
