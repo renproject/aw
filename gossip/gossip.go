@@ -331,7 +331,6 @@ func (g *Gossiper) DidReceivePullAck(version wire.Version, data []byte, from id.
 }
 
 func (g *Gossiper) sendToSubnet(subnet id.Hash, msg wire.Message) {
-	// var subnetSignatories []id.Signatory
 	subnetSignatories := list.New()
 	if subnet == DefaultSubnet {
 		// If the default subnet hash is provided, return a random subset of all
