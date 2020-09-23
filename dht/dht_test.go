@@ -232,6 +232,48 @@ var _ = Describe("DHT", func() {
 				Expect(n).To(Equal(numAddrs))
 			})
 		})
+
+		Measure("Add 1000 addresses", func(b Benchmarker) {
+			seed := rand.Int63()
+			table, _ := initDHT()
+			addrs := make([]wire.Address, 0)
+			for i := 0; i < 1000; i++ {
+				privKey := id.NewPrivKey()
+				addr := wireutil.NewAddressBuilder(
+					privKey,
+					rand.New(rand.NewSource(seed)),
+				).Build()
+				addrs = append(addrs, addr)
+			}
+			runtime := b.Time("runtime", func() {
+				for i := 0; i < len(addrs); i++ {
+					table.InsertAddr(addrs[i])
+				}
+			})
+			Ω(runtime.Seconds())
+		}, 10)
+
+		Measure("it should do something hard efficiently", func(b Benchmarker) {
+			seed := rand.Int63()
+			table, _ := initDHT()
+			signatories := make([]id.Signatory, 0)
+			for i := 0; i < 1000; i++ {
+				privKey := id.NewPrivKey()
+				addr := wireutil.NewAddressBuilder(
+					privKey,
+					rand.New(rand.NewSource(seed)),
+				).Build()
+				table.InsertAddr(addr)
+				sig, _ := addr.Signatory()
+				signatories = append(signatories, sig)
+			}
+			runtime := b.Time("runtime", func() {
+				for i := 0; i < len(signatories); i++ {
+					table.DeleteAddr(signatories[i])
+				}
+			})
+			Ω(runtime.Seconds())
+		}, 10)
 	})
 
 	Describe("Content", func() {

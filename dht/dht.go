@@ -4,6 +4,7 @@ import (
 	"sort"
 	"sync"
 
+	hbm "github.com/rahulghangas/gods/maps/hashbidimap"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 )
@@ -69,7 +70,8 @@ type distributedHashTable struct {
 	addrsSorted   []wire.Address
 
 	addrsBySignatoryMu *sync.Mutex
-	addrsBySignatory   map[id.Signatory]wire.Address
+	addrsBySignatory   *hbm.Map
+	// addrsBySignatory   map[id.Signatory]wire.Address
 
 	subnetsByHashMu *sync.Mutex
 	subnetsByHash   map[id.Hash][]id.Signatory
@@ -96,7 +98,8 @@ func New(identity id.Signatory, contentResolver ContentResolver) DHT {
 		addrsSorted:   []wire.Address{},
 
 		addrsBySignatoryMu: new(sync.Mutex),
-		addrsBySignatory:   map[id.Signatory]wire.Address{},
+		addrsBySignatory:   hbm.New(),
+		// addrsBySignatory:   map[id.Signatory]wire.Address{},
 
 		subnetsByHashMu: new(sync.Mutex),
 		subnetsByHash:   map[id.Hash][]id.Signatory{},
@@ -123,14 +126,15 @@ func (dht *distributedHashTable) InsertAddr(addr wire.Address) bool {
 		return false
 	}
 
-	existingAddr, ok := dht.addrsBySignatory[signatory]
+	existingAddr, ok := dht.addrsBySignatory.Get(signatory)
 	if ok {
-		if addr.Equal(&existingAddr) {
+		existingAddrCopy := existingAddr.(wire.Address)
+		if addr.Equal(&existingAddrCopy) {
 			// If the addresses are the same, then the inserted address is not
 			// new.
 			return false
 		}
-		if addr.Nonce <= existingAddr.Nonce {
+		if addr.Nonce <= existingAddrCopy.Nonce {
 			// If the inserted address does not have a greater nonce than the
 			// existing address, we ignore the inserted address. This means we
 			// have not inserted a new address, so we must return false.
@@ -139,17 +143,17 @@ func (dht *distributedHashTable) InsertAddr(addr wire.Address) bool {
 	}
 
 	// Insert into the map to allow for address lookup using the signatory.
-	dht.addrsBySignatory[signatory] = addr
+	dht.addrsBySignatory.Put(signatory, addr)
 
 	// Insert into the sorted address list based on its XOR distance from our
 	// own address.
 	i := sort.Search(len(dht.addrsSorted), func(i int) bool {
-		currentSig, err := dht.addrsSorted[i].Signatory()
-		if err != nil {
+		currentSig, ok := dht.addrsBySignatory.GetKey(dht.addrsSorted[i])
+		if !ok {
 			return false
 		}
 
-		return dht.isCloser(signatory, currentSig)
+		return dht.isCloser(signatory, currentSig.(id.Signatory))
 	})
 	dht.addrsSorted = append(dht.addrsSorted, wire.Address{})
 	copy(dht.addrsSorted[i+1:], dht.addrsSorted[i:])
@@ -167,7 +171,7 @@ func (dht *distributedHashTable) DeleteAddr(signatory id.Signatory) {
 	defer dht.addrsSortedMu.Unlock()
 
 	// Delete from the map.
-	delete(dht.addrsBySignatory, signatory)
+	dht.addrsBySignatory.Remove(signatory)
 
 	// Delete from the sorted list.
 	i := sort.Search(len(dht.addrsSorted), func(i int) bool {
@@ -198,8 +202,11 @@ func (dht *distributedHashTable) Addr(signatory id.Signatory) (wire.Address, boo
 	dht.addrsBySignatoryMu.Lock()
 	defer dht.addrsBySignatoryMu.Unlock()
 
-	addr, ok := dht.addrsBySignatory[signatory] // This is safe, because addresses are cloned by default.
-	return addr, ok
+	addr, ok := dht.addrsBySignatory.Get(signatory) // This is safe, because addresses are cloned by default.
+	if !ok {
+		return wire.Address{}, ok
+	}
+	return addr.(wire.Address), ok
 }
 
 // Addrs returns a subset of addresses in the store ordered by their XOR
@@ -232,7 +239,7 @@ func (dht *distributedHashTable) NumAddrs() (int, error) {
 	dht.addrsBySignatoryMu.Lock()
 	defer dht.addrsBySignatoryMu.Unlock()
 
-	return len(dht.addrsBySignatory), nil
+	return dht.addrsBySignatory.Size(), nil
 }
 
 // InsertContent into the DHT. Returns true if there is not already content
