@@ -233,7 +233,7 @@ var _ = Describe("DHT", func() {
 			})
 		})
 
-		Measure("Add 1000 addresses", func(b Benchmarker) {
+		Measure("Adding 1000 addresses to distributed hash table", func(b Benchmarker) {
 			seed := rand.Int63()
 			table, _ := initDHT()
 			addrs := make([]wire.Address, 0)
@@ -253,7 +253,7 @@ var _ = Describe("DHT", func() {
 			Ω(runtime.Seconds())
 		}, 10)
 
-		Measure("it should do something hard efficiently", func(b Benchmarker) {
+		Measure("Removing 1000 addresses from distributed hash table", func(b Benchmarker) {
 			seed := rand.Int63()
 			table, _ := initDHT()
 			signatories := make([]id.Signatory, 0)

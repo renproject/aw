@@ -175,12 +175,12 @@ func (dht *distributedHashTable) DeleteAddr(signatory id.Signatory) {
 
 	// Delete from the sorted list.
 	i := sort.Search(len(dht.addrsSorted), func(i int) bool {
-		currentSig, err := dht.addrsSorted[i].Signatory()
-		if err != nil {
+		currentSig, ok := dht.addrsBySignatory.GetKey(dht.addrsSorted[i])
+		if !ok {
 			return false
 		}
 
-		return dht.isCloser(signatory, currentSig)
+		return dht.isCloser(signatory, currentSig.(id.Signatory))
 	})
 	if i < len(dht.addrsSorted) {
 		expectedSig, err := dht.addrsSorted[i].Signatory()
