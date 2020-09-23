@@ -3,7 +3,6 @@ module github.com/renproject/aw
 go 1.12
 
 require (
-	github.com/emirpasic/gods v1.12.0 // indirect
 	github.com/ethereum/go-ethereum v1.9.10
 	github.com/onsi/ginkgo v1.12.3
 	github.com/onsi/gomega v1.10.1
