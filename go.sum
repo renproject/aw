@@ -223,8 +223,8 @@ github.com/prometheus/procfs v0.0.0-20181005140218-185b4288413d/go.mod h1:c3At6R
 github.com/prometheus/procfs v0.0.2/go.mod h1:TjEm7ze935MbeOT/UhFTIMYKhuLP4wbCsTZCD3I8kEA=
 github.com/prometheus/procfs v0.0.3/go.mod h1:4A/X28fw3Fc593LaREMrKMqOKvUAntwMDaekg4FpcdQ=
 github.com/prometheus/tsdb v0.6.2-0.20190402121629-4f204dcbc150/go.mod h1:qhTCs0VvXwvX/y3TZrWD7rabWM+ijKTux40TwIPHuXU=
-github.com/rahulghangas/gods v1.12.0 h1:KqY6QdIs2KoWdQ1yPAe1gaMt+dL6MZPi2bch1BvGY5A=
-github.com/rahulghangas/gods v1.12.0/go.mod h1:pnYIQZuBWhejLzkw2oMv0yLcL6ECxq75FmACBdMemXg=
+github.com/rahulghangas/gods v1.13.0 h1:cGJxiQ0UJc/1jGW7w+OPDUUAGTl6BZJUWvBXku0TpHE=
+github.com/rahulghangas/gods v1.13.0/go.mod h1:pnYIQZuBWhejLzkw2oMv0yLcL6ECxq75FmACBdMemXg=
 github.com/rcrowley/go-metrics v0.0.0-20181016184325-3113b8401b8a/go.mod h1:bCqnVzQkZxMG4s8nGwiZ5l3QUCyqpo9Y+/ZMZ9VjZe4=
 github.com/renproject/abi v0.4.1 h1:UbrC6CSGi7T2VBhKZO9EzRyvCpmTDV+gHCb+WVVTZiQ=
 github.com/renproject/abi v0.4.1/go.mod h1:Ug37KRS/um6elthcIgCRrzDfyJquVE+4RYBS6ykbOQI=
