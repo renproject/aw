@@ -45,7 +45,7 @@ type DHT interface {
 	// hash. Otherwise, it returns false. This is more efficiently for checking
 	// existence than the Content method, because no bytes are copied.
 	HasContent(id.Hash, uint8) bool
-	// HasContent returns true when there empty/nil content associated with the
+	// HasEmptyContent returns true when there empty/nil content associated with the
 	// given hash. Otherwise, it returns false. This is more efficiently for
 	// checking existence than the Content method, because no bytes are copied.
 	// Note: not having content is different from having empty/nil content.
