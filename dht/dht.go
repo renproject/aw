@@ -141,6 +141,10 @@ func (dht *distributedHashTable) InsertAddr(addr wire.Address) bool {
 		}
 	}
 
+	// Insert into the map to allow for address lookup using the signatory.
+	dht.addrsBySignatory[signatory] = addr
+	dht.signatoriesByAddr[addr] = signatory
+
 	// Insert into the sorted address list based on its XOR distance from our
 	// own address.
 	i := sort.Search(len(dht.addrsSorted), func(i int) bool {
@@ -154,10 +158,6 @@ func (dht *distributedHashTable) InsertAddr(addr wire.Address) bool {
 	dht.addrsSorted = append(dht.addrsSorted, wire.Address{})
 	copy(dht.addrsSorted[i+1:], dht.addrsSorted[i:])
 	dht.addrsSorted[i] = addr
-
-	// Insert into the map to allow for address lookup using the signatory.
-	dht.addrsBySignatory[signatory] = addr
-	dht.signatoriesByAddr[addr] = signatory
 
 	return true
 }
