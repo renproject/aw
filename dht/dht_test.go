@@ -155,7 +155,7 @@ var _ = Describe("DHT", func() {
 				addrs := table.Addrs(numAddrs)
 				Expect(len(addrs)).To(Equal(numAddrs))
 
-				// Remove last addresses, query sorted addresses again
+				// Remove first addresses, query sorted addresses again
 				// and check if they are equal to the number of addresses
 				// sans 1
 				addrToDelete := addrs[0]
