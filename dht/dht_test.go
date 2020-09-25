@@ -232,6 +232,58 @@ var _ = Describe("DHT", func() {
 				Expect(n).To(Equal(numAddrs))
 			})
 		})
+
+		Context("when deleting an address", func() {
+			It("should not be present in sorted addresses", func() {
+
+				f := func(seed int64) bool {
+					table, _ := initDHT()
+					numAddrs := rand.Intn(90) + 10 // [10, 100)
+
+					privKey := id.NewPrivKey()
+					addr := wireutil.NewAddressBuilder(
+						privKey,
+						rand.New(rand.NewSource(seed)),
+					).Build()
+
+					// Try to delete the address prior to inserting to make sure
+					// it does not panic.
+					signatory := id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
+					table.DeleteAddr(signatory)
+
+					// Insert random number of addresses
+					for i := 0; i < numAddrs; i++ {
+						privKey := id.NewPrivKey()
+						randAddr := wireutil.NewAddressBuilder(
+							privKey,
+							rand.New(rand.NewSource(GinkgoRandomSeed()+1)),
+						).Build()
+
+						ok := table.InsertAddr(randAddr)
+						Expect(ok).To(BeTrue())
+					}
+
+					// Insert the initial address
+					ok := table.InsertAddr(addr)
+					Expect(ok).To(BeTrue())
+
+					// Delete the address and make sure it no longer exists
+					// in the sorted array of addresses
+					table.DeleteAddr(signatory)
+
+					Expect(table.NumAddrs()).To(Equal(numAddrs))
+
+					for _, addr2 := range table.Addrs(numAddrs) {
+						if addr.Equal(&addr2) {
+							return false
+						}
+					}
+
+					return true
+				}
+				Expect(quick.Check(f, nil)).To(Succeed())
+			})
+		})
 	})
 
 	Describe("Content", func() {

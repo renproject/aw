@@ -170,7 +170,8 @@ func (dht *distributedHashTable) DeleteAddr(signatory id.Signatory) {
 	delete(dht.addrsBySignatory, signatory)
 
 	// Delete from the sorted list.
-	i := sort.Search(len(dht.addrsSorted), func(i int) bool {
+	numAddrs := len(dht.addrsSorted)
+	i := sort.Search(numAddrs, func(i int) bool {
 		currentSig, err := dht.addrsSorted[i].Signatory()
 		if err != nil {
 			return false
@@ -178,8 +179,10 @@ func (dht *distributedHashTable) DeleteAddr(signatory id.Signatory) {
 
 		return dht.isCloser(signatory, currentSig)
 	})
-	if i < len(dht.addrsSorted) {
-		expectedSig, err := dht.addrsSorted[i].Signatory()
+
+	removeIndex := i - 1
+	if removeIndex >= 0 && removeIndex < numAddrs {
+		expectedSig, err := dht.addrsSorted[removeIndex].Signatory()
 		if err != nil {
 			// This should not be possible as only addresses with valid
 			// signatories are inserted into the DHT.
@@ -187,7 +190,18 @@ func (dht *distributedHashTable) DeleteAddr(signatory id.Signatory) {
 		}
 
 		if expectedSig.Equal(&signatory) {
-			dht.addrsSorted = append(dht.addrsSorted[:i], dht.addrsSorted[i+1:]...)
+			dht.addrsSorted = append(dht.addrsSorted[:removeIndex], dht.addrsSorted[removeIndex+1:]...)
+		}
+	} else if numAddrs > 0 {
+		expectedSig, err := dht.addrsSorted[numAddrs-1].Signatory()
+		if err != nil {
+			// This should not be possible as only addresses with valid
+			// signatories are inserted into the DHT.
+			return
+		}
+
+		if expectedSig.Equal(&signatory) {
+			dht.addrsSorted = dht.addrsSorted[:numAddrs-1]
 		}
 	}
 }
