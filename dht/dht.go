@@ -192,17 +192,6 @@ func (dht *distributedHashTable) DeleteAddr(signatory id.Signatory) {
 		if expectedSig.Equal(&signatory) {
 			dht.addrsSorted = append(dht.addrsSorted[:removeIndex], dht.addrsSorted[removeIndex+1:]...)
 		}
-	} else if numAddrs > 0 {
-		expectedSig, err := dht.addrsSorted[numAddrs-1].Signatory()
-		if err != nil {
-			// This should not be possible as only addresses with valid
-			// signatories are inserted into the DHT.
-			return
-		}
-
-		if expectedSig.Equal(&signatory) {
-			dht.addrsSorted = dht.addrsSorted[:numAddrs-1]
-		}
 	}
 }
 
