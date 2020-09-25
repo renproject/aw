@@ -134,6 +134,128 @@ var _ = Describe("DHT", func() {
 			})
 		})
 
+		Context("when deleting an address at start of array", func() {
+			It("should not be present in sorted addresses", func() {
+				table, _ := initDHT()
+				numAddrs := 10
+
+				for i := 0; i < numAddrs; i++ {
+					privKey := id.NewPrivKey()
+					randAddr := wireutil.NewAddressBuilder(
+						privKey,
+						rand.New(rand.NewSource(GinkgoRandomSeed()+1)),
+					).Build()
+
+					ok := table.InsertAddr(randAddr)
+					Expect(ok).To(BeTrue())
+				}
+
+				// Get sorted addresses and check if they are equal
+				// to the number of inserted addresses
+				addrs := table.Addrs(numAddrs)
+				Expect(len(addrs)).To(Equal(numAddrs))
+
+				// Remove last addresses, query sorted addresses again
+				// and check if they are equal to the number of addresses
+				// sans 1
+				addrToDelete := addrs[0]
+				sig, err := addrToDelete.Signatory()
+				Expect(err).To(BeNil())
+				table.DeleteAddr(sig)
+				addrs = table.Addrs(numAddrs - 1)
+				Expect(len(addrs)).To(Equal(numAddrs - 1))
+
+				// Check if the address still exists in array
+				Expect(addrs[0].Equal(&addrToDelete)).To(Equal(false))
+			})
+		})
+
+		Context("when deleting an address at end of array", func() {
+			It("should not be present in sorted addresses", func() {
+				table, _ := initDHT()
+				numAddrs := 10
+
+				for i := 0; i < numAddrs; i++ {
+					privKey := id.NewPrivKey()
+					randAddr := wireutil.NewAddressBuilder(
+						privKey,
+						rand.New(rand.NewSource(GinkgoRandomSeed()+1)),
+					).Build()
+
+					ok := table.InsertAddr(randAddr)
+					Expect(ok).To(BeTrue())
+				}
+
+				// Get sorted addresses and check if they are equal
+				// to the number of inserted addresses
+				addrs := table.Addrs(numAddrs)
+				Expect(len(addrs)).To(Equal(numAddrs))
+
+				// Remove last addresses, query sorted addresses again
+				// and check if they are equal to the number of addresses
+				// sans 1
+				addrToDelete := addrs[numAddrs-1]
+				sig, err := addrToDelete.Signatory()
+				Expect(err).To(BeNil())
+				table.DeleteAddr(sig)
+				addrs = table.Addrs(numAddrs - 1)
+				Expect(len(addrs)).To(Equal(numAddrs - 1))
+
+				// Check if the address still exists in array
+				Expect(addrs[numAddrs-2].Equal(&addrToDelete)).To(Equal(false))
+			})
+		})
+
+		Context("when deleting an address", func() {
+			It("should not be present in sorted addresses", func() {
+
+				f := func(seed int64) bool {
+					table, _ := initDHT()
+					numAddrs := rand.Intn(90) + 10 // [10, 100)
+
+					privKey := id.NewPrivKey()
+					addr := wireutil.NewAddressBuilder(
+						privKey,
+						rand.New(rand.NewSource(seed)),
+					).Build()
+
+					// Try to delete the address prior to inserting to make sure
+					// it does not panic.
+					signatory := id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
+					table.DeleteAddr(signatory)
+
+					// Insert random number of addresses
+					for i := 0; i < numAddrs; i++ {
+						privKey := id.NewPrivKey()
+						randAddr := wireutil.NewAddressBuilder(
+							privKey,
+							rand.New(rand.NewSource(GinkgoRandomSeed()+1)),
+						).Build()
+
+						ok := table.InsertAddr(randAddr)
+						Expect(ok).To(BeTrue())
+					}
+
+					// Insert the initial address
+					ok := table.InsertAddr(addr)
+					Expect(ok).To(BeTrue())
+
+					// Delete the address and make sure it no longer exists
+					// in the sorted array of addresses
+					table.DeleteAddr(signatory)
+					Expect(table.NumAddrs()).To(Equal(numAddrs))
+
+					for _, addr2 := range table.Addrs(numAddrs) {
+						if addr.Equal(&addr2) {
+							return false
+						}
+					}
+					return true
+				}
+				Expect(quick.Check(f, nil)).To(Succeed())
+			})
+		})
+
 		Context("when querying addresses", func() {
 			It("should return them in order of their XOR distance", func() {
 				table, identity := initDHT()
