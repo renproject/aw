@@ -270,7 +270,6 @@ var _ = Describe("DHT", func() {
 					// Delete the address and make sure it no longer exists
 					// in the sorted array of addresses
 					table.DeleteAddr(signatory)
-
 					Expect(table.NumAddrs()).To(Equal(numAddrs))
 
 					for _, addr2 := range table.Addrs(numAddrs) {
@@ -278,7 +277,6 @@ var _ = Describe("DHT", func() {
 							return false
 						}
 					}
-
 					return true
 				}
 				Expect(quick.Check(f, nil)).To(Succeed())
