@@ -181,7 +181,7 @@ func (dht *distributedHashTable) DeleteAddr(signatory id.Signatory) {
 	})
 
 	removeIndex := i - 1
-	if removeIndex >= 0 && removeIndex < numAddrs {
+	if removeIndex >= 0 {
 		expectedSig, err := dht.addrsSorted[removeIndex].Signatory()
 		if err != nil {
 			// This should not be possible as only addresses with valid
