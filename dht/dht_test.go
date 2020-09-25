@@ -161,11 +161,11 @@ var _ = Describe("DHT", func() {
 				addrToDelete := addrs[0]
 				sig, err := addrToDelete.Signatory()
 				Expect(err).To(BeNil())
-
 				table.DeleteAddr(sig)
 				addrs = table.Addrs(numAddrs - 1)
 				Expect(len(addrs)).To(Equal(numAddrs - 1))
 
+				// Check if the address still exists in array
 				Expect(addrs[0].Equal(&addrToDelete)).To(Equal(false))
 			})
 		})
@@ -197,11 +197,11 @@ var _ = Describe("DHT", func() {
 				addrToDelete := addrs[numAddrs-1]
 				sig, err := addrToDelete.Signatory()
 				Expect(err).To(BeNil())
-
 				table.DeleteAddr(sig)
 				addrs = table.Addrs(numAddrs - 1)
 				Expect(len(addrs)).To(Equal(numAddrs - 1))
 
+				// Check if the address still exists in array
 				Expect(addrs[numAddrs-2].Equal(&addrToDelete)).To(Equal(false))
 			})
 		})
