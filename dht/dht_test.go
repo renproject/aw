@@ -284,6 +284,78 @@ var _ = Describe("DHT", func() {
 		})
 	})
 
+	Context("when deleting an address at end of array", func() {
+		It("should not be present in sorted addresses", func() {
+			table, _ := initDHT()
+			numAddrs := 10
+
+			for i := 0; i < numAddrs; i++ {
+				privKey := id.NewPrivKey()
+				randAddr := wireutil.NewAddressBuilder(
+					privKey,
+					rand.New(rand.NewSource(GinkgoRandomSeed()+1)),
+				).Build()
+
+				ok := table.InsertAddr(randAddr)
+				Expect(ok).To(BeTrue())
+			}
+
+			// Get sorted addresses and check if they are equal
+			// to the number of inserted addresses
+			addrs := table.Addrs(numAddrs)
+			Expect(len(addrs)).To(Equal(numAddrs))
+
+			// Remove last addresses, query sorted addresses again
+			// and check if they are equal to the number of addresses
+			// sans 1
+			addrToDelete := addrs[numAddrs-1]
+			sig, err := addrToDelete.Signatory()
+			Expect(err).To(BeNil())
+
+			table.DeleteAddr(sig)
+			addrs = table.Addrs(numAddrs - 1)
+			Expect(len(addrs)).To(Equal(numAddrs - 1))
+
+			Expect(addrs[numAddrs-2].Equal(&addrToDelete)).To(Equal(false))
+		})
+	})
+
+	Context("when deleting an address at start of array", func() {
+		It("should not be present in sorted addresses", func() {
+			table, _ := initDHT()
+			numAddrs := 10
+
+			for i := 0; i < numAddrs; i++ {
+				privKey := id.NewPrivKey()
+				randAddr := wireutil.NewAddressBuilder(
+					privKey,
+					rand.New(rand.NewSource(GinkgoRandomSeed()+1)),
+				).Build()
+
+				ok := table.InsertAddr(randAddr)
+				Expect(ok).To(BeTrue())
+			}
+
+			// Get sorted addresses and check if they are equal
+			// to the number of inserted addresses
+			addrs := table.Addrs(numAddrs)
+			Expect(len(addrs)).To(Equal(numAddrs))
+
+			// Remove last addresses, query sorted addresses again
+			// and check if they are equal to the number of addresses
+			// sans 1
+			addrToDelete := addrs[0]
+			sig, err := addrToDelete.Signatory()
+			Expect(err).To(BeNil())
+
+			table.DeleteAddr(sig)
+			addrs = table.Addrs(numAddrs - 1)
+			Expect(len(addrs)).To(Equal(numAddrs - 1))
+
+			Expect(addrs[0].Equal(&addrToDelete)).To(Equal(false))
+		})
+	})
+
 	Describe("Content", func() {
 		Context("when initialising a DHT without a content resolver", func() {
 			It("should panic", func() {
