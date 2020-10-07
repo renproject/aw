@@ -98,5 +98,18 @@ var _ = Describe("Address", func() {
 			}
 			Expect(quick.Check(f, nil)).To(Succeed())
 		})
+
+		It("should fail for addresses signed using incorrect private keys", func() {
+			f := func() bool {
+				pk := id.NewPrivKey()
+				expectedSignatory := pk.Signatory()
+				wireAddress := wire.NewUnsignedAddress(wire.TCP, "0.0.0.0", uint64(time.Now().UnixNano()))
+				Expect(wireAddress.Sign(id.NewPrivKey())).To(Succeed())
+				err := wireAddress.Verify(expectedSignatory)
+				Expect(err.Error()).Should(ContainSubstring("verifying address signatory"))
+				return true
+			}
+			Expect(quick.Check(f, nil)).To(Succeed())
+		})
 	})
 })
