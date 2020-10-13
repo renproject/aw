@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math/rand"
+	"reflect"
 
 	"github.com/renproject/id"
 	"github.com/renproject/surge"
@@ -118,6 +120,19 @@ type PingV1 struct {
 	// like to know about.
 }
 
+// Generate implements the quick.Generator interface.
+func (s PingV1) Generate(r *rand.Rand, size int) reflect.Value {
+	address := Address{
+		Protocol:  uint8(r.Uint32()),
+		Value:     string(make([]byte, size)),
+		Nonce:     r.Uint64(),
+		Signature: [id.SizeHintSignature]byte{},
+	}
+	rand.Read([]byte(address.Value)[:])
+	rand.Read(address.Signature[:])
+	return reflect.ValueOf(PingV1{Addr: address})
+}
+
 func (ping PingV1) SizeHint() int {
 	return ping.Addr.SizeHint()
 }
@@ -132,6 +147,27 @@ func (ping *PingV1) Unmarshal(buf []byte, rem int) ([]byte, int, error) {
 
 type PingAckV1 struct {
 	Addrs []Address `json:"addrs"`
+}
+
+// Generate implements the quick.Generator interface.
+func (s PingAckV1) Generate(r *rand.Rand, size int) reflect.Value {
+	dataSize := (r.Int() % size) + 1
+	n := size / dataSize
+	if n == 0 {
+		n += 1
+	}
+	addrs := make([]Address, n)
+	for i := range addrs {
+		addrs[i] = Address{
+			Protocol:  uint8(r.Uint32()),
+			Value:     string(make([]byte, size)),
+			Nonce:     r.Uint64(),
+			Signature: [id.SizeHintSignature]byte{},
+		}
+		rand.Read([]byte(addrs[i].Value)[:])
+		rand.Read(addrs[i].Signature[:])
+	}
+	return reflect.ValueOf(PingAckV1{Addrs: addrs})
 }
 
 func (pingAck PingAckV1) SizeHint() int {
@@ -150,6 +186,18 @@ type PushV1 struct {
 	Subnet      id.Hash `json:"subnet"` // TODO: Remove the subnet? Make it optional?
 	ContentHash id.Hash `json:"hash"`
 	ContentType uint8   `json:"type"`
+}
+
+// Generate implements the quick.Generator interface.
+func (s PushV1) Generate(r *rand.Rand, _ int) reflect.Value {
+	push := PushV1{
+		Subnet:      id.Hash{},
+		ContentHash: id.Hash{},
+		ContentType: uint8(r.Uint32()),
+	}
+	rand.Read(push.Subnet[:])
+	rand.Read(push.ContentHash[:])
+	return reflect.ValueOf(push)
 }
 
 func (push PushV1) SizeHint() int {
@@ -183,6 +231,11 @@ func (push *PushV1) Unmarshal(buf []byte, rem int) ([]byte, int, error) {
 type PushAckV1 struct {
 }
 
+// Generate implements the quick.Generator interface.
+func (s PushAckV1) Generate(_ *rand.Rand, _ int) reflect.Value {
+	return reflect.ValueOf(PushAckV1{})
+}
+
 func (push PushAckV1) SizeHint() int {
 	return 0
 }
@@ -199,6 +252,18 @@ type PullV1 struct {
 	Subnet      id.Hash `json:"subnet"` // TODO: Remove the subnet? Make it optional?
 	ContentHash id.Hash `json:"hash"`
 	ContentType uint8   `json:"type"`
+}
+
+// Generate implements the quick.Generator interface.
+func (s PullV1) Generate(r *rand.Rand, _ int) reflect.Value {
+	pull := PullV1{
+		Subnet:      id.Hash{},
+		ContentHash: id.Hash{},
+		ContentType: uint8(r.Uint32()),
+	}
+	rand.Read(pull.Subnet[:])
+	rand.Read(pull.ContentHash[:])
+	return reflect.ValueOf(pull)
 }
 
 func (pull PullV1) SizeHint() int {
@@ -241,6 +306,20 @@ func (pullAck PullAckV1) SizeHint() int {
 		pullAck.ContentHash.SizeHint() +
 		surge.SizeHintU8 +
 		surge.SizeHintBytes(pullAck.Content)
+}
+
+// Generate implements the quick.Generator interface.
+func (s PullAckV1) Generate(r *rand.Rand, size int) reflect.Value {
+	pull := PullAckV1{
+		Subnet:      id.Hash{},
+		ContentHash: id.Hash{},
+		ContentType: uint8(r.Uint32()),
+		Content:     make([]byte, size),
+	}
+	rand.Read(pull.Subnet[:])
+	rand.Read(pull.ContentHash[:])
+	rand.Read(pull.Content[:])
+	return reflect.ValueOf(pull)
 }
 
 func (pullAck PullAckV1) Marshal(buf []byte, rem int) ([]byte, int, error) {
