@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestDht(t *testing.T) {
+func TestAirwave(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Functional Interface suite")
 }
