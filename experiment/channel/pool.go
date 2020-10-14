@@ -41,6 +41,13 @@ func (pool *ChannelPool) HighestPeerWinsHandshake(self id.Signatory, h handshake
 			if keepAlive[0] == 0 {
 				return nil, nil, remote, fmt.Errorf("remote peer killed connection")
 			}
+			pool.chs[remote] = Channel{
+				self:    self,
+				remote:  remote,
+				conn:    conn,
+				encoder: enc,
+				decoder: dec,
+			}
 			return enc, dec, remote, nil
 		}
 
