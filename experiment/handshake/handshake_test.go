@@ -1,4 +1,4 @@
-package handshake2_test
+package handshake_test
 
 import (
 	. "github.com/onsi/ginkgo"

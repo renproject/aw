@@ -1,13 +1,14 @@
-package conn
+package tcp
 
 import (
 	"context"
 	"net"
 	"time"
+
+	"github.com/renproject/aw/experiment/policy"
 )
 
-// Listen implements a
-func Listen(ctx context.Context, address string, handle func(net.Conn), handleErr func(error), allow Allow) error {
+func Listen(ctx context.Context, address string, handle func(net.Conn), handleErr func(error), allow policy.Allow) error {
 	// Create a TCP listener from given address and return an error if unable to do so
 	listener, err := new(net.ListenConfig).Listen(ctx, "tcp", address)
 	if err != nil {

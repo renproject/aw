@@ -1,4 +1,4 @@
-package conn_test
+package tcp_test
 
 import (
 	"bufio"
@@ -9,7 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/renproject/aw/conn"
+	"github.com/renproject/aw/experiment/policy"
+	"github.com/renproject/aw/experiment/tcp"
 )
 
 func printError(err error) {
@@ -30,7 +31,7 @@ func TestDialAndThenListen(t *testing.T) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		conn.Dial(
+		tcp.Dial(
 			ctx,
 			"localhost:3333",
 			func(c net.Conn) {
@@ -39,11 +40,7 @@ func TestDialAndThenListen(t *testing.T) {
 				writer.Flush()
 			},
 			func(err error) { log.Println("dialing:", err) },
-			func() func(int) time.Duration {
-				return func(attempt int) time.Duration {
-					return conn.DefaultTimeout(attempt) / 20
-				}
-			}(),
+			policy.ConstantTimeout(time.Second),
 		)
 		// printError(err)
 		<-clientDone
@@ -55,7 +52,7 @@ func TestDialAndThenListen(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	go func() {
-		conn.Listen(
+		tcp.Listen(
 			ctx,
 			"localhost:3333",
 			func(conn net.Conn) {
@@ -69,7 +66,7 @@ func TestDialAndThenListen(t *testing.T) {
 				close(clientDone)
 			},
 			func(err error) { log.Println("listening:", err) },
-			conn.All(conn.Max(2), conn.RateLimit(10, 1, 65535)),
+			policy.All(policy.Max(2), policy.RateLimit(10, 1, 65535)),
 		)
 		// printError(err)
 	}()
@@ -90,7 +87,7 @@ func TestListenAndThenDial(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	go func() {
-		conn.Listen(
+		tcp.Listen(
 			ctx,
 			"localhost:3335",
 			func(conn net.Conn) {
@@ -104,7 +101,7 @@ func TestListenAndThenDial(t *testing.T) {
 				close(clientDone)
 			},
 			func(err error) { log.Println("listening:", err) },
-			conn.All(conn.Max(2), conn.RateLimit(10, 1, 65535)),
+			policy.All(policy.Max(2), policy.RateLimit(10, 1, 65535)),
 		)
 		// printError(err)
 	}()
@@ -114,7 +111,7 @@ func TestListenAndThenDial(t *testing.T) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		conn.Dial(
+		tcp.Dial(
 			ctx,
 			"localhost:3335",
 			func(c net.Conn) {
@@ -123,11 +120,7 @@ func TestListenAndThenDial(t *testing.T) {
 				writer.Flush()
 			},
 			func(err error) { log.Println("dialing:", err) },
-			func() func(int) time.Duration {
-				return func(attempt int) time.Duration {
-					return conn.DefaultTimeout(attempt) / 20
-				}
-			}(),
+			policy.ConstantTimeout(time.Second),
 		)
 		// printError(err)
 		<-clientDone
