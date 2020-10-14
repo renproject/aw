@@ -17,8 +17,31 @@ import (
 	"github.com/renproject/surge"
 )
 
-func ECIESClientHandshake(privKey *id.PrivKey, serverPubKey *id.PubKey, r *rand.Rand) Handshake {
+func ECIESClientHandshake(privKey *id.PrivKey, r *rand.Rand) Handshake {
 	return func(conn net.Conn, enc codec.Encoder, dec codec.Decoder) (codec.Encoder, codec.Decoder, id.Signatory, error) {
+
+		serverPubKeyBuf := [keySize * 2]byte{}
+		if _, err := io.ReadFull(conn, serverPubKeyBuf[:]); err != nil {
+			return nil, nil, id.Signatory{},
+				fmt.Errorf("clieant receiving server Public key: %v", err)
+		}
+
+		xAsU256 := pack.NewU256FromInt(big.NewInt(0))
+		yAsU256 := pack.NewU256FromInt(big.NewInt(0))
+		if err := surge.FromBinary(&xAsU256, serverPubKeyBuf[:keySize]); err != nil {
+			return nil, nil, id.Signatory{},
+				fmt.Errorf("client converting server Public key X coordinate from bytes: %v", err)
+		}
+		if err := surge.FromBinary(&yAsU256, serverPubKeyBuf[keySize:]); err != nil {
+			return nil, nil, id.Signatory{},
+				fmt.Errorf("client converting server Public key Y coordinate from bytes: %v", err)
+		}
+
+		serverPubKey := id.PubKey{
+			Curve: crypto.S256(),
+			X:     xAsU256.Int(),
+			Y:     yAsU256.Int(),
+		}
 
 		clientPubKey := privKey.PubKey()
 		bytesX, err := surge.ToBinary(pack.NewU256FromInt(clientPubKey.X))
@@ -55,7 +78,7 @@ func ECIESClientHandshake(privKey *id.PrivKey, serverPubKey *id.PubKey, r *rand.
 		copy(message[:keySize], sSecretKey[:])
 		copy(message[keySize:], cSecretKey[:])
 
-		eMessage, err := ecies.Encrypt(r, ecies.ImportECDSAPublic((*ecdsa.PublicKey)(serverPubKey)), message[:], nil, nil)
+		eMessage, err := ecies.Encrypt(r, ecies.ImportECDSAPublic((*ecdsa.PublicKey)(&serverPubKey)), message[:], nil, nil)
 		if err != nil {
 			return nil, nil, id.Signatory{}, fmt.Errorf("client encrypting own secret key: %v", err)
 		}
@@ -86,12 +109,28 @@ func ECIESClientHandshake(privKey *id.PrivKey, serverPubKey *id.PubKey, r *rand.
 		if err != nil {
 			return nil, nil, id.Signatory{}, fmt.Errorf("establishing gcm session: %v", err)
 		}
-		return codec.GCMEncoder(gcmSession, enc), codec.GCMDecoder(gcmSession, dec), id.NewSignatory(serverPubKey), nil
+		return codec.GCMEncoder(gcmSession, enc), codec.GCMDecoder(gcmSession, dec), id.NewSignatory(&serverPubKey), nil
 	}
 }
 
 func ECIESServerHandshake(privKey *id.PrivKey, r *rand.Rand) Handshake {
 	return func(conn net.Conn, enc codec.Encoder, dec codec.Decoder) (codec.Encoder, codec.Decoder, id.Signatory, error) {
+
+		serverPubKey := privKey.PubKey()
+		bytesX, err := surge.ToBinary(pack.NewU256FromInt(serverPubKey.X))
+		if err != nil {
+			return nil, nil, id.Signatory{}, fmt.Errorf("server converting own Public key X coordinate to bytes: %v", err)
+		}
+		bytesY, err := surge.ToBinary(pack.NewU256FromInt(serverPubKey.Y))
+		if err != nil {
+			return nil, nil, id.Signatory{}, fmt.Errorf("server converting own Public key Y coordinate to bytes: %v", err)
+		}
+		if nBytes, err := conn.Write(bytesX); err != nil || nBytes != len(bytesX) {
+			return nil, nil, id.Signatory{}, fmt.Errorf("server sending Public key X coordinate to server\n \tError: %v\n\tnumber of bytes written: %v", err, nBytes)
+		}
+		if nBytes, err := conn.Write(bytesY); err != nil || nBytes != len(bytesY) {
+			return nil, nil, id.Signatory{}, fmt.Errorf("server sending Public key Y coordinate to server\n\tError: %v\n\tnumber of bytes written: %v", err, nBytes)
+		}
 
 		clientPubKeyBuf := [keySize * 2]byte{}
 		if _, err := io.ReadFull(conn, clientPubKeyBuf[:]); err != nil {
@@ -110,7 +149,7 @@ func ECIESServerHandshake(privKey *id.PrivKey, r *rand.Rand) Handshake {
 				fmt.Errorf("server converting client Public key Y coordinate from bytes: %v", err)
 		}
 
-		clientPubKey := ecdsa.PublicKey{
+		clientPubKey := id.PubKey{
 			Curve: crypto.S256(),
 			X:     xAsU256.Int(),
 			Y:     yAsU256.Int(),
@@ -121,7 +160,7 @@ func ECIESServerHandshake(privKey *id.PrivKey, r *rand.Rand) Handshake {
 			return nil, nil, id.Signatory{},
 				fmt.Errorf("server generating new secret key: %v", err)
 		}
-		eSSecretKey, err := ecies.Encrypt(r, ecies.ImportECDSAPublic(&clientPubKey), sSecretKey[:], nil, nil)
+		eSSecretKey, err := ecies.Encrypt(r, ecies.ImportECDSAPublic((*ecdsa.PublicKey)(&clientPubKey)), sSecretKey[:], nil, nil)
 		if err != nil {
 			return nil, nil, id.Signatory{},
 				fmt.Errorf("server encrypting secret key: %v", err)
@@ -148,7 +187,7 @@ func ECIESServerHandshake(privKey *id.PrivKey, r *rand.Rand) Handshake {
 				fmt.Errorf("server's secret key and echoed secret key from client don't match")
 		}
 
-		eCSecretKey, err := ecies.Encrypt(r, ecies.ImportECDSAPublic(&clientPubKey), message[keySize:], nil, nil)
+		eCSecretKey, err := ecies.Encrypt(r, ecies.ImportECDSAPublic((*ecdsa.PublicKey)(&clientPubKey)), message[keySize:], nil, nil)
 		if err != nil {
 			return nil, nil, id.Signatory{},
 				fmt.Errorf("server encrypting client's secret key: %v", err)
