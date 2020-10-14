@@ -34,7 +34,7 @@ func (pool *ChannelPool) HighestPeerWinsHandshake(self id.Signatory, h handshake
 		defer pool.chsMu.Unlock()
 
 		if bytes.Compare(self[:], remote[:]) < 0 {
-			keepAlive := [1]byte{}
+			keepAlive := [1024]byte{}
 			if _, err := dec(conn, keepAlive[:]); err != nil {
 				return enc, dec, remote, err
 			}
