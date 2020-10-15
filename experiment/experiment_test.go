@@ -37,9 +37,10 @@ var _ = Describe("TCP", func() {
 						"localhost:12345",
 						func(conn net.Conn) {
 							h := handshake.ECIESServerHandshake(privKey1, rand.New(rand.NewSource(time.Now().UnixNano())))
-							h = pool1.HighestPeerWinsHandshake(privKey1.Signatory(), h)
+							h, _ = pool1.HighestPeerWinsHandshake(privKey1.Signatory(), h)
 							_, _, _, err := h(conn, codec.LengthPrefixEncoder(codec.PlainEncoder), codec.LengthPrefixDecoder(codec.PlainDecoder))
 							if err != nil {
+								fmt.Printf("%v - server side \n", err)
 								atomic.AddInt64(&connectionKillCount, 1)
 							}
 							<-time.After(time.Second * 1)
@@ -54,9 +55,10 @@ var _ = Describe("TCP", func() {
 						"localhost:12346",
 						func(conn net.Conn) {
 							h := handshake.ECIESServerHandshake(privKey2, rand.New(rand.NewSource(time.Now().UnixNano())))
-							h = pool2.HighestPeerWinsHandshake(privKey2.Signatory(), h)
+							h, _ = pool2.HighestPeerWinsHandshake(privKey2.Signatory(), h)
 							_, _, _, err := h(conn, codec.LengthPrefixEncoder(codec.PlainEncoder), codec.LengthPrefixDecoder(codec.PlainDecoder))
 							if err != nil {
+								fmt.Printf("%v - server side \n", err)
 								atomic.AddInt64(&connectionKillCount, 1)
 							}
 							<-time.After(time.Second * 1)
@@ -68,12 +70,13 @@ var _ = Describe("TCP", func() {
 
 				go func() {
 					tcp.Dial(ctx,
-						"localhost:12345",
+						"localhost:12346",
 						func(conn net.Conn) {
 							h := handshake.ECIESClientHandshake(privKey1, rand.New(rand.NewSource(time.Now().UnixNano())))
-							h = pool1.HighestPeerWinsHandshake(privKey1.Signatory(), h)
+							h, _ = pool1.HighestPeerWinsHandshake(privKey1.Signatory(), h)
 							_, _, _, err := h(conn, codec.LengthPrefixEncoder(codec.PlainEncoder), codec.LengthPrefixDecoder(codec.PlainDecoder))
 							if err != nil {
+								fmt.Printf("%v - client side 1\n", err)
 								atomic.AddInt64(&connectionKillCount, 1)
 							}
 						},
@@ -83,12 +86,13 @@ var _ = Describe("TCP", func() {
 				}()
 
 				tcp.Dial(ctx,
-					"localhost:12346",
+					"localhost:12345",
 					func(conn net.Conn) {
 						h := handshake.ECIESClientHandshake(privKey2, rand.New(rand.NewSource(time.Now().UnixNano())))
-						h = pool2.HighestPeerWinsHandshake(privKey2.Signatory(), h)
+						h, _ = pool2.HighestPeerWinsHandshake(privKey2.Signatory(), h)
 						_, _, _, err := h(conn, codec.LengthPrefixEncoder(codec.PlainEncoder), codec.LengthPrefixDecoder(codec.PlainDecoder))
 						if err != nil {
+							fmt.Printf("%v - client side 2\n", err)
 							atomic.AddInt64(&connectionKillCount, 1)
 						}
 					},
@@ -118,7 +122,7 @@ var _ = Describe("TCP", func() {
 						"localhost:12345",
 						func(conn net.Conn) {
 							h := handshake.ECIESServerHandshake(privKey1, rand.New(rand.NewSource(time.Now().UnixNano())))
-							h = pool1.HighestPeerWinsHandshake(privKey1.Signatory(), h)
+							h, _ = pool1.HighestPeerWinsHandshake(privKey1.Signatory(), h)
 							_, _, _, err := h(conn, codec.LengthPrefixEncoder(codec.PlainEncoder), codec.LengthPrefixDecoder(codec.PlainDecoder))
 							if err != nil {
 								fmt.Printf("%v - server side \n", err)
@@ -136,7 +140,7 @@ var _ = Describe("TCP", func() {
 						"localhost:12345",
 						func(conn net.Conn) {
 							h := handshake.ECIESClientHandshake(privKey2, rand.New(rand.NewSource(time.Now().UnixNano())))
-							h = pool2.HighestPeerWinsHandshake(privKey2.Signatory(), h)
+							h, _ = pool2.HighestPeerWinsHandshake(privKey2.Signatory(), h)
 							_, _, _, err := h(conn, codec.LengthPrefixEncoder(codec.PlainEncoder), codec.LengthPrefixDecoder(codec.PlainDecoder))
 							if err != nil {
 								fmt.Printf("%v - client side \n", err)
@@ -152,7 +156,7 @@ var _ = Describe("TCP", func() {
 					"localhost:12345",
 					func(conn net.Conn) {
 						h := handshake.ECIESClientHandshake(privKey2, rand.New(rand.NewSource(time.Now().UnixNano())))
-						h = pool2.HighestPeerWinsHandshake(privKey2.Signatory(), h)
+						h, _ = pool2.HighestPeerWinsHandshake(privKey2.Signatory(), h)
 						_, _, _, err := h(conn, codec.LengthPrefixEncoder(codec.PlainEncoder), codec.LengthPrefixDecoder(codec.PlainDecoder))
 						if err != nil {
 							fmt.Printf("%v - client side \n", err)
