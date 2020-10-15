@@ -2,6 +2,7 @@ package channel
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -54,7 +55,7 @@ func (pool *Pool) Close(peer id.Signatory) error {
 
 	if ch, ok := pool.chs[peer]; ok {
 		delete(pool.chs, peer)
-		if err := ch.Connection().Close(); err != nil {
+		if err := ch.Close(); err != nil {
 			return fmt.Errorf("close channel to %v: %v", peer, err)
 		}
 		return nil
@@ -69,7 +70,7 @@ func (pool *Pool) CloseAll() error {
 	errs := []string{}
 
 	for peer, ch := range pool.chs {
-		if err := ch.Connection().Close(); err != nil {
+		if err := ch.Close(); err != nil {
 			errs = append(errs, fmt.Sprintf("close channel to %v: %v", peer, err))
 		}
 	}
@@ -81,7 +82,24 @@ func (pool *Pool) CloseAll() error {
 	return fmt.Errorf("close channels: %v", strings.Join(errs, ", "))
 }
 
-func (pool *Pool) HighestPeerWinsHandshake(self id.Signatory, h handshake.Handshake) handshake.Handshake {
+func (pool *Pool) HighestPeerWinsHandshake(self id.Signatory, h handshake.Handshake) (handshake.Handshake, func(context.Context, id.Signatory)) {
+	waitForClose := func(ctx context.Context, remote id.Signatory) {
+		pool.chsMu.Lock()
+		ch, ok := pool.chs[remote]
+		pool.chsMu.Unlock()
+
+		if ok {
+			select {
+			case <-ctx.Done():
+			case <-ch.Done():
+				// If the channel is replaced while we are waiting here, we will
+				// block forever if the Channel.Close method is not called
+				// during replacement. This implies that it is critical that
+				// Channel.Close is called whenever a Channel is no longer
+				// needed (e.g. it is being replaced).
+			}
+		}
+	}
 	return func(conn net.Conn, enc codec.Encoder, dec codec.Decoder) (codec.Encoder, codec.Decoder, id.Signatory, error) {
 		enc, dec, remote, err := h(conn, enc, dec)
 		if err != nil {
@@ -102,9 +120,12 @@ func (pool *Pool) HighestPeerWinsHandshake(self id.Signatory, h handshake.Handsh
 
 			if existingCh, ok := pool.chs[remote]; ok {
 				// Ignore the error, because we no longer need this connection.
-				_ = existingCh.Connection().Close()
+				_ = existingCh.Close()
 			}
+			ctx, cancel := context.WithCancel(context.Background())
 			pool.chs[remote] = Channel{
+				ctx:         ctx,
+				cancel:      cancel,
 				connectedAt: time.Now(),
 				self:        self,
 				remote:      remote,
@@ -122,7 +143,10 @@ func (pool *Pool) HighestPeerWinsHandshake(self id.Signatory, h handshake.Handsh
 		existingCh, existingChIsOk := pool.chs[remote]
 		existingChNeedsReplacement := !existingChIsOk || time.Now().Sub(existingCh.ConnectedAt()) > pool.opts.MinimumExpiryAge
 		if existingChNeedsReplacement {
+			ctx, cancel := context.WithCancel(context.Background())
 			pool.chs[remote] = Channel{
+				ctx:         ctx,
+				cancel:      cancel,
 				connectedAt: time.Now(),
 				self:        self,
 				remote:      remote,
@@ -145,12 +169,9 @@ func (pool *Pool) HighestPeerWinsHandshake(self id.Signatory, h handshake.Handsh
 
 		if existingChIsOk {
 			// Ignore the error, because we no longer need this connection.
-			_ = existingCh.Connection().Close()
+			_ = existingCh.Close()
 		}
 		if _, err := enc(conn, msgKeepAliveTrue); err != nil {
-			// Ignore the error, because we no longer need this connection.
-			_ = conn.Close()
-
 			// An error occurred while writing the "keep alive" message to
 			// the remote peer. This results in an inconsistent state, so we
 			// should recover the state by deleting the recently inserted
@@ -158,13 +179,15 @@ func (pool *Pool) HighestPeerWinsHandshake(self id.Signatory, h handshake.Handsh
 			// on their connection, and will cause our local peer to
 			// eventually re-attempt channel creation.
 			pool.chsMu.Lock()
+			// Ignore the error, because we no longer need this connection.
+			_ = pool.chs[remote].Close()
 			delete(pool.chs, remote)
 			pool.chsMu.Unlock()
 
 			return enc, dec, remote, fmt.Errorf("encoding keep-alive message 0x01 to %v: %v", remote, err)
 		}
 		return enc, dec, remote, nil
-	}
+	}, waitForClose
 }
 
 var (
