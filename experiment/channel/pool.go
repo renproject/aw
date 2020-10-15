@@ -111,7 +111,7 @@ func (pool *Pool) HighestPeerWinsHandshake(self id.Signatory, h handshake.Handsh
 			if _, err := dec(conn, keepAlive[:]); err != nil {
 				return enc, dec, remote, fmt.Errorf("decoding keep-alive message: %v", err)
 			}
-			if keepAlive[0] != 0x00 {
+			if keepAlive[0] == 0x00 {
 				return nil, nil, remote, fmt.Errorf("kill connection from %v", remote)
 			}
 
