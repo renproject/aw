@@ -2,17 +2,23 @@ package channel
 
 import (
 	"net"
+	"time"
 
 	"github.com/renproject/aw/experiment/codec"
 	"github.com/renproject/id"
 )
 
 type Channel struct {
-	self    id.Signatory
-	remote  id.Signatory
-	conn    net.Conn
-	encoder codec.Encoder
-	decoder codec.Decoder
+	connectedAt time.Time
+	self        id.Signatory
+	remote      id.Signatory
+	conn        net.Conn
+	encoder     codec.Encoder
+	decoder     codec.Decoder
+}
+
+func (ch Channel) ConnectedAt() time.Time {
+	return ch.connectedAt
 }
 
 func (ch Channel) Write(buf []byte) (int, error) {
