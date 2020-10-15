@@ -1,4 +1,4 @@
-package tcp_test
+package experiment_test
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestTCP(t *testing.T) {
+func TestAirwave(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Functional Interface suite")
 }

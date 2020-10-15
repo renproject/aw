@@ -40,7 +40,7 @@ func NewGCMSession(key [32]byte) (*GCMSession, error) {
 }
 
 // GCMEncoder accepts a GCMSession and an Encoder function and returns an
-// Encoder function that 
+// Encoder function that
 func GCMEncoder(session *GCMSession, enc Encoder) Encoder {
 	return func(w io.Writer, buf []byte) (int, error) {
 		_, err := session.wRand.Read(session.wBuf)
@@ -57,17 +57,20 @@ func GCMEncoder(session *GCMSession, enc Encoder) Encoder {
 
 func GCMDecoder(session *GCMSession, dec Decoder) Decoder {
 	return func(r io.Reader, buf []byte) (int, error) {
-		if _, err := session.rRand.Read(session.rBuf); err != nil {
+		if _, err := session.wRand.Read(session.rBuf); err != nil {
 			return 0, fmt.Errorf("generating randomness: %v", err)
 		}
-		decryptedBuf, err := session.gcm.Open(nil, session.rBuf, buf, nil)
-		if err != nil {
-			return 0, fmt.Errorf("opening sealed data: %v", err)
-		}
-		n, err := dec(r, decryptedBuf)
+
+		n, err := dec(r, buf)
 		if err != nil {
 			return n, fmt.Errorf("decoding data: %v", err)
 		}
+		decrypted, err := session.gcm.Open(nil, session.rBuf, buf[:n], nil)
+		if err != nil {
+			return 0, fmt.Errorf("opening sealed data: %v", err)
+		}
+		copy(buf, decrypted)
+
 		return n, nil
 	}
 }
