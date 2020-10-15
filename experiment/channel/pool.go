@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 
 	"github.com/renproject/aw/experiment/codec"
@@ -23,6 +24,39 @@ func NewPool() *ChannelPool {
 	}
 }
 
+func (pool *ChannelPool) Close(peer id.Signatory) error {
+	pool.chsMu.Lock()
+	defer pool.chsMu.Unlock()
+
+	if ch, ok := pool.chs[peer]; ok {
+		delete(pool.chs, peer)
+		if err := ch.Connection().Close(); err != nil {
+			return fmt.Errorf("close channel to %v: %v", peer, err)
+		}
+		return nil
+	}
+	return nil
+}
+
+func (pool *ChannelPool) CloseAll() error {
+	pool.chsMu.Lock()
+	defer pool.chsMu.Unlock()
+
+	errs := []string{}
+
+	for peer, ch := range pool.chs {
+		if err := ch.Connection().Close(); err != nil {
+			errs = append(errs, fmt.Sprintf("close channel to %v: %v", peer, err))
+		}
+	}
+	pool.chs = map[id.Signatory]Channel{}
+
+	if len(errs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("close channels: %v", strings.Join(errs, ", "))
+}
+
 func (pool *ChannelPool) HighestPeerWinsHandshake(self id.Signatory, h handshake.Handshake) handshake.Handshake {
 	return func(conn net.Conn, enc codec.Encoder, dec codec.Decoder) (codec.Encoder, codec.Decoder, id.Signatory, error) {
 		enc, dec, remote, err := h(conn, enc, dec)
@@ -30,25 +64,27 @@ func (pool *ChannelPool) HighestPeerWinsHandshake(self id.Signatory, h handshake
 			return enc, dec, remote, err
 		}
 
-		pool.chsMu.Lock()
-		defer pool.chsMu.Unlock()
-
 		if bytes.Compare(self[:], remote[:]) < 0 {
 			keepAlive := [1]byte{}
 			if _, err := dec(conn, keepAlive[:]); err != nil {
-				return enc, dec, remote, err
+				return enc, dec, remote, fmt.Errorf("decoding keep-alive: %v", err)
 			}
 			if keepAlive[0] == 0 {
 				return nil, nil, remote, fmt.Errorf("remote peer killed connection")
 			}
-			return enc, dec, remote, nil
+		} else {
+			if _, err := enc(conn, []byte{0x01}); err != nil {
+				return enc, dec, remote, fmt.Errorf("encoding keep-alive: %v", err)
+			}
 		}
 
-		if _, ok := pool.chs[remote]; ok {
-			enc(conn, []byte{0x00})
-			return nil, nil, remote, fmt.Errorf("kill connection")
-		}
+		pool.chsMu.Lock()
+		defer pool.chsMu.Unlock()
 
+		if existingCh, ok := pool.chs[remote]; ok {
+			// Ignore the error.
+			_ = existingCh.Connection().Close()
+		}
 		pool.chs[remote] = Channel{
 			self:    self,
 			remote:  remote,
@@ -56,7 +92,6 @@ func (pool *ChannelPool) HighestPeerWinsHandshake(self id.Signatory, h handshake
 			encoder: enc,
 			decoder: dec,
 		}
-		enc(conn, []byte{0x01})
 		return enc, dec, remote, nil
 	}
 }
