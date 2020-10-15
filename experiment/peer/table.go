@@ -28,13 +28,24 @@ func NewInMemTable() *InMemTable {
 }
 
 func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr string) {
-	panic("unimplemented")
+	table.peersMu.Lock()
+	defer table.peersMu.Unlock()
+
+	// TODO : Maybe refrain from overwriting the key if it already exists
+	table.peers[peerID] = peerAddr
 }
 
 func (table *InMemTable) DeletePeer(peerID id.Signatory) {
-	panic("unimplemented")
+	table.peersMu.Lock()
+	defer table.peersMu.Unlock()
+
+	delete(table.peers, peerID)
 }
 
 func (table *InMemTable) PeerAddress(peerID id.Signatory) (string, bool) {
-	panic("unimplemented")
+	table.peersMu.Lock()
+	defer table.peersMu.Unlock()
+
+	val, ok := table.peers[peerID]
+	return val, ok
 }
