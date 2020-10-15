@@ -23,8 +23,8 @@ var _ = Describe("TCP", func() {
 	Describe("Channel", func() {
 		Context("when a pair of nodes are trying to establish connections both ways", func() {
 			It("should only maintain one connection", func() {
-				pool1 := channel.NewPool()
-				pool2 := channel.NewPool()
+				pool1 := channel.NewPool(channel.DefaultPoolOptions())
+				pool2 := channel.NewPool(channel.DefaultPoolOptions())
 
 				privKey1 := id.NewPrivKey()
 				privKey2 := id.NewPrivKey()
@@ -104,8 +104,8 @@ var _ = Describe("TCP", func() {
 
 		Context("when a client tries to establish two connections to a server", func() {
 			It("should only maintain one connection", func() {
-				pool1 := channel.NewPool()
-				pool2 := channel.NewPool()
+				pool1 := channel.NewPool(channel.DefaultPoolOptions())
+				pool2 := channel.NewPool(channel.DefaultPoolOptions())
 
 				privKey1 := id.NewPrivKey()
 				privKey2 := id.NewPrivKey()
