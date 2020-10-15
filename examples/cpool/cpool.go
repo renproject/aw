@@ -6,6 +6,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/renproject/aw/experiment/channel"
+
 	"github.com/renproject/aw/experiment/handshake"
 	"github.com/renproject/aw/experiment/peer"
 	"github.com/renproject/aw/experiment/policy"
@@ -22,7 +24,10 @@ func main() {
 		privKey := id.NewPrivKey()
 		self := id.NewSignatory(privKey.PubKey())
 		tcp.Dial(context.TODO(), "localhost:3333", func(conn net.Conn) {
-			enc, _, _, err := handshake.InsecureHandshake(self)(conn, peer.DefaultEncoder, peer.DefaultDecoder)
+			pool := channel.NewPool(channel.DefaultPoolOptions())
+			h := handshake.InsecureHandshake(self)
+			h, _ = pool.HighestPeerWinsHandshake(self, h)
+			enc, _, _, err := h(conn, peer.DefaultEncoder, peer.DefaultDecoder)
 			if err != nil {
 				panic(err)
 			}
