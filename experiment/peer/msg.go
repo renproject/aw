@@ -3,8 +3,6 @@ package peer
 import "github.com/renproject/id"
 
 type Message struct {
-	Header  MessageHeader
-	Content []byte
 }
 
 type MessageHeader struct {

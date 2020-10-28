@@ -8,6 +8,12 @@ import (
 	"github.com/renproject/aw/experiment/policy"
 )
 
+// Listen for connections from remote peers until the context is done. The
+// allow function will be used to control the acceptance/rejection of connection
+// attempts, and can be used to implement maximum connection limits, per-IP
+// rate-limiting, and so on. This function spawns all accepted connections into
+// their own background goroutines that run the handle function, and then
+// clean-up the connection. This function blocks until the context is done.
 func Listen(ctx context.Context, address string, handle func(net.Conn), handleErr func(error), allow policy.Allow) error {
 	// Create a TCP listener from given address and return an error if unable to do so
 	listener, err := new(net.ListenConfig).Listen(ctx, "tcp", address)
@@ -72,6 +78,11 @@ func Listen(ctx context.Context, address string, handle func(net.Conn), handleEr
 	}
 }
 
+// Dial a remote peer until a connection is successfully established, or until
+// the context is done. Multiple dial attempts can be made, and the timeout
+// function is used to define an upper bound on dial attempts. This function
+// blocks until the connection is handled (and the handle function returns).
+// This function will clean-up the connection.
 func Dial(ctx context.Context, address string, handle func(net.Conn), handleErr func(error), timeout func(int) time.Duration) error {
 	dialer := new(net.Dialer)
 
