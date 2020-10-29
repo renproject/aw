@@ -6,7 +6,7 @@ import (
 )
 
 // Timeout functions accept an attempt (from 0 to the maximum integer) and
-// returns an expected duration for which an attempt should run.
+// return an expected duration for which the attempt should run.
 type Timeout func(int) time.Duration
 
 // ConstantTimeout returns a Timeout function that always returns a constant
