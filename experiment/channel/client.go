@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"sync/atomic"
 
 	"github.com/renproject/aw/experiment/codec"
 	"github.com/renproject/aw/experiment/wire"
@@ -67,7 +66,8 @@ type Client struct {
 
 	inbound         chan Msg
 	fanOutReceivers chan fanOutReceiver
-	fanOutRunning   int64
+	fanOutRunningMu *sync.Mutex
+	fanOutRunning   bool
 }
 
 func NewClient(opts ClientOptions, self id.Signatory) Client {
@@ -78,7 +78,10 @@ func NewClient(opts ClientOptions, self id.Signatory) Client {
 		sharedChannelsMu: new(sync.RWMutex),
 		sharedChannels:   map[id.Signatory]*sharedChannel{},
 
-		inbound: make(chan Msg),
+		inbound:         make(chan Msg),
+		fanOutReceivers: make(chan fanOutReceiver),
+		fanOutRunningMu: new(sync.Mutex),
+		fanOutRunning:   false,
 	}
 }
 
@@ -96,7 +99,7 @@ func (client *Client) Bind(remote id.Signatory) {
 	outbound := make(chan wire.Msg)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ch := New(client.self, remote, inbound, outbound)
+	ch := New(remote, inbound, outbound)
 	go func() {
 		if err := ch.Run(ctx); err != nil {
 			client.opts.Logger.Error("run", zap.Error(err))
@@ -175,40 +178,49 @@ func (client *Client) Send(ctx context.Context, remote id.Signatory, msg wire.Ms
 }
 
 func (client *Client) Receive(ctx context.Context, receiver chan<- Msg) {
-	if atomic.AddInt64(&client.fanOutRunning, 1) == 1 {
-		go func() {
-			fanOutReceivers := []fanOutReceiver{}
-			for {
-				select {
-				case fanOutReceiver := <-client.fanOutReceivers:
-					fanOutReceivers = append(fanOutReceivers, fanOutReceiver)
-				case msg := <-client.inbound:
-					marker := 0
-					for _, fanOutReceiver := range fanOutReceivers {
-						select {
-						case <-fanOutReceiver.ctx.Done():
-							// Do nothing. This will implicitly mark it for
-							// deletion.
-						case fanOutReceiver.receiver <- msg:
-							fanOutReceivers[marker] = fanOutReceiver
-							marker++
-						}
-					}
-					// Delete everything that was marked for deletion.
-					for del := marker; del < len(fanOutReceivers); del++ {
-						fanOutReceivers[del] = fanOutReceiver{}
-					}
-					fanOutReceivers = fanOutReceivers[:marker]
-				}
-				if len(fanOutReceivers) == 0 {
-					break
-				}
-			}
-			atomic.AddInt64(&client.fanOutRunning, -1)
-		}()
-	} else {
-		atomic.AddInt64(&client.fanOutRunning, -1)
+	client.fanOutRunningMu.Lock()
+	if client.fanOutRunning {
+		return
 	}
+	client.fanOutRunning = true
+	client.fanOutRunningMu.Unlock()
+
+	go func() {
+		fanOutReceivers := []fanOutReceiver{}
+
+		for {
+			select {
+			case fanOutReceiver := <-client.fanOutReceivers:
+				// A new fanOutReceiver has been registered.
+				fanOutReceivers = append(fanOutReceivers, fanOutReceiver)
+			case msg := <-client.inbound:
+				marker := 0
+				for _, fanOutReceiver := range fanOutReceivers {
+					select {
+					case <-fanOutReceiver.ctx.Done():
+						// Do nothing. This will implicitly mark it for
+						// deletion.
+					case fanOutReceiver.receiver <- msg:
+						fanOutReceivers[marker] = fanOutReceiver
+						marker++
+					}
+				}
+				// Delete everything that was marked for deletion.
+				for del := marker; del < len(fanOutReceivers); del++ {
+					fanOutReceivers[del] = fanOutReceiver{}
+				}
+				fanOutReceivers = fanOutReceivers[:marker]
+			}
+			if len(fanOutReceivers) == 0 {
+				break
+			}
+		}
+
+		client.fanOutRunningMu.Lock()
+		client.fanOutRunning = false
+		client.fanOutRunningMu.Unlock()
+	}()
+
 	select {
 	case <-ctx.Done():
 	case client.fanOutReceivers <- fanOutReceiver{ctx: ctx, receiver: receiver}:
