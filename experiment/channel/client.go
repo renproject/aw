@@ -140,6 +140,13 @@ func (client *Client) Unbind(remote id.Signatory) {
 	}
 }
 
+func (client *Client) IsBound(remote id.Signatory) bool {
+	client.sharedChannelsMu.RLock()
+	defer client.sharedChannelsMu.RUnlock()
+
+	return client.sharedChannels[remote].rc > 0
+}
+
 // Attach a network connection, encoder, and decoder to the Channel associated
 // with a remote peer without incrementing the reference-counter of the Channel.
 // An error is returned if no Channel is associated with the remote peer. As

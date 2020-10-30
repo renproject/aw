@@ -17,36 +17,86 @@ import (
 	"go.uber.org/zap"
 )
 
+// Default options.
+var (
+	DefaultHost          = "localhost"
+	DefaultPort          = uint16(3333)
+	DefaultEncoder       = codec.LengthPrefixEncoder(codec.PlainEncoder)
+	DefaultDecoder       = codec.LengthPrefixDecoder(codec.PlainDecoder)
+	DefaultClientTimeout = 10 * time.Second
+	DefaultServerTimeout = 10 * time.Second
+)
+
+// Options used to parameterise the behaviour of a Transport.
 type Options struct {
 	Logger          *zap.Logger
 	Host            string
 	Port            uint16
 	Encoder         codec.Encoder
 	Decoder         codec.Decoder
-	OncePoolOptions handshake.OncePoolOptions
-	ClientHandshake handshake.Handshake
-	ServerHandshake handshake.Handshake
 	ClientTimeout   time.Duration
 	ServerTimeout   time.Duration
+	OncePoolOptions handshake.OncePoolOptions
 }
 
+// DefaultOptions returns Options with sensible defaults.
 func DefaultOptions() Options {
-	return Options{}
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		panic(err)
+	}
+	return Options{
+		Logger:          logger,
+		Host:            DefaultHost,
+		Port:            DefaultPort,
+		Encoder:         DefaultEncoder,
+		Decoder:         DefaultDecoder,
+		ClientTimeout:   DefaultClientTimeout,
+		ServerTimeout:   DefaultServerTimeout,
+		OncePoolOptions: handshake.DefaultOncePoolOptions(),
+	}
 }
 
 type Transport struct {
 	opts Options
 
-	self     id.Signatory
-	client   channel.Client
-	oncePool handshake.OncePool
+	self   id.Signatory
+	client channel.Client
+	once   handshake.Handshake
 
-	connectedMu *sync.RWMutex
-	connected   map[id.Signatory]bool
+	// Keep track of which remote peers have Channels bound to them.
+	linksMu *sync.RWMutex
+	links   map[id.Signatory]bool
+
+	// Keep track of which remote peers have Channels with network connections
+	// attached to them.
+	connsMu *sync.RWMutex
+	conns   map[id.Signatory]int64
+}
+
+func New(opts Options, self id.Signatory, client channel.Client, h handshake.Handshake) *Transport {
+	oncePool := handshake.NewOncePool(opts.OncePoolOptions)
+	return &Transport{
+		opts: opts,
+
+		self:   self,
+		client: client,
+		once:   handshake.Once(self, &oncePool, h),
+
+		linksMu: new(sync.RWMutex),
+		links:   map[id.Signatory]bool{},
+
+		connsMu: new(sync.RWMutex),
+		conns:   map[id.Signatory]int64{},
+	}
 }
 
 func (t *Transport) Send(ctx context.Context, remote id.Signatory, remoteAddr string, msg wire.Msg) error {
 	if t.IsConnected(remote) {
+		return t.client.Send(ctx, remote, msg)
+	}
+	if t.IsLinked(remote) {
+		go t.dial(remote, remoteAddr)
 		return t.client.Send(ctx, remote, msg)
 	}
 	t.client.Bind(remote)
@@ -61,36 +111,39 @@ func (t *Transport) Receive(ctx context.Context, receiver chan<- channel.Msg) {
 	t.client.Receive(ctx, receiver)
 }
 
-func (t *Transport) Connect(remote id.Signatory, remoteAddr string) {
-	t.connectedMu.Lock()
-	_, isConnected := t.connected[remote]
-	if !isConnected {
-		t.connected[remote] = true
-	}
-	t.connectedMu.Lock()
+func (t *Transport) Link(remote id.Signatory) {
+	t.linksMu.Lock()
+	defer t.linksMu.Unlock()
 
-	if !isConnected {
-		t.client.Bind(remote)
-		go t.dial(remote, remoteAddr)
+	if t.links[remote] {
+		return
+	}
+	t.client.Bind(remote)
+	t.links[remote] = true
+}
+
+func (t *Transport) Unlink(remote id.Signatory) {
+	t.linksMu.Lock()
+	defer t.linksMu.Lock()
+
+	if !t.links[remote] {
+		t.client.Unbind(remote)
+		delete(t.links, remote)
 	}
 }
 
-func (t *Transport) Disconnect(remote id.Signatory) {
-	t.connectedMu.Lock()
-	defer t.connectedMu.Lock()
+func (t *Transport) IsLinked(remote id.Signatory) bool {
+	t.linksMu.Lock()
+	defer t.linksMu.Unlock()
 
-	if t.connected[remote] {
-		delete(t.connected, remote)
-		t.client.Unbind(remote)
-	}
+	return t.links[remote]
 }
 
 func (t *Transport) IsConnected(remote id.Signatory) bool {
-	t.connectedMu.RLock()
-	defer t.connectedMu.RUnlock()
+	t.connsMu.RLock()
+	defer t.connsMu.RUnlock()
 
-	_, ok := t.connected[remote]
-	return ok
+	return t.conns[remote] > 0
 }
 
 func (t *Transport) Run(ctx context.Context) {
@@ -111,36 +164,25 @@ func (t *Transport) run(ctx context.Context) {
 		}
 	}()
 
-	// Once handshakes are used to prevent multiple network connections between
-	// the same peers. One network connection should be sufficient for all
-	// communication.
-	once := handshake.Once(t.self, &t.oncePool, t.opts.ServerHandshake)
-
 	// Listen for incoming connection attempts.
 	err := tcp.Listen(
 		ctx,
 		fmt.Sprintf("%v:%v", t.opts.Host, t.opts.Port),
 		func(conn net.Conn) {
-			// Capture the remote address while the connection is active so that
-			// we can use it even after the connection dies.
 			addr := conn.RemoteAddr().String()
-
-			// Complete the "use once" handshake. This prevents multiple
-			// connections being established with a remote peer if there is
-			// already a (recent) existing one. This includes connected that we
-			// have established by dialing the remote peer.
-			enc, dec, remote, err := once(conn, t.opts.Encoder, t.opts.Decoder)
+			enc, dec, remote, err := t.once(conn, t.opts.Encoder, t.opts.Decoder)
 			if err != nil {
 				t.opts.Logger.Error("handshake", zap.String("addr", addr), zap.Error(err))
 				return
 			}
 
-			// Check if the Transport has explicitly connected to the remote
-			// peer. If so, then we want this connection to be attached to a
-			// Channel, and we want it to live for as long as the Transport
-			// remains explicitly connected to the remote peer. As such, we use
-			// the running context for the connection attachment.
-			if t.IsConnected(remote) {
+			// If the Transport is linked to the remote peer, then the
+			// network connection should be kept alive until the remote peer
+			// is unlinked (or the network connection faults).
+			if t.IsLinked(remote) {
+				// Attaching a connection will block until the Channel is
+				// unbound (which happens when the Transport is unlinked), the
+				// connection is replaced, or the connection faults.
 				if err := t.client.Attach(ctx, remote, conn, enc, dec); err != nil {
 					t.opts.Logger.Error("incoming attachment", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
 				}
@@ -170,47 +212,69 @@ func (t *Transport) run(ctx context.Context) {
 }
 
 func (t *Transport) dial(remote id.Signatory, remoteAddr string) {
-	for {
-		func() {
-			var innerCtx context.Context
-			var innerCancel context.CancelFunc
-			if t.IsConnected(remote) {
-				innerCtx, innerCancel = context.WithCancel(context.Background())
-			} else {
-				innerCtx, innerCancel = context.WithTimeout(context.Background(), t.opts.ClientTimeout)
+	// It is tempting to skip dialing if there is already a connection. However,
+	// it is desirable to be able to re-dial in the case that the network
+	// address has changed. As such, we do not do any skip checks, and assume
+	// that dial is only called when the caller is absolutely sure that a dial
+	// should happen.
+
+	ctx, cancel := context.WithTimeout(context.Background(), t.opts.ClientTimeout)
+	defer cancel()
+
+	err := tcp.Dial(
+		ctx,
+		remoteAddr,
+		func(conn net.Conn) {
+			addr := conn.RemoteAddr().String()
+			enc, dec, r, err := t.once(conn, t.opts.Encoder, t.opts.Decoder)
+			if r != remote {
+				t.opts.Logger.Error("handshake", zap.String("expected", remote.String()), zap.String("got", r.String()), zap.Error(fmt.Errorf("bad remote")))
 			}
-			defer innerCancel()
-
-			err := tcp.Dial(
-				innerCtx,
-				remoteAddr,
-				func(conn net.Conn) {
-					addr := conn.RemoteAddr().String()
-
-					once := handshake.Once(t.self, &t.oncePool, t.opts.ClientHandshake)
-					enc, dec, r, err := once(conn, t.opts.Encoder, t.opts.Decoder)
-					if r != remote {
-						t.opts.Logger.Error("handshake", zap.String("expected", remote.String()), zap.String("got", r.String()), zap.Error(fmt.Errorf("bad remote")))
-					}
-					if err != nil {
-						t.opts.Logger.Error("handshake", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
-						return
-					}
-
-					if err := t.client.Attach(innerCtx, remote, conn, enc, dec); err != nil {
-						t.opts.Logger.Error("outgoing attach", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
-					}
-				},
-				func(err error) {
-					t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr), zap.Error(err))
-				},
-				policy.ConstantTimeout(t.opts.ClientTimeout))
 			if err != nil {
-				t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr), zap.Error(err))
+				t.opts.Logger.Error("handshake", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
+				return
 			}
-		}()
-		if !t.IsConnected(remote) {
-			return
+
+			if t.IsLinked(remote) {
+				// If the Transport is linked to the remote peer, then the
+				// network connection should be kept alive until the remote peer
+				// is unlinked (or the network connection faults). To do this,
+				// we override the context and re-use it. Otherwise, the
+				// previously defined context will be used, which will
+				// eventually timeout.
+				ctx = context.Background()
+			}
+
+			t.connect(remote)
+			defer t.disconnect(remote)
+
+			if err := t.client.Attach(ctx, remote, conn, enc, dec); err != nil {
+				t.opts.Logger.Error("outgoing", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
+			}
+		},
+		func(err error) {
+			t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr), zap.Error(err))
+		},
+		policy.ConstantTimeout(t.opts.ClientTimeout/3))
+	if err != nil {
+		t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr), zap.Error(err))
+	}
+}
+
+func (t *Transport) connect(remote id.Signatory) {
+	t.connsMu.Lock()
+	defer t.connsMu.Unlock()
+
+	t.conns[remote]++
+}
+
+func (t *Transport) disconnect(remote id.Signatory) {
+	t.connsMu.Lock()
+	defer t.connsMu.Unlock()
+
+	if t.conns[remote] > 0 {
+		if t.conns[remote]--; t.conns[remote] == 0 {
+			delete(t.conns, remote)
 		}
 	}
 }

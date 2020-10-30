@@ -41,23 +41,12 @@ func (p *Peer) Table() Table {
 	return p.table
 }
 
-// Connect to a remote peer. Connecting to a remote peer allows a keep-alive
-// connection with the remote peer (assuming that the remote peer has also
-// connected to this local peer). Without an explicit connection,
-// dialed/accepted connections will timeout after a short duration.
-func (p *Peer) Connect(remote id.Signatory) error {
-	remoteAddr, ok := p.table.PeerAddress(remote)
-	if !ok {
-		return ErrPeerNotFound
-	}
-	p.transport.Connect(remote, remoteAddr)
-	return nil
+func (p *Peer) Link(remote id.Signatory) {
+	p.transport.Link(remote)
 }
 
-// Disconnect from a remote peer. This will prevent future connections from
-// being keep-alive connections, and drop existing connections.
-func (p *Peer) Disconnect(remote id.Signatory) {
-	p.transport.Disconnect(remote)
+func (p *Peer) Unlink(remote id.Signatory) {
+	p.transport.Unlink(remote)
 }
 
 // Ping initiates a round of peer discovery in the network. The peer will

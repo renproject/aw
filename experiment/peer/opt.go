@@ -3,6 +3,7 @@ package peer
 import (
 	"github.com/renproject/aw/experiment/codec"
 	"github.com/renproject/aw/experiment/handshake"
+	"github.com/renproject/aw/experiment/transport"
 	"github.com/renproject/id"
 	"go.uber.org/zap"
 )
@@ -19,15 +20,16 @@ type Callbacks struct {
 }
 
 type Options struct {
-	Logger          *zap.Logger
-	PrivKey         *id.PrivKey
-	Bind            string
-	Port            uint16
-	ClientHandshake handshake.Handshake
-	ServerHandshake handshake.Handshake
-	Encoder         codec.Encoder
-	Decoder         codec.Decoder
-	Callbacks       Callbacks
+	Logger           *zap.Logger
+	PrivKey          *id.PrivKey
+	Bind             string
+	Port             uint16
+	ClientHandshake  handshake.Handshake
+	ServerHandshake  handshake.Handshake
+	Encoder          codec.Encoder
+	Decoder          codec.Decoder
+	Callbacks        Callbacks
+	TransportOptions transport.Options
 }
 
 func DefaultOptions() Options {
@@ -86,5 +88,10 @@ func (opts Options) WithCodec(enc codec.Encoder, dec codec.Decoder) Options {
 
 func (opts Options) WithCallbacks(cbs Callbacks) Options {
 	opts.Callbacks = cbs
+	return opts
+}
+
+func (opts Options) WithTransportOptions(transportOpts transport.Options) Options {
+	opts.TransportOptions = transportOpts
 	return opts
 }
