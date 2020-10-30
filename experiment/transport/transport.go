@@ -123,7 +123,7 @@ func (t *Transport) Unlink(remote id.Signatory) {
 	t.linksMu.Lock()
 	defer t.linksMu.Lock()
 
-	if !t.links[remote] {
+	if t.links[remote] {
 		t.client.Unbind(remote)
 		delete(t.links, remote)
 	}
