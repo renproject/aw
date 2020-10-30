@@ -64,12 +64,9 @@ type Transport struct {
 	client channel.Client
 	once   handshake.Handshake
 
-	// Keep track of which remote peers have Channels bound to them.
 	linksMu *sync.RWMutex
 	links   map[id.Signatory]bool
 
-	// Keep track of which remote peers have Channels with network connections
-	// attached to them.
 	connsMu *sync.RWMutex
 	conns   map[id.Signatory]int64
 }
@@ -176,6 +173,9 @@ func (t *Transport) run(ctx context.Context) {
 				return
 			}
 
+			t.connect(remote)
+			defer t.disconnect(remote)
+
 			// If the Transport is linked to the remote peer, then the
 			// network connection should be kept alive until the remote peer
 			// is unlinked (or the network connection faults).
@@ -235,6 +235,9 @@ func (t *Transport) dial(remote id.Signatory, remoteAddr string) {
 				return
 			}
 
+			t.connect(remote)
+			defer t.disconnect(remote)
+
 			if t.IsLinked(remote) {
 				// If the Transport is linked to the remote peer, then the
 				// network connection should be kept alive until the remote peer
@@ -244,9 +247,6 @@ func (t *Transport) dial(remote id.Signatory, remoteAddr string) {
 				// eventually timeout.
 				ctx = context.Background()
 			}
-
-			t.connect(remote)
-			defer t.disconnect(remote)
 
 			if err := t.client.Attach(ctx, remote, conn, enc, dec); err != nil {
 				t.opts.Logger.Error("outgoing", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
