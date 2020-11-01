@@ -99,13 +99,10 @@ func Dial(ctx context.Context, address string, handle func(net.Conn), handleErr 
 	}
 
 	for attempt := 1; ; attempt++ {
-		println("selecting")
 		select {
 		case <-ctx.Done():
-			println("Done")
 			return ctx.Err()
 		default:
-			println("Retyring")
 		}
 
 		dialCtx, dialCancel := context.WithTimeout(ctx, timeout(attempt))

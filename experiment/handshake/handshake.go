@@ -22,12 +22,11 @@ const encryptedKeySize = encryptionHeaderSize + keySize
 // and encryption. The identity of the remote peer is also returned.
 type Handshake func(net.Conn, codec.Encoder, codec.Decoder) (codec.Encoder, codec.Decoder, id.Signatory, error)
 
-// InsecureHandshake returns a Handshake that does no authentication or
-// encryption. During the handshake, the local peer writes its own identity to
-// the connection, and then reads the identity of the remote peer. No
-// verification of identities is done. InsecureHandshake should only be used in
-// private networks.
-func InsecureHandshake(self id.Signatory) Handshake {
+// Insecure returns a Handshake that does no authentication or encryption.
+// During the handshake, the local peer writes its own identity to the
+// connection, and then reads the identity of the remote peer. No verification
+// of identities is done. Insecure should only be used in private networks.
+func Insecure(self id.Signatory) Handshake {
 	return func(conn net.Conn, enc codec.Encoder, dec codec.Decoder) (codec.Encoder, codec.Decoder, id.Signatory, error) {
 		if _, err := enc(conn, self[:]); err != nil {
 			return nil, nil, id.Signatory{}, fmt.Errorf("encoding local id: %v", err)

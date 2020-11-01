@@ -3,7 +3,9 @@ package peer
 import (
 	"context"
 	"errors"
+	"fmt"
 
+	"github.com/renproject/aw/experiment/channel"
 	"github.com/renproject/aw/experiment/transport"
 	"github.com/renproject/aw/experiment/wire"
 	"github.com/renproject/id"
@@ -22,10 +24,10 @@ var (
 type Peer struct {
 	opts      Options
 	table     Table
-	transport transport.Transport
+	transport *transport.Transport
 }
 
-func New(opts Options, table Table, transport transport.Transport) *Peer {
+func New(opts Options, table Table, transport *transport.Transport) *Peer {
 	return &Peer{
 		opts:      opts,
 		table:     table,
@@ -57,16 +59,29 @@ func (p *Peer) Ping(ctx context.Context) error {
 	panic("unimplemented")
 }
 
-func (p *Peer) Send(ctx context.Context, remote id.Signatory, msg wire.Msg) error {
-	panic("unimplemented")
+func (p *Peer) Send(ctx context.Context, to id.Signatory, msg wire.Msg) error {
+	toAddr, ok := p.table.PeerAddress(to)
+	if !ok {
+		return fmt.Errorf("%v not found", to)
+	}
+	return p.transport.Send(ctx, to, toAddr, msg)
 }
 
-func (p *Peer) Gossip(ctx context.Context, subnet id.Hash, msg Message) error {
+func (p *Peer) Gossip(ctx context.Context, subnet id.Hash, mgs wire.Msg) error {
 	panic("unimplemented")
 }
 
 // Run the peer until the context is done. If running encounters an error, or
 // panics, it will automatically recover and continue until the context is done.
 func (p *Peer) Run(ctx context.Context) {
+	receiver := make(chan channel.Msg)
+	go func() {
+		select {
+		case <-ctx.Done():
+		case msg := <-receiver:
+			p.opts.Callbacks.DidReceiveMessage(msg.From, msg.Msg)
+		}
+	}()
+	go p.transport.Receive(ctx, receiver)
 	p.transport.Run(ctx)
 }

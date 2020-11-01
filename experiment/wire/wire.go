@@ -51,7 +51,7 @@ func (msg Msg) Marshal(buf []byte, rem int) ([]byte, int, error) {
 }
 
 // Unmarshal a Msg from binary.
-func (msg Msg) Unmarshal(buf []byte, rem int) ([]byte, int, error) {
+func (msg *Msg) Unmarshal(buf []byte, rem int) ([]byte, int, error) {
 	buf, rem, err := surge.UnmarshalU16(&msg.Version, buf, rem)
 	if err != nil {
 		return buf, rem, fmt.Errorf("marshal version: %v", err)

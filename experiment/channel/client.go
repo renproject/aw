@@ -154,12 +154,12 @@ func (client *Client) IsBound(remote id.Signatory) bool {
 // blocking.
 func (client *Client) Attach(ctx context.Context, remote id.Signatory, conn net.Conn, enc codec.Encoder, dec codec.Decoder) error {
 	client.sharedChannelsMu.RLock()
-	defer client.sharedChannelsMu.RUnlock()
-
 	sc, ok := client.sharedChannels[remote]
 	if !ok {
+		client.sharedChannelsMu.RUnlock()
 		return fmt.Errorf("attach: no connection to %v", remote)
 	}
+	client.sharedChannelsMu.RUnlock()
 
 	if err := sc.ch.Attach(ctx, conn, enc, dec); err != nil {
 		return fmt.Errorf("attach: %v", err)
@@ -169,12 +169,12 @@ func (client *Client) Attach(ctx context.Context, remote id.Signatory, conn net.
 
 func (client *Client) Send(ctx context.Context, remote id.Signatory, msg wire.Msg) error {
 	client.sharedChannelsMu.RLock()
-	defer client.sharedChannelsMu.RUnlock()
-
 	sc, ok := client.sharedChannels[remote]
 	if !ok {
+		client.sharedChannelsMu.RUnlock()
 		return fmt.Errorf("send: no connection to %v", remote)
 	}
+	client.sharedChannelsMu.RUnlock()
 
 	select {
 	case <-ctx.Done():

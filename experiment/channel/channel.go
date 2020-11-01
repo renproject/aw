@@ -285,7 +285,7 @@ func (ch Channel) writeLoop(ctx context.Context) {
 			}
 			w, wOk = v, vOk
 		case m, mOk = <-mQueue:
-			_, n, err := m.Marshal(buf[:], len(buf))
+			tail, _, err := m.Marshal(buf[:], len(buf))
 			if err != nil {
 				// Clear the latest message so that we can move on to other
 				// messages. We do this, because failure to marshal is not
@@ -294,7 +294,7 @@ func (ch Channel) writeLoop(ctx context.Context) {
 				mOk = false
 				continue
 			}
-			if _, err := w.Encoder(w.Conn, buf[:n]); err != nil {
+			if _, err := w.Encoder(w.Conn, buf[:len(buf)-len(tail)]); err != nil {
 				// If an error happened when trying to write to the writer,
 				// then clean the writer. This will force the Channel to
 				// block on future writes until a new network connection is

@@ -31,7 +31,6 @@ func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr string) {
 	table.peersMu.Lock()
 	defer table.peersMu.Unlock()
 
-	// TODO : Maybe refrain from overwriting the key if it already exists
 	table.peers[peerID] = peerAddr
 }
 

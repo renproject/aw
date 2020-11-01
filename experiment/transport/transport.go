@@ -57,6 +57,16 @@ func DefaultOptions() Options {
 	}
 }
 
+func (opts Options) WithLogger(logger *zap.Logger) Options {
+	opts.Logger = logger
+	return opts
+}
+
+func (opts Options) WithPort(port uint16) Options {
+	opts.Port = port
+	return opts
+}
+
 type Transport struct {
 	opts Options
 
@@ -123,7 +133,7 @@ func (t *Transport) Unlink(remote id.Signatory) {
 	t.linksMu.Lock()
 	defer t.linksMu.Lock()
 
-	if !t.links[remote] {
+	if t.links[remote] {
 		t.client.Unbind(remote)
 		delete(t.links, remote)
 	}
@@ -162,6 +172,7 @@ func (t *Transport) run(ctx context.Context) {
 	}()
 
 	// Listen for incoming connection attempts.
+	t.opts.Logger.Info("listening", zap.String("host", t.opts.Host), zap.Uint16("port", t.opts.Port))
 	err := tcp.Listen(
 		ctx,
 		fmt.Sprintf("%v:%v", t.opts.Host, t.opts.Port),
