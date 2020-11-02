@@ -1,4 +1,4 @@
-package experiment_test
+package aw_test
 
 import (
 	"context"

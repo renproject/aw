@@ -1,4 +1,4 @@
-package experiment_test
+package aw_test
 
 import (
 	"testing"
@@ -9,5 +9,5 @@ import (
 
 func TestAirwave(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Functional Interface suite")
+	RunSpecs(t, "Airwave Suite")
 }
