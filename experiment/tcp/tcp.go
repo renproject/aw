@@ -2,6 +2,7 @@ package tcp
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"time"
 
@@ -23,7 +24,7 @@ func Listen(ctx context.Context, address string, handle func(net.Conn), handleEr
 	go func() {
 		<-ctx.Done()
 		if err := listener.Close(); err != nil {
-			handleErr(err)
+			handleErr(fmt.Errorf("close listener: %v", err))
 		}
 	}()
 
@@ -40,7 +41,7 @@ func Listen(ctx context.Context, address string, handle func(net.Conn), handleEr
 
 		conn, err := listener.Accept()
 		if err != nil {
-			handleErr(err)
+			handleErr(fmt.Errorf("accept connection: %v", err))
 			continue
 		}
 
@@ -48,7 +49,7 @@ func Listen(ctx context.Context, address string, handle func(net.Conn), handleEr
 			go func() {
 				defer func() {
 					if err := conn.Close(); err != nil {
-						handleErr(err)
+						handleErr(fmt.Errorf("close connection: %v", err))
 					}
 				}()
 				handle(conn)
@@ -60,7 +61,7 @@ func Listen(ctx context.Context, address string, handle func(net.Conn), handleEr
 			go func() {
 				defer func() {
 					if err := conn.Close(); err != nil {
-						handleErr(err)
+						handleErr(fmt.Errorf("close connection: %v", err))
 					}
 				}()
 				defer func() {
@@ -73,7 +74,7 @@ func Listen(ctx context.Context, address string, handle func(net.Conn), handleEr
 			continue
 		}
 		if err := conn.Close(); err != nil {
-			handleErr(err)
+			handleErr(fmt.Errorf("close connection: %v", err))
 		}
 	}
 }
