@@ -17,6 +17,13 @@ import (
 )
 
 func main() {
+	loggerConfig := zap.NewProductionConfig()
+	loggerConfig.Level.SetLevel(zap.PanicLevel)
+	logger, err := loggerConfig.Build()
+	if err != nil {
+		panic(err)
+	}
+
 	// Number of peers.
 	n := 10
 
@@ -24,7 +31,7 @@ func main() {
 	opts := make([]peer.Options, n)
 	for i := range opts {
 		i := i
-		opts[i] = peer.DefaultOptions().WithCallbacks(peer.Callbacks{
+		opts[i] = peer.DefaultOptions().WithLogger(logger).WithCallbacks(peer.Callbacks{
 			DidReceiveMessage: func(from id.Signatory, msg wire.Msg) {
 				fmt.Printf("%4v: received \"%v\" from %4v\n", opts[i].PrivKey.Signatory(), string(msg.Data), from)
 			},
@@ -37,15 +44,10 @@ func main() {
 	clients := make([]channel.Client, n)
 	transports := make([]*transport.Transport, n)
 	for i := range peers {
-		loggerConfig := zap.NewProductionConfig()
-		loggerConfig.Level.SetLevel(zap.InfoLevel)
-		logger, err := loggerConfig.Build()
-		if err != nil {
-			panic(err)
-		}
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
 		self := opts[i].PrivKey.Signatory()
-		clients[i] = channel.NewClient(channel.DefaultClientOptions(), self)
-		transports[i] = transport.New(transport.DefaultOptions().WithLogger(logger).WithPort(uint16(3333+i)), self, clients[i], handshake.Insecure(self))
+		clients[i] = channel.NewClient(channel.DefaultClientOptions().WithLogger(logger), self)
+		transports[i] = transport.New(transport.DefaultOptions().WithLogger(logger).WithPort(uint16(3333+i)), self, clients[i], handshake.ECIES(opts[i].PrivKey, r))
 		tables[i] = peer.NewInMemTable()
 		peers[i] = peer.New(opts[i], tables[i], transports[i])
 		go func(i int) {
@@ -68,12 +70,11 @@ func main() {
 		time.Sleep(time.Millisecond * time.Duration(rand.Int()%1000))
 		for i := range peers {
 			j := (i + 1) % len(peers)
+			fmt.Printf("peer[%v] sending to peer[%v]\n", i, j)
 			peers[i].Table().AddPeer(peers[j].ID(), fmt.Sprintf("localhost:%v", 3333+int64(j)))
 			if err := peers[i].Send(context.Background(), peers[j].ID(), wire.Msg{Data: []byte(fmt.Sprintf("hello from %v!", i))}); err != nil {
 				log.Printf("send: %v", err)
 			}
 		}
 	}
-
-	<-(chan struct{})(nil)
 }

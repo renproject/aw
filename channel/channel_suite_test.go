@@ -1,4 +1,4 @@
-package gossip_test
+package channel_test
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestGossip(t *testing.T) {
+func TestChannel(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Gossip Suite")
+	RunSpecs(t, "Channel suite")
 }

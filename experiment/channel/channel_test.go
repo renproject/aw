@@ -1,2 +1,0 @@
-package channel_test
-

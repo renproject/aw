@@ -1,52 +1,40 @@
 package handshake
 
 import (
-	"context"
+	"fmt"
 	"net"
 
+	"github.com/renproject/aw/experiment/codec"
 	"github.com/renproject/id"
 )
 
-type Handshaker interface {
-	// Handshake with a remote server by initiating, and then interactively
-	// completing, a handshake protocol. The remote server is accessed by
-	// reading/writing to the `io.ReaderWriter`.
-	Handshake(ctx context.Context, c net.Conn) (Session, error)
+const keySize = 32
 
-	// AcceptHandshake from a remote client by waiting for the initiation of,
-	// and then interactively completing, a handshake protocol. The remote
-	// client is accessed by reading/writing to the `io.ReaderWriter`.
-	AcceptHandshake(ctx context.Context, c net.Conn) (Session, error)
-}
+const encryptionHeaderSize = 113
 
-// A Filter for identities that are established during a handshake. Although
-// the handshake may be successful, the actual identity may want to be rejected
-// because of some application-level logic. Filters are a hook for implementing
-// such logic.
-type Filter interface {
-	Filter(id.Signatory) bool
+// encryptedKeySize specifiec the size in bytes of a single key encrypted using ECIES
+const encryptedKeySize = encryptionHeaderSize + keySize
 
-	// FIXME: There needs to be a "unfilter" method available on this interface.
-	// This should be called when the connection is closed, so that the filter
-	// can reset any state necessary.
-	//
-	//  Unfilter(id.Signatory)
-	//
-}
+// Handshake functions accept a connection, an encoder, and decoder. The encoder
+// and decoder are used to establish an authenticated and encrypted connection.
+// A new encoder and decoder are returned, which wrap the accpted encoder and
+// decoder with any additional functionality required to perform authentication
+// and encryption. The identity of the remote peer is also returned.
+type Handshake func(net.Conn, codec.Encoder, codec.Decoder) (codec.Encoder, codec.Decoder, id.Signatory, error)
 
-type Session interface {
-	// Encrypt data for the other Signatory.
-	Encrypt([]byte) ([]byte, error)
-	// Decrypt data from the other Signatory.
-	Decrypt([]byte) ([]byte, error)
-	// RemoteSignatory returns the pubkey hash of the Signatory that is on the
-	// remote end of the Session.
-	RemoteSignatory() id.Signatory
-
-	// FIXME: There needs to be a "close" method available on this interface.
-	// This should be called when the connection is closed, so that the session can
-	// close the filter.
-	//
-	//	Close()
-	//
+// Insecure returns a Handshake that does no authentication or encryption.
+// During the handshake, the local peer writes its own identity to the
+// connection, and then reads the identity of the remote peer. No verification
+// of identities is done. Insecure should only be used in private networks.
+func Insecure(self id.Signatory) Handshake {
+	return func(conn net.Conn, enc codec.Encoder, dec codec.Decoder) (codec.Encoder, codec.Decoder, id.Signatory, error) {
+		if _, err := enc(conn, self[:]); err != nil {
+			return nil, nil, id.Signatory{}, fmt.Errorf("encoding local id: %v", err)
+		}
+		remote := id.Signatory{}
+		if _, err := dec(conn, remote[:]); err != nil {
+			return nil, nil, id.Signatory{}, fmt.Errorf("decoding remote id: %v", err)
+		}
+		return enc, dec, remote, nil
+	}
 }
