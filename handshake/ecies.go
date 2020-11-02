@@ -130,7 +130,7 @@ func ECIES(privKey *id.PrivKey, r *rand.Rand) Handshake {
 		if err != nil {
 			return nil, nil, id.Signatory{}, fmt.Errorf("decrypt local secret key: %v", err)
 		}
-		if bytes.Equal(localSecretKey[:], localSecretKeyCheck[:]) {
+		if !bytes.Equal(localSecretKey[:], localSecretKeyCheck[:]) {
 			return nil, nil, id.Signatory{}, fmt.Errorf("check local secret key")
 		}
 
