@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/renproject/aw/experiment/peer"
+	"github.com/renproject/experiment/peer"
 	"github.com/renproject/id"
 )
 

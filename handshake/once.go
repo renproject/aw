@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/renproject/aw/experiment/codec"
+	"github.com/renproject/aw/codec"
 	"github.com/renproject/id"
 )
 

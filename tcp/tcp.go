@@ -6,7 +6,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/renproject/aw/experiment/policy"
+	"github.com/renproject/aw/policy"
 )
 
 // Listen for connections from remote peers until the context is done. The

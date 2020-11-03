@@ -4,8 +4,8 @@ import (
 	"context"
 	"net"
 
-	"github.com/renproject/aw/experiment/codec"
-	"github.com/renproject/aw/experiment/wire"
+	"github.com/renproject/experiment/codec"
+	"github.com/renproject/experiment/wire"
 	"github.com/renproject/id"
 )
 

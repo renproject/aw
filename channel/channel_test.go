@@ -7,12 +7,12 @@ import (
 	"net"
 	"time"
 
-	"github.com/renproject/aw/experiment/channel"
-	"github.com/renproject/aw/experiment/codec"
-	"github.com/renproject/aw/experiment/handshake"
-	"github.com/renproject/aw/experiment/policy"
-	"github.com/renproject/aw/experiment/tcp"
-	"github.com/renproject/aw/experiment/wire"
+	"github.com/renproject/experiment/channel"
+	"github.com/renproject/experiment/codec"
+	"github.com/renproject/experiment/handshake"
+	"github.com/renproject/experiment/policy"
+	"github.com/renproject/experiment/tcp"
+	"github.com/renproject/experiment/wire"
 	"github.com/renproject/id"
 
 	. "github.com/onsi/ginkgo"
