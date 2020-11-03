@@ -34,7 +34,8 @@ type sharedChannel struct {
 }
 
 type ClientOptions struct {
-	Logger *zap.Logger
+	Logger         *zap.Logger
+	ChannelOptions Options
 }
 
 func DefaultClientOptions() ClientOptions {
@@ -43,12 +44,18 @@ func DefaultClientOptions() ClientOptions {
 		panic(err)
 	}
 	return ClientOptions{
-		Logger: logger,
+		Logger:         logger,
+		ChannelOptions: DefaultOptions(),
 	}
 }
 
 func (opts ClientOptions) WithLogger(logger *zap.Logger) ClientOptions {
 	opts.Logger = logger
+	return opts
+}
+
+func (opts ClientOptions) WithChannelOptions(channelOpts Options) ClientOptions {
+	opts.ChannelOptions = channelOpts
 	return opts
 }
 
@@ -99,7 +106,7 @@ func (client *Client) Bind(remote id.Signatory) {
 	outbound := make(chan wire.Msg)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ch := New(remote, inbound, outbound)
+	ch := New(client.opts.ChannelOptions, remote, inbound, outbound)
 	go func() {
 		if err := ch.Run(ctx); err != nil {
 			client.opts.Logger.Error("run", zap.Error(err))

@@ -3,11 +3,66 @@ package channel
 import (
 	"context"
 	"net"
+	"time"
 
 	"github.com/renproject/aw/codec"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
+	"go.uber.org/zap"
 )
+
+// Default options.
+var (
+	DefaultDrainTimeout      = 10 * time.Second
+	DefaultDrainInBackground = true
+	DefaultMaxMessageSize    = 4 * 1024 * 1024 // 4MB
+)
+
+// Options for parameterizing the behaviour of a Channel.
+type Options struct {
+	Logger            *zap.Logger
+	DrainTimeout      time.Duration
+	DrainInBackground bool
+	MaxMessageSize    int
+}
+
+// DefaultOptions returns Options with sane defaults.
+func DefaultOptions() Options {
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		panic(err)
+	}
+	return Options{
+		Logger:            logger,
+		DrainTimeout:      DefaultDrainTimeout,
+		DrainInBackground: DefaultDrainInBackground,
+		MaxMessageSize:    DefaultMaxMessageSize,
+	}
+}
+
+// WithLogger sets the Logger used for logging all errors, warnings, information,
+// debug traces, and so on.
+func (opts Options) WithLogger(logger *zap.Logger) Options {
+	opts.Logger = logger
+	return opts
+}
+
+// WithDrainTimeout sets the timeout used by the Channel when draining replaced
+// connections. If a Channel does not see a message on a draining connection
+// before the timeout, then the draining connection is dropped and closed, and
+// all future messages sent to the connection will be lost.
+func (opts Options) WithDrainTimeout(timeout time.Duration) Options {
+	opts.DrainTimeout = timeout
+	return opts
+}
+
+// WithDrainInBackground enables/disable background draining of replaced
+// connections. Setting this to true can improve performance, but it also break
+// the deliver order of messages.
+func (opts Options) WithDrainInBackground(enable bool) Options {
+	opts.DrainInBackground = enable
+	return opts
+}
 
 // reader represents the read-half of a network connection. It also contains a
 // quit channel that is closed when the reader is no longer being used by the
@@ -75,6 +130,7 @@ type writer struct {
 // Channel reads messages from the network connection and writes them to the
 // inbound messaging channel. Channels are safe for concurrent use.
 type Channel struct {
+	opts   Options
 	remote id.Signatory
 
 	inbound  chan<- wire.Msg
@@ -95,8 +151,9 @@ type Channel struct {
 // outbound messaging channel, but there is no functional attached network
 // connection, or when messages are being received on an attached network
 // connection, but the inbound message channel is not being drained.
-func New(remote id.Signatory, inbound chan<- wire.Msg, outbound <-chan wire.Msg) *Channel {
+func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-chan wire.Msg) *Channel {
 	return &Channel{
+		opts:   opts,
 		remote: remote,
 
 		inbound:  inbound,
@@ -187,8 +244,8 @@ func (ch Channel) Remote() id.Signatory {
 	return ch.remote
 }
 
-func (ch Channel) readLoop(ctx context.Context) error {
-	var buf [4194304]byte // TODO: Make this configurable. Currently hard-coded to be 4MB.
+func (ch *Channel) readLoop(ctx context.Context) error {
+	buf := make([]byte, ch.opts.MaxMessageSize)
 
 	var r reader
 	var rOk bool
@@ -243,16 +300,14 @@ func (ch Channel) readLoop(ctx context.Context) error {
 			// Channel before we can write the message to the inbound message
 			// channel, we do not clear the message. This will force us to
 			// re-attempt writing the message in the next iteration.
-			if r.q != nil {
-				close(r.q)
-			}
+			ch.drainReader(ctx, r, m, mOk)
 			r, rOk = v, vOk
 		}
 	}
 }
 
-func (ch Channel) writeLoop(ctx context.Context) {
-	var buf [4194304]byte
+func (ch *Channel) writeLoop(ctx context.Context) {
+	buf := make([]byte, ch.opts.MaxMessageSize)
 
 	var w writer
 	var wOk bool
@@ -312,4 +367,52 @@ func (ch Channel) writeLoop(ctx context.Context) {
 			mOk = false
 		}
 	}
+}
+
+func (ch *Channel) drainReader(ctx context.Context, r reader, m wire.Msg, mOk bool) {
+	f := func() {
+		defer func() {
+			if r.q != nil {
+				close(r.q)
+			}
+		}()
+		if mOk {
+			select {
+			case <-ctx.Done():
+				return
+			case ch.inbound <- m:
+			}
+		}
+		buf := make([]byte, ch.opts.MaxMessageSize)
+		for {
+			var msg wire.Msg
+			if err := r.Conn.SetDeadline(time.Now().Add(ch.opts.DrainTimeout)); err != nil {
+				ch.opts.Logger.Error("drain: set deadline", zap.Error(err))
+				return
+			}
+			n, err := r.Decoder(r.Conn, buf[:])
+			if err != nil {
+				// We do not log this as an error, because it is entirely
+				// expected when draining.
+				ch.opts.Logger.Info("drain: decode", zap.Error(err))
+				return
+			}
+			if _, _, err := msg.Unmarshal(buf[:n], len(buf)); err != nil {
+				ch.opts.Logger.Error("drain: unmarshal", zap.Error(err))
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case ch.inbound <- msg:
+			}
+		}
+	}
+	if ch.opts.DrainInBackground {
+		ch.opts.Logger.Debug("drain: backgrond", zap.String("addr", r.Conn.RemoteAddr().String()))
+		go f()
+		return
+	}
+	ch.opts.Logger.Debug("drain: foreground", zap.String("addr", r.Conn.RemoteAddr().String()))
+	f()
 }

@@ -1,7 +1,7 @@
 package peer
 
 import (
-	"github.com/renproject/aw/experiment/wire"
+	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 )
 

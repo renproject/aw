@@ -7,12 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/renproject/aw/experiment/channel"
-	"github.com/renproject/aw/experiment/codec"
-	"github.com/renproject/aw/experiment/handshake"
-	"github.com/renproject/aw/experiment/policy"
-	"github.com/renproject/aw/experiment/tcp"
-	"github.com/renproject/aw/experiment/wire"
+	"github.com/renproject/aw/channel"
+	"github.com/renproject/aw/codec"
+	"github.com/renproject/aw/handshake"
+	"github.com/renproject/aw/policy"
+	"github.com/renproject/aw/tcp"
+	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 	"go.uber.org/zap"
 )

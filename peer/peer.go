@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/renproject/aw/experiment/channel"
-	"github.com/renproject/aw/experiment/transport"
-	"github.com/renproject/aw/experiment/wire"
+	"github.com/renproject/aw/channel"
+	"github.com/renproject/aw/transport"
+	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 )
 
