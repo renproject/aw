@@ -3,6 +3,7 @@ package channel
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"time"
@@ -13,9 +14,14 @@ import (
 	"go.uber.org/zap"
 )
 
+// An Attacher is able to attach a network connection to itself.
+type Attacher interface {
+	Attach(ctx context.Context, remote id.Signatory, conn net.Conn, encoder codec.Encoder, decoder codec.Decoder) error
+}
+
 // Default options.
 var (
-	DefaultDrainTimeout      = 10 * time.Second
+	DefaultDrainTimeout      = 30 * time.Second
 	DefaultDrainInBackground = true
 	DefaultMaxMessageSize    = 4 * 1024 * 1024 // 4MB
 	DefaultBufferSize        = 4 * 1204 * 1024 // 4MB
@@ -213,7 +219,11 @@ func (ch *Channel) Run(ctx context.Context) error {
 //		nil,
 //		nil)
 //
-func (ch *Channel) Attach(ctx context.Context, conn net.Conn, enc codec.Encoder, dec codec.Decoder) error {
+func (ch *Channel) Attach(ctx context.Context, remote id.Signatory, conn net.Conn, enc codec.Encoder, dec codec.Decoder) error {
+	if !ch.remote.Equal(&remote) {
+		return fmt.Errorf("bad remote: expected %v, got %v", ch.remote, remote)
+	}
+
 	rq := make(chan struct{})
 	wq := make(chan struct{})
 
@@ -395,16 +405,18 @@ func (ch *Channel) drainReader(ctx context.Context, r reader, m wire.Msg, mOk bo
 			case ch.inbound <- m:
 			}
 		}
+
+		// Set the deadline here, instead of per-message, so that the remote
+		// peer can easily "slow loris" the local peer by periodically sending
+		// messages into the draining connection.
+		if err := r.Conn.SetDeadline(time.Now().Add(ch.opts.DrainTimeout)); err != nil {
+			ch.opts.Logger.Error("drain: set deadline", zap.Error(err))
+			return
+		}
+
 		buf := make([]byte, ch.opts.MaxMessageSize)
+		msg := wire.Msg{}
 		for {
-			var msg wire.Msg
-			if err := r.Conn.SetDeadline(time.Now().Add(ch.opts.DrainTimeout)); err != nil {
-				// FIXME: This is vulnerable to a sloth attack, where the remote
-				// peer slowly drips messages onto this connection in an attempt
-				// to keep the connection alive.
-				ch.opts.Logger.Error("drain: set deadline", zap.Error(err))
-				return
-			}
 			n, err := r.Decoder(r.Reader, buf[:])
 			if err != nil {
 				// We do not log this as an error, because it is entirely

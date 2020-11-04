@@ -77,8 +77,8 @@ type Client struct {
 	fanOutRunning   bool
 }
 
-func NewClient(opts ClientOptions, self id.Signatory) Client {
-	return Client{
+func NewClient(opts ClientOptions, self id.Signatory) *Client {
+	return &Client{
 		opts: opts,
 		self: self,
 
@@ -168,7 +168,7 @@ func (client *Client) Attach(ctx context.Context, remote id.Signatory, conn net.
 	}
 	client.sharedChannelsMu.RUnlock()
 
-	if err := sc.ch.Attach(ctx, conn, enc, dec); err != nil {
+	if err := sc.ch.Attach(ctx, remote, conn, enc, dec); err != nil {
 		return fmt.Errorf("attach: %v", err)
 	}
 	return nil

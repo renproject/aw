@@ -1,1 +1,91 @@
 package channel_test
+
+import (
+	"context"
+	"encoding/binary"
+	"time"
+
+	"github.com/renproject/aw/channel"
+	"github.com/renproject/aw/wire"
+	"github.com/renproject/id"
+
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+)
+
+var _ = Describe("Client", func() {
+
+	sink := func(ctx context.Context, client *channel.Client, remote id.Signatory, n uint64) <-chan struct{} {
+		quit := make(chan struct{})
+		go func() {
+			defer GinkgoRecover()
+			defer close(quit)
+			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			for iter := uint64(0); iter < n; iter++ {
+				data := [8]byte{}
+				binary.BigEndian.PutUint64(data[:], iter)
+				err := client.Send(ctx, remote, wire.Msg{Data: data[:]})
+				Expect(err).ToNot(HaveOccurred())
+			}
+		}()
+		return quit
+	}
+
+	stream := func(ctx context.Context, client *channel.Client, n uint64) <-chan struct{} {
+		quit := make(chan struct{})
+		go func() {
+			defer GinkgoRecover()
+			defer close(quit)
+			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			receiver := make(chan channel.Msg)
+			client.Receive(ctx, receiver)
+			for iter := uint64(0); iter < n; iter++ {
+				select {
+				case <-ctx.Done():
+					Expect(ctx.Err()).ToNot(HaveOccurred())
+				case msg := <-receiver:
+					data := binary.BigEndian.Uint64(msg.Data)
+					println("received", data)
+					Expect(data).To(Equal(iter))
+				}
+			}
+		}()
+		return quit
+	}
+
+	Context("when binding and attaching", func() {
+		It("should send and receive all messages in order", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			localPrivKey := id.NewPrivKey()
+			remotePrivKey := id.NewPrivKey()
+
+			local := channel.NewClient(
+				channel.DefaultClientOptions(),
+				localPrivKey.Signatory())
+			local.Bind(remotePrivKey.Signatory())
+
+			remote := channel.NewClient(
+				channel.DefaultClientOptions(),
+				remotePrivKey.Signatory())
+			remote.Bind(localPrivKey.Signatory())
+
+			listen(ctx, remote, remotePrivKey.Signatory(), localPrivKey.Signatory(), 4444)
+			dial(ctx, local, localPrivKey.Signatory(), remotePrivKey.Signatory(), 4444, time.Minute)
+
+			n := uint64(100000)
+			q1 := sink(ctx, local, remotePrivKey.Signatory(), n)
+			q2 := stream(ctx, remote, n)
+			q3 := sink(ctx, remote, localPrivKey.Signatory(), n)
+			q4 := stream(ctx, local, n)
+
+			<-q1
+			<-q2
+			<-q3
+			<-q4
+		})
+	})
+})
