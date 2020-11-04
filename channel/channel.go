@@ -399,6 +399,9 @@ func (ch *Channel) drainReader(ctx context.Context, r reader, m wire.Msg, mOk bo
 		for {
 			var msg wire.Msg
 			if err := r.Conn.SetDeadline(time.Now().Add(ch.opts.DrainTimeout)); err != nil {
+				// FIXME: This is vulnerable to a sloth attack, where the remote
+				// peer slowly drips messages onto this connection in an attempt
+				// to keep the connection alive.
 				ch.opts.Logger.Error("drain: set deadline", zap.Error(err))
 				return
 			}
@@ -421,7 +424,7 @@ func (ch *Channel) drainReader(ctx context.Context, r reader, m wire.Msg, mOk bo
 		}
 	}
 	if ch.opts.DrainInBackground {
-		ch.opts.Logger.Debug("drain: backgrond", zap.String("addr", r.Conn.RemoteAddr().String()))
+		ch.opts.Logger.Debug("drain: background", zap.String("addr", r.Conn.RemoteAddr().String()))
 		go f()
 		return
 	}

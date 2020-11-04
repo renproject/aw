@@ -323,10 +323,10 @@ var _ = Describe("Channels", func() {
 				q4 := stream(localInbound, n, true)
 
 				// Remote channel will listen for incoming connections.
-				listen(ctx, remoteCh, remotePrivKey.Signatory(), localPrivKey.Signatory(), 3335)
+				listen(ctx, remoteCh, remotePrivKey.Signatory(), localPrivKey.Signatory(), 3336)
 				// Local channel will dial the listener (and re-dial once per
 				// second).
-				dial(ctx, localCh, localPrivKey.Signatory(), remotePrivKey.Signatory(), 3335, time.Second)
+				dial(ctx, localCh, localPrivKey.Signatory(), remotePrivKey.Signatory(), 3336, time.Second)
 
 				// Wait for sinking and streaming to finish.
 				<-q1
