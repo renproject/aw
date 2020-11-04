@@ -1,7 +1,9 @@
 package channel
 
 import (
+	"bufio"
 	"context"
+	"io"
 	"net"
 	"time"
 
@@ -16,6 +18,7 @@ var (
 	DefaultDrainTimeout      = 10 * time.Second
 	DefaultDrainInBackground = true
 	DefaultMaxMessageSize    = 4 * 1024 * 1024 // 4MB
+	DefaultBufferSize        = 4 * 1204 * 1024 // 4MB
 )
 
 // Options for parameterizing the behaviour of a Channel.
@@ -24,6 +27,7 @@ type Options struct {
 	DrainTimeout      time.Duration
 	DrainInBackground bool
 	MaxMessageSize    int
+	BufferSize        int
 }
 
 // DefaultOptions returns Options with sane defaults.
@@ -37,6 +41,7 @@ func DefaultOptions() Options {
 		DrainTimeout:      DefaultDrainTimeout,
 		DrainInBackground: DefaultDrainInBackground,
 		MaxMessageSize:    DefaultMaxMessageSize,
+		BufferSize:        DefaultBufferSize,
 	}
 }
 
@@ -69,6 +74,7 @@ func (opts Options) WithDrainInBackground(enable bool) Options {
 // Channel.
 type reader struct {
 	net.Conn
+	io.Reader
 	codec.Decoder
 
 	// q is a quit channel that is closed by the Channel when the reader is no
@@ -82,6 +88,7 @@ type reader struct {
 // Channel.
 type writer struct {
 	net.Conn
+	*bufio.Writer
 	codec.Encoder
 
 	// q is a quit channel that is closed by the Channel when the writer is no
@@ -214,13 +221,13 @@ func (ch *Channel) Attach(ctx context.Context, conn net.Conn, enc codec.Encoder,
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case ch.readers <- reader{Conn: conn, Decoder: dec, q: rq}:
+	case ch.readers <- reader{Conn: conn, Reader: bufio.NewReaderSize(conn, ch.opts.BufferSize), Decoder: dec, q: rq}:
 	}
 	// Signal that a new writer should be used.
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case ch.writers <- writer{Conn: conn, Encoder: enc, q: wq}:
+	case ch.writers <- writer{Conn: conn, Writer: bufio.NewWriterSize(conn, ch.opts.BufferSize), Encoder: enc, q: wq}:
 	}
 
 	// Wait for the reader to be closed.
@@ -263,7 +270,7 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 		}
 
 		if !mOk {
-			n, err := r.Decoder(r.Conn, buf[:])
+			n, err := r.Decoder(r.Reader, buf[:])
 			if err != nil {
 				// If reading from the reader fails, then clear the reader. This
 				// will cause the next iteration to wait until a new underlying
@@ -302,6 +309,7 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 			// re-attempt writing the message in the next iteration.
 			ch.drainReader(ctx, r, m, mOk)
 			r, rOk = v, vOk
+			m, mOk = wire.Msg{}, false
 		}
 	}
 }
@@ -349,7 +357,7 @@ func (ch *Channel) writeLoop(ctx context.Context) {
 				mOk = false
 				continue
 			}
-			if _, err := w.Encoder(w.Conn, buf[:len(buf)-len(tail)]); err != nil {
+			if _, err := w.Encoder(w.Writer, buf[:len(buf)-len(tail)]); err != nil {
 				// If an error happened when trying to write to the writer,
 				// then clean the writer. This will force the Channel to
 				// block on future writes until a new network connection is
@@ -357,8 +365,12 @@ func (ch *Channel) writeLoop(ctx context.Context) {
 				// re-attempt to write it when a new connection is
 				// eventually attached).
 				close(w.q)
-				w = writer{}
-				wOk = false
+				w, wOk = writer{}, false
+				continue
+			}
+			if err := w.Writer.Flush(); err != nil {
+				close(w.q)
+				w, wOk = writer{}, false
 				continue
 			}
 			// Clear the latest message so that we can move on to other
@@ -390,7 +402,7 @@ func (ch *Channel) drainReader(ctx context.Context, r reader, m wire.Msg, mOk bo
 				ch.opts.Logger.Error("drain: set deadline", zap.Error(err))
 				return
 			}
-			n, err := r.Decoder(r.Conn, buf[:])
+			n, err := r.Decoder(r.Reader, buf[:])
 			if err != nil {
 				// We do not log this as an error, because it is entirely
 				// expected when draining.

@@ -68,7 +68,7 @@ var _ = Describe("Channels", func() {
 			defer close(quit)
 			timeout := time.After(30 * time.Second)
 			max := uint64(0)
-			received := make(map[uint64]bool, n)
+			received := make(map[uint64]int, n)
 			for iter := uint64(0); iter < n; iter++ {
 				select {
 				case msg := <-inbound:
@@ -76,18 +76,24 @@ var _ = Describe("Channels", func() {
 					if data > max {
 						max = data
 					}
-					received[data] = true
+					received[data]++
 					if inOrder {
 						Expect(data).To(Equal(iter))
 					}
-					if rand.Int()%10000 == 0 {
+					if rand.Int()%100000 == 0 {
 						log.Printf("stream %v/%v", len(received), max+1)
 					}
 				case <-timeout:
 					Expect(func() { panic("stream timeout") }).ToNot(Panic())
 				}
 			}
-			Expect(received).To(HaveLen(int(n)))
+			for msg, count := range received {
+				if count > 1 {
+					log.Printf("received %v with count %v", msg, count)
+				}
+				Expect(count).To(Equal(1))
+			}
+			Expect(len(received)).To(Equal(int(n)))
 		}()
 		return quit
 	}
@@ -202,7 +208,7 @@ var _ = Describe("Channels", func() {
 			time.Sleep(time.Second)
 
 			// Number of messages that we will test.
-			n := uint64(1000)
+			n := uint64(1000000)
 			// Send and receive messages in both direction; from local to
 			// remote, and from remote to local.
 			q1 := sink(localOutbound, n)
@@ -230,7 +236,7 @@ var _ = Describe("Channels", func() {
 			remoteCh, remoteInbound, remoteOutbound := run(ctx, remotePrivKey.Signatory(), true)
 
 			// Number of messages that we will test.
-			n := uint64(1000)
+			n := uint64(1000000)
 			// Send and receive messages in both direction; from local to
 			// remote, and from remote to local.
 			q1 := sink(localOutbound, n)
@@ -294,7 +300,7 @@ var _ = Describe("Channels", func() {
 			})
 		})
 		Context("when draining connections in the foreground", func() {
-			FIt("should send and receive all messages in order", func() {
+			It("should send and receive all messages in order", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
@@ -308,7 +314,7 @@ var _ = Describe("Channels", func() {
 				// Number of messages that we will test. This number is higher than
 				// in other tests, because we need sending/receiving to take long
 				// enough that replacements will happen.
-				n := uint64(100000)
+				n := uint64(1000000)
 				// Send and receive messages in both direction; from local to
 				// remote, and from remote to local.
 				q1 := sink(localOutbound, n)
@@ -320,7 +326,7 @@ var _ = Describe("Channels", func() {
 				listen(ctx, remoteCh, remotePrivKey.Signatory(), localPrivKey.Signatory(), 3335)
 				// Local channel will dial the listener (and re-dial once per
 				// second).
-				dial(ctx, localCh, localPrivKey.Signatory(), remotePrivKey.Signatory(), 3335, 2*time.Second)
+				dial(ctx, localCh, localPrivKey.Signatory(), remotePrivKey.Signatory(), 3335, time.Second)
 
 				// Wait for sinking and streaming to finish.
 				<-q1
