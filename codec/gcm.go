@@ -12,10 +12,10 @@ import (
 // A GCMSession stores the state of a GCM authenticated/encrypted session. This
 // includes the read/write nonces, memory buffers, and the GCM cipher itself.
 type GCMSession struct {
-	gcm   cipher.AEAD
-	rRand *rand.Rand
-	wRand *rand.Rand
-	wBuf  []byte
+	gcm       cipher.AEAD
+	wRand     *rand.Rand
+	wBuf      []byte
+	nonceSize int
 }
 
 // NewGCMSession accepts a symmetric secret key and returns a new GCMSession
@@ -30,10 +30,10 @@ func NewGCMSession(key [32]byte) (*GCMSession, error) {
 		return &GCMSession{}, fmt.Errorf("creating gcm cipher: %v", err)
 	}
 	return &GCMSession{
-		gcm:   gcm,
-		rRand: rand.New(rand.NewSource(int64(binary.BigEndian.Uint64(key[:8])))),
-		wRand: rand.New(rand.NewSource(int64(binary.BigEndian.Uint64(key[:8])))),
-		wBuf:  make([]byte, gcm.NonceSize()),
+		gcm:       gcm,
+		wRand:     rand.New(rand.NewSource(int64(binary.BigEndian.Uint64(key[:8])))),
+		wBuf:      make([]byte, gcm.NonceSize()),
+		nonceSize: gcm.NonceSize(),
 	}, nil
 }
 
@@ -57,7 +57,7 @@ func GCMDecoder(session *GCMSession, dec Decoder) Decoder {
 		if err != nil {
 			return n, fmt.Errorf("decoding data: %v", err)
 		}
-		decrypted, err := session.gcm.Open(nil, buf[:12], buf[12:n], nil)
+		decrypted, err := session.gcm.Open(nil, buf[:session.nonceSize], buf[session.nonceSize:n], nil)
 		if err != nil {
 			return 0, fmt.Errorf("opening sealed data: %v", err)
 		}
