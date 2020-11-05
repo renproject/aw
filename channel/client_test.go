@@ -37,17 +37,18 @@ var _ = Describe("Client", func() {
 		go func() {
 			defer GinkgoRecover()
 			defer close(quit)
+			defer time.Sleep(time.Millisecond) // Wait for the receiver to be shutdown.
 			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
 			receiver := make(chan channel.Msg)
 			client.Receive(ctx, receiver)
 			for iter := uint64(0); iter < n; iter++ {
+				time.Sleep(time.Millisecond)
 				select {
 				case <-ctx.Done():
 					Expect(ctx.Err()).ToNot(HaveOccurred())
 				case msg := <-receiver:
 					data := binary.BigEndian.Uint64(msg.Data)
-					println("received", data)
 					Expect(data).To(Equal(iter))
 				}
 			}
@@ -67,16 +68,20 @@ var _ = Describe("Client", func() {
 				channel.DefaultClientOptions(),
 				localPrivKey.Signatory())
 			local.Bind(remotePrivKey.Signatory())
+			defer local.Unbind(remotePrivKey.Signatory())
+			Expect(local.IsBound(remotePrivKey.Signatory())).To(BeTrue())
 
 			remote := channel.NewClient(
 				channel.DefaultClientOptions(),
 				remotePrivKey.Signatory())
 			remote.Bind(localPrivKey.Signatory())
+			defer remote.Unbind(localPrivKey.Signatory())
+			Expect(remote.IsBound(localPrivKey.Signatory())).To(BeTrue())
 
 			listen(ctx, remote, remotePrivKey.Signatory(), localPrivKey.Signatory(), 4444)
 			dial(ctx, local, localPrivKey.Signatory(), remotePrivKey.Signatory(), 4444, time.Minute)
 
-			n := uint64(100000)
+			n := uint64(5000)
 			q1 := sink(ctx, local, remotePrivKey.Signatory(), n)
 			q2 := stream(ctx, remote, n)
 			q3 := sink(ctx, remote, localPrivKey.Signatory(), n)
@@ -86,6 +91,102 @@ var _ = Describe("Client", func() {
 			<-q2
 			<-q3
 			<-q4
+		})
+	})
+
+	Context("when binding and unbinding while attached", func() {
+		It("should send and receive all messages in order", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			localPrivKey := id.NewPrivKey()
+			remotePrivKey := id.NewPrivKey()
+
+			local := channel.NewClient(
+				channel.DefaultClientOptions(),
+				localPrivKey.Signatory())
+			local.Bind(remotePrivKey.Signatory())
+			defer local.Unbind(remotePrivKey.Signatory())
+			Expect(local.IsBound(remotePrivKey.Signatory())).To(BeTrue())
+
+			remote := channel.NewClient(
+				channel.DefaultClientOptions(),
+				remotePrivKey.Signatory())
+			remote.Bind(localPrivKey.Signatory())
+			defer remote.Unbind(localPrivKey.Signatory())
+			Expect(remote.IsBound(localPrivKey.Signatory())).To(BeTrue())
+
+			listen(ctx, remote, remotePrivKey.Signatory(), localPrivKey.Signatory(), 4444)
+			dial(ctx, local, localPrivKey.Signatory(), remotePrivKey.Signatory(), 4444, time.Minute)
+
+			go func() {
+				remote := remotePrivKey.Signatory()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					default:
+						local.Bind(remote)
+						time.Sleep(time.Millisecond)
+						local.Unbind(remote)
+						time.Sleep(time.Millisecond)
+					}
+				}
+			}()
+
+			go func() {
+				local := localPrivKey.Signatory()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					default:
+						remote.Bind(local)
+						time.Sleep(time.Millisecond)
+						remote.Unbind(local)
+						time.Sleep(time.Millisecond)
+					}
+				}
+			}()
+
+			n := uint64(5000)
+			q1 := sink(ctx, local, remotePrivKey.Signatory(), n)
+			q2 := stream(ctx, remote, n)
+			q3 := sink(ctx, remote, localPrivKey.Signatory(), n)
+			q4 := stream(ctx, local, n)
+
+			<-q1
+			<-q2
+			<-q3
+			<-q4
+		})
+	})
+
+	Context("when sending before binding", func() {
+		It("should return an error", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			remotePrivKey := id.NewPrivKey()
+			localPrivKey := id.NewPrivKey()
+			local := channel.NewClient(
+				channel.DefaultClientOptions(),
+				localPrivKey.Signatory())
+			Expect(local.Send(ctx, remotePrivKey.Signatory(), wire.Msg{})).To(HaveOccurred())
+		})
+	})
+
+	Context("when attaching before binding", func() {
+		It("should return an error", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			remotePrivKey := id.NewPrivKey()
+			localPrivKey := id.NewPrivKey()
+			local := channel.NewClient(
+				channel.DefaultClientOptions(),
+				localPrivKey.Signatory())
+			Expect(local.Attach(ctx, remotePrivKey.Signatory(), nil, nil, nil)).To(HaveOccurred())
 		})
 	})
 })
