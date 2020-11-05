@@ -276,12 +276,14 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 			case <-ctx.Done():
 				return ctx.Err()
 			case r, rOk = <-ch.readers:
+				ch.opts.Logger.Debug("replaced reader", zap.String("remote", ch.remote.String()), zap.String("addr", r.Conn.RemoteAddr().String()))
 			}
 		}
 
 		if !mOk {
 			n, err := r.Decoder(r.Reader, buf[:])
 			if err != nil {
+				ch.opts.Logger.Error("decode", zap.Error(err))
 				// If reading from the reader fails, then clear the reader. This
 				// will cause the next iteration to wait until a new underlying
 				// network connection is attached to the Channel.
@@ -294,6 +296,7 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 			// we mark the message as available (and will attempt to write it to
 			// the inbound message channel).
 			if _, _, err := m.Unmarshal(buf[:n], len(buf)); err != nil {
+				ch.opts.Logger.Error("unmarshal", zap.Error(err))
 				continue
 			}
 			mOk = true
@@ -360,6 +363,7 @@ func (ch *Channel) writeLoop(ctx context.Context) {
 		case m, mOk = <-mQueue:
 			tail, _, err := m.Marshal(buf[:], len(buf))
 			if err != nil {
+				ch.opts.Logger.Error("marshal", zap.Error(err))
 				// Clear the latest message so that we can move on to other
 				// messages. We do this, because failure to marshal is not
 				// something that is typically recoverable.
@@ -368,6 +372,7 @@ func (ch *Channel) writeLoop(ctx context.Context) {
 				continue
 			}
 			if _, err := w.Encoder(w.Writer, buf[:len(buf)-len(tail)]); err != nil {
+				ch.opts.Logger.Error("encode", zap.Error(err))
 				// If an error happened when trying to write to the writer,
 				// then clean the writer. This will force the Channel to
 				// block on future writes until a new network connection is
@@ -379,6 +384,8 @@ func (ch *Channel) writeLoop(ctx context.Context) {
 				continue
 			}
 			if err := w.Writer.Flush(); err != nil {
+				ch.opts.Logger.Error("flush", zap.Error(err))
+				// An error when flushing is the same as an error when encoding.
 				close(w.q)
 				w, wOk = writer{}, false
 				continue

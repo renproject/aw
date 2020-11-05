@@ -76,12 +76,14 @@ func (p *Peer) Gossip(ctx context.Context, subnet id.Hash, mgs wire.Msg) error {
 func (p *Peer) Run(ctx context.Context) {
 	receiver := make(chan channel.Msg)
 	go func() {
-		select {
-		case <-ctx.Done():
-		case msg := <-receiver:
-			p.opts.Callbacks.DidReceiveMessage(msg.From, msg.Msg)
+		for {
+			select {
+			case <-ctx.Done():
+			case msg := <-receiver:
+				p.opts.Callbacks.DidReceiveMessage(msg.From, msg.Msg)
+			}
 		}
 	}()
-	go p.transport.Receive(ctx, receiver)
+	p.transport.Receive(ctx, receiver)
 	p.transport.Run(ctx)
 }

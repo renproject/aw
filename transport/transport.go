@@ -23,6 +23,7 @@ var (
 	DefaultPort          = uint16(3333)
 	DefaultEncoder       = codec.LengthPrefixEncoder(codec.PlainEncoder)
 	DefaultDecoder       = codec.LengthPrefixDecoder(codec.PlainDecoder)
+	DefaultDialTimeout   = policy.ConstantTimeout(time.Second)
 	DefaultClientTimeout = 10 * time.Second
 	DefaultServerTimeout = 10 * time.Second
 )
@@ -34,6 +35,7 @@ type Options struct {
 	Port            uint16
 	Encoder         codec.Encoder
 	Decoder         codec.Decoder
+	DialTimeout     policy.Timeout
 	ClientTimeout   time.Duration
 	ServerTimeout   time.Duration
 	OncePoolOptions handshake.OncePoolOptions
@@ -51,6 +53,7 @@ func DefaultOptions() Options {
 		Port:            DefaultPort,
 		Encoder:         DefaultEncoder,
 		Decoder:         DefaultDecoder,
+		DialTimeout:     DefaultDialTimeout,
 		ClientTimeout:   DefaultClientTimeout,
 		ServerTimeout:   DefaultServerTimeout,
 		OncePoolOptions: handshake.DefaultOncePoolOptions(),
@@ -71,7 +74,7 @@ type Transport struct {
 	opts Options
 
 	self   id.Signatory
-	client channel.Client
+	client *channel.Client
 	once   handshake.Handshake
 
 	linksMu *sync.RWMutex
@@ -81,7 +84,7 @@ type Transport struct {
 	conns   map[id.Signatory]int64
 }
 
-func New(opts Options, self id.Signatory, client channel.Client, h handshake.Handshake) *Transport {
+func New(opts Options, self id.Signatory, client *channel.Client, h handshake.Handshake) *Transport {
 	oncePool := handshake.NewOncePool(opts.OncePoolOptions)
 	return &Transport{
 		opts: opts,
@@ -100,12 +103,17 @@ func New(opts Options, self id.Signatory, client channel.Client, h handshake.Han
 
 func (t *Transport) Send(ctx context.Context, remote id.Signatory, remoteAddr string, msg wire.Msg) error {
 	if t.IsConnected(remote) {
+		t.opts.Logger.Debug("send", zap.Bool("connected", true), zap.String("remote", remote.String()), zap.String("addr", remoteAddr))
 		return t.client.Send(ctx, remote, msg)
 	}
+
 	if t.IsLinked(remote) {
+		t.opts.Logger.Debug("send", zap.Bool("linked", true), zap.String("remote", remote.String()), zap.String("addr", remoteAddr))
 		go t.dial(remote, remoteAddr)
 		return t.client.Send(ctx, remote, msg)
 	}
+
+	t.opts.Logger.Debug("send", zap.Bool("linked", false), zap.Bool("connected", false), zap.String("remote", remote.String()), zap.String("addr", remoteAddr))
 	t.client.Bind(remote)
 	go func() {
 		defer t.client.Unbind(remote)
@@ -191,6 +199,9 @@ func (t *Transport) run(ctx context.Context) {
 			// network connection should be kept alive until the remote peer
 			// is unlinked (or the network connection faults).
 			if t.IsLinked(remote) {
+				t.opts.Logger.Debug("accepted", zap.Bool("linked", true), zap.String("remote", remote.String()), zap.String("addr", addr))
+				defer t.opts.Logger.Debug("accepted: drop", zap.Bool("linked", true), zap.String("remote", remote.String()), zap.String("addr", addr))
+
 				// Attaching a connection will block until the Channel is
 				// unbound (which happens when the Transport is unlinked), the
 				// connection is replaced, or the connection faults.
@@ -205,6 +216,9 @@ func (t *Transport) run(ctx context.Context) {
 			// bounded time should be used.
 			ctx, cancel := context.WithTimeout(ctx, t.opts.ServerTimeout)
 			defer cancel()
+
+			t.opts.Logger.Debug("accepted", zap.Bool("linked", false), zap.Duration("timeout", t.opts.ServerTimeout), zap.String("remote", remote.String()), zap.String("addr", addr))
+			defer t.opts.Logger.Debug("accepted: drop", zap.Bool("linked", false), zap.Duration("timeout", t.opts.ServerTimeout), zap.String("remote", remote.String()), zap.String("addr", addr))
 
 			t.client.Bind(remote)
 			defer t.client.Unbind(remote)
@@ -250,6 +264,9 @@ func (t *Transport) dial(remote id.Signatory, remoteAddr string) {
 			defer t.disconnect(remote)
 
 			if t.IsLinked(remote) {
+				t.opts.Logger.Debug("dialed", zap.Bool("linked", true), zap.String("remote", remote.String()), zap.String("addr", addr))
+				defer t.opts.Logger.Debug("dialed: drop", zap.Bool("linked", true), zap.String("remote", remote.String()), zap.String("addr", addr))
+
 				// If the Transport is linked to the remote peer, then the
 				// network connection should be kept alive until the remote peer
 				// is unlinked (or the network connection faults). To do this,
@@ -257,6 +274,9 @@ func (t *Transport) dial(remote id.Signatory, remoteAddr string) {
 				// previously defined context will be used, which will
 				// eventually timeout.
 				ctx = context.Background()
+			} else {
+				t.opts.Logger.Debug("dialed", zap.Bool("linked", false), zap.Duration("timeout", t.opts.ClientTimeout), zap.String("remote", remote.String()), zap.String("addr", addr))
+				defer t.opts.Logger.Debug("dialed: drop", zap.Bool("linked", false), zap.Duration("timeout", t.opts.ClientTimeout), zap.String("remote", remote.String()), zap.String("addr", addr))
 			}
 
 			if err := t.client.Attach(ctx, remote, conn, enc, dec); err != nil {
@@ -266,7 +286,7 @@ func (t *Transport) dial(remote id.Signatory, remoteAddr string) {
 		func(err error) {
 			t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr), zap.Error(err))
 		},
-		policy.ConstantTimeout(t.opts.ClientTimeout/3))
+		t.opts.DialTimeout)
 	if err != nil {
 		t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr), zap.Error(err))
 	}

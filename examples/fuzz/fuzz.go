@@ -41,13 +41,21 @@ func main() {
 	// Init and run peers.
 	peers := make([]*peer.Peer, n)
 	tables := make([]peer.Table, n)
-	clients := make([]channel.Client, n)
+	clients := make([]*channel.Client, n)
 	transports := make([]*transport.Transport, n)
 	for i := range peers {
-		r := rand.New(rand.NewSource(time.Now().UnixNano()))
 		self := opts[i].PrivKey.Signatory()
-		clients[i] = channel.NewClient(channel.DefaultClientOptions().WithLogger(logger), self)
-		transports[i] = transport.New(transport.DefaultOptions().WithLogger(logger).WithPort(uint16(3333+i)), self, clients[i], handshake.ECIES(opts[i].PrivKey, r))
+		clients[i] = channel.NewClient(
+			channel.DefaultClientOptions().
+				WithLogger(logger),
+			self)
+		transports[i] = transport.New(
+			transport.DefaultOptions().
+				WithLogger(logger).
+				WithPort(uint16(3333+i)),
+			self,
+			clients[i],
+			handshake.Insecure(opts[i].PrivKey.Signatory()))
 		tables[i] = peer.NewInMemTable()
 		peers[i] = peer.New(opts[i], tables[i], transports[i])
 		go func(i int) {
@@ -55,16 +63,14 @@ func main() {
 			for {
 				// Randomly crash peers.
 				func() {
-					d := time.Millisecond * time.Duration(1000+r.Int()%9000)
+					d := time.Minute * time.Duration(1000+r.Int()%9000)
 					ctx, cancel := context.WithTimeout(context.Background(), d)
 					defer cancel()
-
 					peers[i].Run(ctx)
 				}()
 			}
 		}(i)
 	}
-	time.Sleep(time.Second)
 
 	for {
 		time.Sleep(time.Millisecond * time.Duration(rand.Int()%1000))

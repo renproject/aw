@@ -108,10 +108,10 @@ func (client *Client) Bind(remote id.Signatory) {
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := New(client.opts.ChannelOptions, remote, inbound, outbound)
 	go func() {
+		defer close(inbound)
 		if err := ch.Run(ctx); err != nil {
 			client.opts.Logger.Error("run", zap.Error(err))
 		}
-		close(inbound)
 	}()
 	go func() {
 		for msg := range inbound {
@@ -168,6 +168,7 @@ func (client *Client) Attach(ctx context.Context, remote id.Signatory, conn net.
 	}
 	client.sharedChannelsMu.RUnlock()
 
+	client.opts.Logger.Debug("attach", zap.String("self", client.self.String()), zap.String("remote", remote.String()), zap.String("addr", conn.RemoteAddr().String()))
 	if err := sc.ch.Attach(ctx, remote, conn, enc, dec); err != nil {
 		return fmt.Errorf("attach: %v", err)
 	}
