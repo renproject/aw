@@ -34,6 +34,9 @@ func ECIES(privKey *id.PrivKey, r *rand.Rand) Handshake {
 		remoteSecretKeyCh := make(chan []byte, 1)
 		defer close(remoteSecretKeyCh)
 
+		// A pointer to the pubKey contained in the privKey struct
+		localPubKeyPtr := privKey.PubKey()
+
 		// Generate a local secret key. We do it here, because it is needed by
 		// the writing and reading goroutine.
 		localSecretKey := [sizeOfSecretKey]byte{}
@@ -48,9 +51,8 @@ func ECIES(privKey *id.PrivKey, r *rand.Rand) Handshake {
 
 			// Write local pubkey so that the remote peer knows how to encrypt
 			// its secret key and send it back to the local peer.
-			localPubKey := privKey.PubKey()
-			xBuf := paddedTo32(localPubKey.X)
-			yBuf := paddedTo32(localPubKey.Y)
+			xBuf := paddedTo32(localPubKeyPtr.X)
+			yBuf := paddedTo32(localPubKeyPtr.Y)
 			if _, err := conn.Write(xBuf[:]); err != nil {
 				errCh <- fmt.Errorf("write local pubkey x: %v", err)
 				return
@@ -146,11 +148,14 @@ func ECIES(privKey *id.PrivKey, r *rand.Rand) Handshake {
 		for i := 0; i < sizeOfSecretKey; i++ {
 			sessionKey[i] = localSecretKey[i] ^ remoteSecretKey[i]
 		}
-		gcmSession, err := codec.NewGCMSession(sessionKey)
+
+		self := id.NewSignatory(localPubKeyPtr)
+		remote := id.NewSignatory(&remotePubKey)
+		gcmSession, err := codec.NewGCMSession(sessionKey, self, remote)
 		if err != nil {
 			return nil, nil, id.Signatory{}, fmt.Errorf("establish gcm session: %v", err)
 		}
-		return codec.GCMEncoder(gcmSession, enc), codec.GCMDecoder(gcmSession, dec), id.NewSignatory(&remotePubKey), nil
+		return codec.GCMEncoder(gcmSession, enc), codec.GCMDecoder(gcmSession, dec), remote, nil
 	}
 }
 
