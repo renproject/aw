@@ -32,7 +32,7 @@ func main() {
 	for i := range opts {
 		i := i
 		opts[i] = peer.DefaultOptions().WithLogger(logger).WithCallbacks(peer.Callbacks{
-			DidReceiveMessage: func(from id.Signatory, msg wire.Msg) {
+			DidReceiveMessage: func(p *peer.Peer, from id.Signatory, msg wire.Msg) {
 				fmt.Printf("%4v: received \"%v\" from %4v\n", opts[i].PrivKey.Signatory(), string(msg.Data), from)
 			},
 		})

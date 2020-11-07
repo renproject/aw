@@ -13,6 +13,7 @@ type Table interface {
 	AddPeer(peerID id.Signatory, peerAddr string)
 	DeletePeer(peerID id.Signatory)
 	PeerAddress(peerID id.Signatory) (string, bool)
+	All() []id.Signatory
 }
 
 type InMemTable struct {
@@ -47,4 +48,12 @@ func (table *InMemTable) PeerAddress(peerID id.Signatory) (string, bool) {
 
 	val, ok := table.peers[peerID]
 	return val, ok
+}
+
+func (table *InMemTable) All() []id.Signatory {
+	sigs := make([]id.Signatory, 0, len(table.peers))
+	for k := range table.peers {
+		sigs = append(sigs, k)
+	}
+	return sigs
 }
