@@ -51,8 +51,8 @@ func ECIES(privKey *id.PrivKey, r *rand.Rand) Handshake {
 
 			// Write local pubkey so that the remote peer knows how to encrypt
 			// its secret key and send it back to the local peer.
-			xBuf := paddedTo32(localPubKeyPtr.X)
-			yBuf := paddedTo32(localPubKeyPtr.Y)
+			xBuf := paddedTo32(localPubKey.X)
+			yBuf := paddedTo32(localPubKey.Y)
 			if _, err := conn.Write(xBuf[:]); err != nil {
 				errCh <- fmt.Errorf("write local pubkey x: %v", err)
 				return
@@ -149,7 +149,7 @@ func ECIES(privKey *id.PrivKey, r *rand.Rand) Handshake {
 			sessionKey[i] = localSecretKey[i] ^ remoteSecretKey[i]
 		}
 
-		self := id.NewSignatory(localPubKeyPtr)
+		self := id.NewSignatory(localPubKey)
 		remote := id.NewSignatory(&remotePubKey)
 		gcmSession, err := codec.NewGCMSession(sessionKey, self, remote)
 		if err != nil {
