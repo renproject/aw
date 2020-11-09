@@ -35,7 +35,7 @@ func ECIES(privKey *id.PrivKey, r *rand.Rand) Handshake {
 		defer close(remoteSecretKeyCh)
 
 		// A pointer to the pubKey contained in the privKey struct
-		localPubKeyPtr := privKey.PubKey()
+		localPubKey := privKey.PubKey()
 
 		// Generate a local secret key. We do it here, because it is needed by
 		// the writing and reading goroutine.
