@@ -94,7 +94,7 @@ func GCMEncoder(session *GCMSession, enc Encoder) Encoder {
 		if err != nil {
 			return n, fmt.Errorf("Encoded sealed data: %v", err)
 		}
-		return n, nil
+		return len(buf), nil
 	}
 }
 
@@ -116,6 +116,6 @@ func GCMDecoder(session *GCMSession, dec Decoder) Decoder {
 		}
 		copy(buf, decrypted)
 
-		return n, nil
+		return len(decrypted), nil
 	}
 }
