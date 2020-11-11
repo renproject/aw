@@ -145,5 +145,4 @@ func Gossiper(t *transport.Transport, contentResolver dht.ContentResolver, addre
 		},
 		gossip
 
-
 }

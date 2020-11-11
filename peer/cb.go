@@ -6,5 +6,5 @@ import (
 )
 
 type Callbacks struct {
-	DidReceiveMessage func(p *Peer, from id.Signatory, msg wire.Msg)
+	DidReceiveMessage func(from id.Signatory, msg wire.Msg)
 }
