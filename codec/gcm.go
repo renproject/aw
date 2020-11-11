@@ -12,11 +12,10 @@ import (
 // A GCMSession stores the state of a GCM authenticated/encrypted session. This
 // includes the read/write nonces, memory buffers, and the GCM cipher itself.
 type GCMSession struct {
-	gcm   cipher.AEAD
-	rRand *rand.Rand
-	wRand *rand.Rand
-	rBuf  []byte
-	wBuf  []byte
+	gcm       cipher.AEAD
+	wRand     *rand.Rand
+	wBuf      []byte
+	nonceSize int
 }
 
 // NewGCMSession accepts a symmetric secret key and returns a new GCMSession
@@ -31,23 +30,20 @@ func NewGCMSession(key [32]byte) (*GCMSession, error) {
 		return &GCMSession{}, fmt.Errorf("creating gcm cipher: %v", err)
 	}
 	return &GCMSession{
-		gcm:   gcm,
-		rRand: rand.New(rand.NewSource(int64(binary.BigEndian.Uint64(key[:8])))),
-		wRand: rand.New(rand.NewSource(int64(binary.BigEndian.Uint64(key[:8])))),
-		rBuf:  make([]byte, gcm.NonceSize()),
-		wBuf:  make([]byte, gcm.NonceSize()),
+		gcm:       gcm,
+		wRand:     rand.New(rand.NewSource(int64(binary.BigEndian.Uint64(key[:8])))),
+		wBuf:      make([]byte, gcm.NonceSize()),
+		nonceSize: gcm.NonceSize(),
 	}, nil
 }
 
-// GCMEncoder accepts a GCMSession and an Encoder function and returns an
-// Encoder function that
 func GCMEncoder(session *GCMSession, enc Encoder) Encoder {
 	return func(w io.Writer, buf []byte) (int, error) {
 		_, err := session.wRand.Read(session.wBuf)
 		if err != nil {
 			return 0, fmt.Errorf("generating randomness: %v", err)
 		}
-		n, err := enc(w, session.gcm.Seal(nil, session.wBuf, buf, nil))
+		n, err := enc(w, append(session.wBuf, session.gcm.Seal(nil, session.wBuf, buf, nil)...))
 		if err != nil {
 			return n, fmt.Errorf("encoding sealed data: %v", err)
 		}
@@ -57,15 +53,11 @@ func GCMEncoder(session *GCMSession, enc Encoder) Encoder {
 
 func GCMDecoder(session *GCMSession, dec Decoder) Decoder {
 	return func(r io.Reader, buf []byte) (int, error) {
-		if _, err := session.wRand.Read(session.rBuf); err != nil {
-			return 0, fmt.Errorf("generating randomness: %v", err)
-		}
-
 		n, err := dec(r, buf)
 		if err != nil {
 			return n, fmt.Errorf("decoding data: %v", err)
 		}
-		decrypted, err := session.gcm.Open(nil, session.rBuf, buf[:n], nil)
+		decrypted, err := session.gcm.Open(nil, buf[:session.nonceSize], buf[session.nonceSize:n], nil)
 		if err != nil {
 			return 0, fmt.Errorf("opening sealed data: %v", err)
 		}

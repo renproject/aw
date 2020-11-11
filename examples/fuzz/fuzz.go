@@ -45,6 +45,8 @@ func main() {
 	transports := make([]*transport.Transport, n)
 	for i := range peers {
 		self := opts[i].PrivKey.Signatory()
+		r := rand.New(rand.NewSource(time.Now().UnixNano() + int64(i)))
+		h := handshake.ECIES(opts[i].PrivKey, r)
 		clients[i] = channel.NewClient(
 			channel.DefaultClientOptions().
 				WithLogger(logger),
@@ -55,11 +57,10 @@ func main() {
 				WithPort(uint16(3333+i)),
 			self,
 			clients[i],
-			handshake.ECIES(opts[i].PrivKey, rand.New(rand.NewSource(time.Now().UnixNano()))))
+			h)
 		tables[i] = peer.NewInMemTable()
 		peers[i] = peer.New(opts[i], tables[i], transports[i])
 		go func(i int) {
-			r := rand.New(rand.NewSource(time.Now().UnixNano() + int64(i)))
 			for {
 				// Randomly crash peers.
 				func() {
