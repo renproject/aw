@@ -55,7 +55,7 @@ func main() {
 				WithPort(uint16(3333+i)),
 			self,
 			clients[i],
-			handshake.Insecure(opts[i].PrivKey.Signatory()))
+			handshake.ECIES(opts[i].PrivKey, rand.New(rand.NewSource(time.Now().UnixNano()))))
 		tables[i] = peer.NewInMemTable()
 		peers[i] = peer.New(opts[i], tables[i], transports[i])
 		go func(i int) {
