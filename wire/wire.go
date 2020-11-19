@@ -17,7 +17,7 @@ const (
 	MsgTypePush    = uint16(1)
 	MsgTypePull    = uint16(2)
 	MsgTypeSync    = uint16(3)
-	MsgTypeDirect = uint16(4)
+	MsgTypeSend = uint16(4)
 )
 
 // Msg defines the low-level message structure that is sent on-the-wire between
