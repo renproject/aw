@@ -23,9 +23,9 @@ var _ = Describe("Double-cache Content Resolver", func() {
 
 			f := func(contentType uint8, content []byte) bool {
 				hash := id.Hash(sha256.Sum256(content))
-				resolver.Insert(hash, contentType, content)
+				resolver.Insert(dht.ContentID(hash), content)
 
-				newContent, ok := resolver.Content(hash, contentType)
+				newContent, ok := resolver.Content(dht.ContentID(hash))
 				Expect(ok).To(BeTrue())
 				Expect(newContent).To(Equal(content))
 				return true
@@ -42,12 +42,11 @@ var _ = Describe("Double-cache Content Resolver", func() {
 			)
 
 			// Fill cache with data that is too big.
-			contentType := uint8(0)
 			content := [10]byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}
 			hash := id.NewHash(content[:])
-			resolver.Insert(hash, contentType, content[:])
+			resolver.Insert(dht.ContentID(hash), content[:])
 
-			_, ok := resolver.Content(hash, contentType)
+			_, ok := resolver.Content(dht.ContentID(hash))
 			Expect(ok).To(BeFalse())
 		})
 
@@ -58,36 +57,35 @@ var _ = Describe("Double-cache Content Resolver", func() {
 					WithCapacity(capacity),
 				nil,
 			)
-			contentType := uint8(0)
 
 			// Fill cache with data.
 			content := [10]byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}
 			hash := id.NewHash(content[:])
-			resolver.Insert(hash, contentType, content[:])
+			resolver.Insert(dht.ContentID(hash), content[:])
 
 			// Add more data.
 			newContent := [10]byte{0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19}
 			newHash := id.NewHash(newContent[:])
-			resolver.Insert(newHash, contentType, newContent[:])
+			resolver.Insert(dht.ContentID(newHash), newContent[:])
 
 			// Both chunks of data should be present.
-			_, ok := resolver.Content(hash, contentType)
+			_, ok := resolver.Content(dht.ContentID(hash))
 			Expect(ok).To(BeTrue())
-			_, ok = resolver.Content(newHash, contentType)
+			_, ok = resolver.Content(dht.ContentID(newHash))
 			Expect(ok).To(BeTrue())
 
 			// Add event more data.
 			newerContent := [10]byte{0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29}
 			newerHash := id.NewHash(newerContent[:])
-			resolver.Insert(newerHash, contentType, newerContent[:])
+			resolver.Insert(dht.ContentID(newerHash), newerContent[:])
 
 			// Verify the two latest chunks exist, and that the rest has been
 			// rotated out.
-			_, ok = resolver.Content(hash, contentType)
+			_, ok = resolver.Content(dht.ContentID(hash))
 			Expect(ok).To(BeFalse())
-			_, ok = resolver.Content(newHash, contentType)
+			_, ok = resolver.Content(dht.ContentID(newHash))
 			Expect(ok).To(BeTrue())
-			_, ok = resolver.Content(newerHash, contentType)
+			_, ok = resolver.Content(dht.ContentID(newerHash))
 			Expect(ok).To(BeTrue())
 		})
 	})
@@ -101,7 +99,7 @@ var _ = Describe("Double-cache Content Resolver", func() {
 
 			f := func(contentType uint8, content []byte) bool {
 				hash := id.Hash(sha256.Sum256(content))
-				newContent, ok := resolver.Content(hash, contentType)
+				newContent, ok := resolver.Content(dht.ContentID(hash))
 				Expect(ok).To(BeFalse())
 				Expect(len(newContent)).To(Equal(0))
 				return true
@@ -112,50 +110,49 @@ var _ = Describe("Double-cache Content Resolver", func() {
 
 	Context("when using an inner resolver", func() {
 		It("should forward calls to it", func() {
-			insertCh := make(chan id.Hash)
-			deleteCh := make(chan id.Hash)
-			contentCh := make(chan id.Hash)
+			insertCh := make(chan dht.ContentID)
+			deleteCh := make(chan dht.ContentID)
+			contentCh := make(chan dht.ContentID)
 
 			resolver := dht.NewDoubleCacheContentResolver(
 				dht.DefaultDoubleCacheContentResolverOptions(),
 				dht.CallbackContentResolver{
-					InsertCallback: func(hash id.Hash, ty uint8, data []byte) {
-						insertCh <- hash
+					InsertCallback: func(id dht.ContentID, data []byte) {
+						insertCh <- id
 					},
-					DeleteCallback: func(hash id.Hash, ty uint8) {
-						deleteCh <- hash
+					DeleteCallback: func(id dht.ContentID) {
+						deleteCh <- id
 					},
-					ContentCallback: func(hash id.Hash, ty uint8) ([]byte, bool) {
-						contentCh <- hash
+					ContentCallback: func(id dht.ContentID) ([]byte, bool) {
+						contentCh <- id
 						return []byte{}, true
 					},
 				},
 			)
-			contentType := uint8(0)
 
 			// Insert and wait on the channel to make sure the inner
 			// resolver received the message.
 			hash := id.Hash(sha256.Sum256(dhtutil.RandomContent()))
-			go resolver.Insert(hash, contentType, nil)
+			go resolver.Insert(dht.ContentID(hash), nil)
 
 			newHash := <-insertCh
-			Expect(newHash).To(Equal(hash))
+			Expect(newHash).To(Equal(dht.ContentID(hash)))
 
 			// Delete and wait on the channel to make sure the inner
 			// resolver received the message.
 			hash = id.Hash(sha256.Sum256(dhtutil.RandomContent()))
-			go resolver.Delete(hash, contentType)
+			go resolver.Delete(dht.ContentID(hash))
 
 			newHash = <-deleteCh
-			Expect(newHash).To(Equal(hash))
+			Expect(newHash).To(Equal(dht.ContentID(hash)))
 
 			// Get and wait on the channel to make sure the inner resolver
 			// received the message.
 			hash = id.Hash(sha256.Sum256(dhtutil.RandomContent()))
-			go resolver.Content(hash, contentType)
+			go resolver.Content(dht.ContentID(hash))
 
 			newHash = <-contentCh
-			Expect(newHash).To(Equal(hash))
+			Expect(newHash).To(Equal(dht.ContentID(hash)))
 
 			// Ensure the channels receive no additional messages.
 			select {
@@ -174,9 +171,9 @@ var _ = Describe("Double-cache Content Resolver", func() {
 var _ = Describe("Callback Content Resolver", func() {
 	Context("when callbacks are not defined", func() {
 		It("should not panic", func() {
-			Expect(func() { dht.CallbackContentResolver{}.Insert(id.Hash{}, 0, []byte{}) }).ToNot(Panic())
-			Expect(func() { dht.CallbackContentResolver{}.Delete(id.Hash{}, 0) }).ToNot(Panic())
-			Expect(func() { dht.CallbackContentResolver{}.Content(id.Hash{}, 0) }).ToNot(Panic())
+			Expect(func() { dht.CallbackContentResolver{}.Insert(dht.ContentID(id.Hash{}), []byte{}) }).ToNot(Panic())
+			Expect(func() { dht.CallbackContentResolver{}.Delete(dht.ContentID(id.Hash{})) }).ToNot(Panic())
+			Expect(func() { dht.CallbackContentResolver{}.Content(dht.ContentID(id.Hash{})) }).ToNot(Panic())
 		})
 	})
 
@@ -187,20 +184,20 @@ var _ = Describe("Callback Content Resolver", func() {
 			cond3 := false
 
 			resolver := dht.CallbackContentResolver{
-				InsertCallback: func(id.Hash, uint8, []byte) {
+				InsertCallback: func(dht.ContentID, []byte) {
 					cond1 = true
 				},
-				DeleteCallback: func(id.Hash, uint8) {
+				DeleteCallback: func(dht.ContentID) {
 					cond2 = true
 				},
-				ContentCallback: func(id.Hash, uint8) ([]byte, bool) {
+				ContentCallback: func(dht.ContentID) ([]byte, bool) {
 					cond3 = true
 					return nil, false
 				},
 			}
-			resolver.Insert(id.Hash{}, 0, []byte{})
-			resolver.Delete(id.Hash{}, 0)
-			resolver.Content(id.Hash{}, 0)
+			resolver.Insert(dht.ContentID(id.Hash{}), []byte{})
+			resolver.Delete(dht.ContentID(id.Hash{}))
+			resolver.Content(dht.ContentID(id.Hash{}))
 
 			Expect(cond1).To(BeTrue())
 			Expect(cond2).To(BeTrue())
