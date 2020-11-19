@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go.uber.org/zap"
+
 	"github.com/renproject/aw/channel"
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/transport"
@@ -25,7 +27,7 @@ type Peer struct {
 	opts         Options
 	table        Table
 	transport    *transport.Transport
-	contentTable dht.ContentResolver
+	contentResolver dht.ContentResolver
 }
 
 func New(opts Options, table Table, transport *transport.Transport) *Peer {
@@ -44,8 +46,12 @@ func (p *Peer) Table() Table {
 	return p.table
 }
 
-func (p *Peer) MessageLogBook() dht.ContentResolver {
-	return p.contentTable
+func (p *Peer) Resolver() dht.ContentResolver {
+	return p.contentResolver
+}
+
+func (p *Peer) Logger() *zap.Logger {
+	return p.opts.Logger
 }
 
 func (p *Peer) Link(remote id.Signatory) {
