@@ -2,6 +2,7 @@ package wire
 
 import (
 	"fmt"
+	"github.com/renproject/id"
 
 	"github.com/renproject/surge"
 )
@@ -16,9 +17,7 @@ const (
 	MsgTypePush    = uint16(1)
 	MsgTypePull    = uint16(2)
 	MsgTypeSync    = uint16(3)
-	MsgTypePushAck = uint16(4)
-	MsgTypePullAck = uint16(5)
-	MsgTypeSyncAck = uint16(6)
+	MsgTypeDirect = uint16(4)
 )
 
 // Msg defines the low-level message structure that is sent on-the-wire between
@@ -26,6 +25,7 @@ const (
 type Msg struct {
 	Version uint16 `json:"version"`
 	Type    uint16 `json:"type"`
+	To 		id.Signatory `json:"to"`
 	Data    []byte `json:"data"`
 }
 
