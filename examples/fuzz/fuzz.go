@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/renproject/aw/dht"
 	"log"
 	"math/rand"
 	"time"
@@ -32,7 +33,7 @@ func main() {
 	for i := range opts {
 		i := i
 		opts[i] = peer.DefaultOptions().WithLogger(logger).WithCallbacks(peer.Callbacks{
-			DidReceiveMessage: func(p *peer.Peer, from id.Signatory, msg wire.Msg) {
+			DidReceiveMessage: func(from id.Signatory, msg wire.Msg) {
 				fmt.Printf("%4v: received \"%v\" from %4v\n", opts[i].PrivKey.Signatory(), string(msg.Data), from)
 			},
 		})
@@ -47,18 +48,24 @@ func main() {
 		self := opts[i].PrivKey.Signatory()
 		r := rand.New(rand.NewSource(time.Now().UnixNano() + int64(i)))
 		h := handshake.ECIES(opts[i].PrivKey, r)
+		contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
 		clients[i] = channel.NewClient(
 			channel.DefaultClientOptions().
 				WithLogger(logger),
-			self)
+			self,
+			contentResolver,
+			func(msgType uint16) bool {
+				   return msgType == wire.MsgTypeSync
+			})
 		transports[i] = transport.New(
 			transport.DefaultOptions().
 				WithLogger(logger).
 				WithPort(uint16(3333+i)),
 			self,
 			clients[i],
-			h)
-		tables[i] = peer.NewInMemTable()
+			h,
+			true)
+		tables[i] = peer.NewInMemTable(self)
 		peers[i] = peer.New(opts[i], tables[i], transports[i])
 		go func(i int) {
 			for {
