@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"fmt"
+	"github.com/renproject/aw/dht"
 	"net"
 	"sync"
 
@@ -75,9 +76,12 @@ type Client struct {
 	fanOutReceivers chan fanOutReceiver
 	fanOutRunningMu *sync.Mutex
 	fanOutRunning   bool
+
+	contentResolver dht.ContentResolver
+	msgFollowup func(msgType uint16) bool
 }
 
-func NewClient(opts ClientOptions, self id.Signatory) *Client {
+func NewClient(opts ClientOptions, self id.Signatory, contentResolver dht.ContentResolver, msgFollowup func(msgType uint16) bool) *Client {
 	return &Client{
 		opts: opts,
 		self: self,
@@ -89,6 +93,9 @@ func NewClient(opts ClientOptions, self id.Signatory) *Client {
 		fanOutReceivers: make(chan fanOutReceiver),
 		fanOutRunningMu: new(sync.Mutex),
 		fanOutRunning:   false,
+
+		contentResolver: contentResolver,
+		msgFollowup: msgFollowup,
 	}
 }
 
@@ -106,7 +113,7 @@ func (client *Client) Bind(remote id.Signatory) {
 	outbound := make(chan wire.Msg)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ch := New(client.opts.ChannelOptions, remote, inbound, outbound)
+	ch := New(client.opts.ChannelOptions, remote, inbound, outbound, client.contentResolver, client.msgFollowup)
 	go func() {
 		defer close(inbound)
 		if err := ch.Run(ctx); err != nil {
