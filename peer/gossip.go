@@ -13,9 +13,8 @@ import (
 
 type GossipFunc func(ctx context.Context, subnet id.Hash, contentID []byte) error
 
-// Gossiper returns a new set of callback functions and a gossip function that can be used to spread information throughout a network
-
-func Gossiper(t *transport.Transport, contentResolver dht.ContentResolver, addressTable Table, logger *zap.Logger, next Callbacks) (Callbacks, GossipFunc) {
+// Gossiper returns a new set of callback functions and a gossip function that can be used to spread information throughout a network.
+func Gossiper(logger *zap.Logger, t *transport.Transport, contentResolver dht.ContentResolver, addressTable Table, next Callbacks) (Callbacks, GossipFunc) {
 
 	gossip := func(ctx context.Context, subnet id.Hash, contentID []byte) error {
 		msg := wire.Msg{Version: wire.MsgVersion1, Type: wire.MsgTypePush, Data: contentID}
