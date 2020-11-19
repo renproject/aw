@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestDht(t *testing.T) {
+func TestDHT(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "DHT Suite")
 }
