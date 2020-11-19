@@ -70,6 +70,16 @@ func (opts Options) WithPort(port uint16) Options {
 	return opts
 }
 
+func (opts Options) WithClientTimeout(timeout time.Duration) Options {
+	opts.ClientTimeout = timeout
+	return opts
+}
+
+func (opts Options) WithOncePoolOptions(oncePoolOpts handshake.OncePoolOptions) Options {
+	opts.OncePoolOptions = oncePoolOpts
+	return opts
+}
+
 type Transport struct {
 	opts Options
 
@@ -109,7 +119,7 @@ func (t *Transport) Send(ctx context.Context, remote id.Signatory, remoteAddr st
 
 	if t.IsLinked(remote) {
 		t.opts.Logger.Debug("send", zap.Bool("linked", true), zap.String("remote", remote.String()), zap.String("addr", remoteAddr))
-		go t.dial(remote, remoteAddr)
+		go t.dial(ctx, remote, remoteAddr)
 		return t.client.Send(ctx, remote, msg)
 	}
 
@@ -117,7 +127,7 @@ func (t *Transport) Send(ctx context.Context, remote id.Signatory, remoteAddr st
 	t.client.Bind(remote)
 	go func() {
 		defer t.client.Unbind(remote)
-		t.dial(remote, remoteAddr)
+		t.dial(ctx, remote, remoteAddr)
 	}()
 	return t.client.Send(ctx, remote, msg)
 }
@@ -236,59 +246,71 @@ func (t *Transport) run(ctx context.Context) {
 	}
 }
 
-func (t *Transport) dial(remote id.Signatory, remoteAddr string) {
+func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAddr string) {
 	// It is tempting to skip dialing if there is already a connection. However,
 	// it is desirable to be able to re-dial in the case that the network
 	// address has changed. As such, we do not do any skip checks, and assume
 	// that dial is only called when the caller is absolutely sure that a dial
 	// should happen.
 
-	ctx, cancel := context.WithTimeout(context.Background(), t.opts.ClientTimeout)
-	defer cancel()
+	for {
+		dialCtx, cancel := context.WithTimeout(context.Background(), t.opts.ClientTimeout)
+		defer cancel()
 
-	err := tcp.Dial(
-		ctx,
-		remoteAddr,
-		func(conn net.Conn) {
-			addr := conn.RemoteAddr().String()
-			enc, dec, r, err := t.once(conn, t.opts.Encoder, t.opts.Decoder)
-			if r != remote {
-				t.opts.Logger.Error("handshake", zap.String("expected", remote.String()), zap.String("got", r.String()), zap.Error(fmt.Errorf("bad remote")))
-			}
-			if err != nil {
-				t.opts.Logger.Error("handshake", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
-				return
-			}
+		t.opts.Logger.Debug("dialing", zap.String("remote", remote.String()), zap.String("addr", remoteAddr))
 
-			t.connect(remote)
-			defer t.disconnect(remote)
+		err := tcp.Dial(
+			dialCtx,
+			remoteAddr,
+			func(conn net.Conn) {
+				addr := conn.RemoteAddr().String()
+				enc, dec, r, err := t.once(conn, t.opts.Encoder, t.opts.Decoder)
+				if r != remote {
+					t.opts.Logger.Error("handshake", zap.String("expected", remote.String()), zap.String("got", r.String()), zap.Error(fmt.Errorf("bad remote")))
+				}
+				if err != nil {
+					t.opts.Logger.Error("handshake", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
+					return
+				}
 
-			if t.IsLinked(remote) {
-				t.opts.Logger.Debug("dialed", zap.Bool("linked", true), zap.String("remote", remote.String()), zap.String("addr", addr))
-				defer t.opts.Logger.Debug("dialed: drop", zap.Bool("linked", true), zap.String("remote", remote.String()), zap.String("addr", addr))
+				t.connect(remote)
+				defer t.disconnect(remote)
 
-				// If the Transport is linked to the remote peer, then the
-				// network connection should be kept alive until the remote peer
-				// is unlinked (or the network connection faults). To do this,
-				// we override the context and re-use it. Otherwise, the
-				// previously defined context will be used, which will
-				// eventually timeout.
-				ctx = context.Background()
-			} else {
-				t.opts.Logger.Debug("dialed", zap.Bool("linked", false), zap.Duration("timeout", t.opts.ClientTimeout), zap.String("remote", remote.String()), zap.String("addr", addr))
-				defer t.opts.Logger.Debug("dialed: drop", zap.Bool("linked", false), zap.Duration("timeout", t.opts.ClientTimeout), zap.String("remote", remote.String()), zap.String("addr", addr))
-			}
+				if t.IsLinked(remote) {
+					t.opts.Logger.Debug("dialed", zap.Bool("linked", true), zap.String("remote", remote.String()), zap.String("addr", addr))
+					defer t.opts.Logger.Debug("dialed: drop", zap.Bool("linked", true), zap.String("remote", remote.String()), zap.String("addr", addr))
 
-			if err := t.client.Attach(ctx, remote, conn, enc, dec); err != nil {
-				t.opts.Logger.Error("outgoing", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
-			}
-		},
-		func(err error) {
+					// If the Transport is linked to the remote peer, then the
+					// network connection should be kept alive until the remote peer
+					// is unlinked (or the network connection faults). To do this,
+					// we override the context and re-use it. Otherwise, the
+					// previously defined context will be used, which will
+					// eventually timeout.
+					dialCtx = context.Background()
+				} else {
+					t.opts.Logger.Debug("dialed", zap.Bool("linked", false), zap.Duration("timeout", t.opts.ClientTimeout), zap.String("remote", remote.String()), zap.String("addr", addr))
+					defer t.opts.Logger.Debug("dialed: drop", zap.Bool("linked", false), zap.Duration("timeout", t.opts.ClientTimeout), zap.String("remote", remote.String()), zap.String("addr", addr))
+				}
+
+				if err := t.client.Attach(dialCtx, remote, conn, enc, dec); err != nil {
+					t.opts.Logger.Error("outgoing", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
+				}
+			},
+			func(err error) {
+				t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr), zap.Error(err))
+			},
+			t.opts.DialTimeout)
+		if err != nil {
 			t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr), zap.Error(err))
-		},
-		t.opts.DialTimeout)
-	if err != nil {
-		t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr), zap.Error(err))
+			select {
+			case <-retryCtx.Done():
+			case <-dialCtx.Done():
+				if !t.IsConnected(remote) {
+					continue
+				}
+			}
+		}
+		return
 	}
 }
 

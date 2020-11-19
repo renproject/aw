@@ -33,9 +33,16 @@ type sharedChannel struct {
 	outbound chan<- wire.Msg
 }
 
+var (
+	DefaultInboundBufferSize  = 0
+	DefaultOutboundBufferSize = 0
+)
+
 type ClientOptions struct {
-	Logger         *zap.Logger
-	ChannelOptions Options
+	Logger             *zap.Logger
+	InboundBufferSize  int
+	OutboundBufferSize int
+	ChannelOptions     Options
 }
 
 func DefaultClientOptions() ClientOptions {
@@ -44,8 +51,10 @@ func DefaultClientOptions() ClientOptions {
 		panic(err)
 	}
 	return ClientOptions{
-		Logger:         logger,
-		ChannelOptions: DefaultOptions(),
+		Logger:             logger,
+		InboundBufferSize:  DefaultInboundBufferSize,
+		OutboundBufferSize: DefaultOutboundBufferSize,
+		ChannelOptions:     DefaultOptions(),
 	}
 }
 
@@ -102,8 +111,8 @@ func (client *Client) Bind(remote id.Signatory) {
 		return
 	}
 
-	inbound := make(chan wire.Msg)
-	outbound := make(chan wire.Msg)
+	inbound := make(chan wire.Msg, client.opts.InboundBufferSize)
+	outbound := make(chan wire.Msg, client.opts.OutboundBufferSize)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := New(client.opts.ChannelOptions, remote, inbound, outbound)

@@ -18,14 +18,14 @@ import (
 
 func main() {
 	loggerConfig := zap.NewProductionConfig()
-	loggerConfig.Level.SetLevel(zap.PanicLevel)
+	loggerConfig.Level.SetLevel(zap.DebugLevel)
 	logger, err := loggerConfig.Build()
 	if err != nil {
 		panic(err)
 	}
 
 	// Number of peers.
-	n := 10
+	n := 2
 
 	// Init options for all peers.
 	opts := make([]peer.Options, n)
@@ -54,6 +54,8 @@ func main() {
 		transports[i] = transport.New(
 			transport.DefaultOptions().
 				WithLogger(logger).
+				WithClientTimeout(5*time.Second).
+				WithOncePoolOptions(handshake.DefaultOncePoolOptions().WithMinimumExpiryAge(10*time.Second)).
 				WithPort(uint16(3333+i)),
 			self,
 			clients[i],
@@ -79,9 +81,13 @@ func main() {
 			j := (i + 1) % len(peers)
 			fmt.Printf("peer[%v] sending to peer[%v]\n", i, j)
 			peers[i].Table().AddPeer(peers[j].ID(), fmt.Sprintf("localhost:%v", 3333+int64(j)))
-			if err := peers[i].Send(context.Background(), peers[j].ID(), wire.Msg{Data: []byte(fmt.Sprintf("hello from %v!", i))}); err != nil {
-				log.Printf("send: %v", err)
-			}
+			func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel()
+				if err := peers[i].Send(ctx, peers[j].ID(), wire.Msg{Data: []byte(fmt.Sprintf("hello from %v!", i))}); err != nil {
+					log.Printf("send: %v", err)
+				}
+			}()
 		}
 	}
 }
