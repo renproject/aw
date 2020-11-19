@@ -90,7 +90,7 @@ func GCMEncoder(session *GCMSession, enc Encoder) Encoder {
 		binary.BigEndian.PutUint64(nonceBuf[4:], session.writeNonce.bottom)
 		session.writeNonce.next()
 		encoded := session.gcm.Seal(nil, nonceBuf[:], buf, nil)
-		n, err := enc(w, encoded)
+		_, err := enc(w, encoded)
 		if err != nil {
 			return 0, fmt.Errorf("encoding sealed data: %v", err)
 		}
