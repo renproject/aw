@@ -92,7 +92,7 @@ func GCMEncoder(session *GCMSession, enc Encoder) Encoder {
 		encoded := session.gcm.Seal(nil, nonceBuf[:], buf, nil)
 		n, err := enc(w, encoded)
 		if err != nil {
-			return n, fmt.Errorf("Encoded sealed data: %v", err)
+			return 0, fmt.Errorf("encoding sealed data: %v", err)
 		}
 		return len(buf), nil
 	}
