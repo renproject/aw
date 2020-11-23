@@ -24,17 +24,16 @@ var (
 )
 
 type Peer struct {
-	opts         Options
-	table        Table
-	transport    *transport.Transport
+	opts            Options
+	transport       *transport.Transport
 	contentResolver dht.ContentResolver
 }
 
-func New(opts Options, table Table, transport *transport.Transport) *Peer {
+func New(opts Options, transport *transport.Transport, contentResolver dht.ContentResolver) *Peer {
 	return &Peer{
 		opts:      opts,
-		table:     table,
 		transport: transport,
+		contentResolver: contentResolver,
 	}
 }
 
@@ -42,11 +41,11 @@ func (p *Peer) ID() id.Signatory {
 	return p.opts.PrivKey.Signatory()
 }
 
-func (p *Peer) Table() Table {
-	return p.table
+func (p *Peer) Table() transport.Table {
+	return p.transport.Table()
 }
 
-func (p *Peer) Resolver() dht.ContentResolver {
+func (p *Peer) ContentResolver() dht.ContentResolver {
 	return p.contentResolver
 }
 
@@ -71,7 +70,7 @@ func (p *Peer) Ping(ctx context.Context) error {
 }
 
 func (p *Peer) Send(ctx context.Context, to id.Signatory, msg wire.Msg) error {
-	toAddr, ok := p.table.PeerAddress(to)
+	toAddr, ok := p.transport.Table().PeerAddress(to)
 	if !ok {
 		return fmt.Errorf("%v not found", to)
 	}

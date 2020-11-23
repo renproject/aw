@@ -61,7 +61,11 @@ func handleInstruction(p *peer.Peer, data string) error {
 			return fmt.Errorf("err - ping is unimplemented")
 		case "info":
 			fmt.Printf("My ID: %v\n", p.ID().String())
-			fmt.Printf("Currently added peers: \n%v\n", p.Table())
+			fmt.Printf("Currently added peers: \n")
+			for _, x := range p.Table().All() {
+				fmt.Printf("\t%v\n", x.String())
+			}
+			fmt.Println()
 			return nil
 		default:
 			return fmt.Errorf("err - invalid instruction")
@@ -127,8 +131,7 @@ func handleDirectMessage(p *peer.Peer, data string) error {
 	}
 
 	copy(sig[:], decodedBytes)
-	msg := wire.Msg{Version: wire.MsgVersion1, Type: wire.MsgTypeDirect, Data: []byte(strings.TrimLeft(data[splitIndex:], " "))}
-	print("Sending again\n")
+	msg := wire.Msg{Version: wire.MsgVersion1, Type: wire.MsgTypeSend, Data: []byte(strings.TrimLeft(data[splitIndex:], " "))}
 	if err := p.Send(ctx, sig, msg); err != nil {
 		fmt.Printf("%v", err)
 		return fmt.Errorf("err - message could not be sent")
@@ -141,8 +144,9 @@ func handleBroadcastToRoom(p *peer.Peer, data string, gossip peer.GossipFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	fmt.Println("Sending data : ", string([]byte(data)))
 	hash := id.NewHash([]byte(data))
-	p.Resolver().Insert(dht.ContentID(hash), []byte(data))
+	p.ContentResolver().Insert(dht.ContentID(hash), []byte(data))
 	if err := gossip(ctx, peer.GlobalSubnet, hash[:]); err != nil {
 		p.Logger().Error("gossip broadcast DAT", zap.Error(err))
 	}
@@ -165,7 +169,7 @@ func main() {
 	defer cancel()
 
 	loggerConfig := zap.NewProductionConfig()
-	loggerConfig.Level.SetLevel(zap.PanicLevel)
+	loggerConfig.Level.SetLevel(zap.DebugLevel)
 	logger, err := loggerConfig.Build()
 	if err != nil {
 		panic(err)
@@ -181,31 +185,43 @@ func main() {
 		channel.DefaultClientOptions().
 			WithLogger(logger),
 		self,
-		contentResolver,
-		func(msgType uint16) bool {
-			return msgType == wire.MsgTypeSync
+		func(msg wire.Msg) bool {
+			if msg.Type == wire.MsgTypeSync {
+				var contentID dht.ContentID
+				copy(contentID[:], msg.Data)
+				_, ok := contentResolver.Content(contentID)
+				return ok
+			}
+			return true
 		})
+
+	table := transport.NewInMemTable(self)
 
 	t := transport.New(
 		transport.DefaultOptions().
 			WithLogger(logger).
-			WithPort(port),
+			WithPort(port).
+			WithOncePoolOptions(handshake.OncePoolOptions{MinimumExpiryAge: 5 * time.Second}).
+			WithClientTimeout(10 * time.Minute).
+			WithServerTimeout(10 * time.Minute),
 		self,
 		client,
 		h,
-		true)
-	table := peer.NewInMemTable(self)
+		table)
 
-	callbackFunc, gossip := peer.Gossiper(t, contentResolver, table, logger,
+	callbackFunc, gossip := peer.Gossiper(logger, t, contentResolver, table,
 		peer.Callbacks{
 			DidReceiveMessage: func(from id.Signatory, msg wire.Msg) {
-				if msg.Version == wire.MsgTypeSync {
-					fmt.Println(string(msg.Data))
+				switch msg.Type {
+				case wire.MsgTypeSend:
+					println(string(msg.Data))
+				case wire.MsgTypeSync:
+					println(string(msg.SyncData))
 				}
 			},
 		})
 	opts := peer.DefaultOptions().WithLogger(logger).WithCallbacks(callbackFunc)
-	p := peer.New(opts, table, t)
+	p := peer.New(opts, t, contentResolver)
 	go p.Run(ctx)
 	CLI(p, gossip)
 }
