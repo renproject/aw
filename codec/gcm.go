@@ -101,6 +101,7 @@ func GCMEncoder(session *GCMSession, enc Encoder) Encoder {
 // GCMDEcoder accepts a GCMSession and a decoder that wraps data decryption
 func GCMDecoder(session *GCMSession, dec Decoder) Decoder {
 	return func(r io.Reader, buf []byte) (int, error) {
+		buf = buf[:len(buf)+16]
 		n, err := dec(r, buf)
 		if err != nil {
 			return n, fmt.Errorf("decoding data: %v", err)
