@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"github.com/renproject/aw/dht"
 	"io"
 	"net"
 	"time"
@@ -153,8 +152,7 @@ type Channel struct {
 	readers chan reader
 	writers chan writer
 
-	contentResolver dht.ContentResolver
-	msgFollowup func(msgType uint16) bool
+	shouldReadNextMsg func(msg wire.Msg) bool
 }
 
 // New returns an abstract Channel connection to a remote peer. It will have no
@@ -168,7 +166,10 @@ type Channel struct {
 // outbound messaging channel, but there is no functional attached network
 // connection, or when messages are being received on an attached network
 // connection, but the inbound message channel is not being drained.
-func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-chan wire.Msg, contentResolver dht.ContentResolver, msgFollowup func(msgType uint16) bool) *Channel {
+func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-chan wire.Msg, shouldReadNextMsg func(msg wire.Msg) bool) *Channel {
+	if shouldReadNextMsg == nil {
+		shouldReadNextMsg = func(msg wire.Msg) bool {return true}
+	}
 	return &Channel{
 		opts:   opts,
 		remote: remote,
@@ -179,8 +180,7 @@ func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-
 		readers: make(chan reader, 1),
 		writers: make(chan writer, 1),
 
-		contentResolver: contentResolver,
-		msgFollowup: msgFollowup,
+		shouldReadNextMsg: shouldReadNextMsg,
 	}
 }
 
@@ -277,11 +277,10 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 	var m wire.Msg
 	var mOk bool
 
-	followUpData := make([]byte, ch.opts.MaxMessageSize)
+	syncData := make([]byte, ch.opts.MaxMessageSize)
 
 	for {
 		if !rOk {
-			println("Waiting on reader")
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -310,31 +309,31 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 				continue
 			}
 
-			if ch.msgFollowup(m.Type) {
-				var id dht.ContentID
-				copy(id[:], m.Data)
-				_, ok := ch.contentResolver.Content(id)
-				if !ok {
+			mOk = true
+
+			if !ch.shouldReadNextMsg(m) {
+				ch.opts.Logger.Error("invalid message sequence")
+				if r.q != nil {
 					close(r.q)
-					r = reader{}
-					rOk = false
-					continue
 				}
-				n, err := r.Decoder(r.Reader, followUpData[:])
+				return fmt.Errorf("invalid message sequence")
+			}
+
+			if m.Type == wire.MsgTypeSync {
+				n, err := r.Decoder(r.Reader, syncData)
 				if err != nil {
-					ch.opts.Logger.Error("decode", zap.NamedError("followup data", err))
+					ch.opts.Logger.Error("decode sync data", zap.Error(err))
 					// If reading from the reader fails, then clear the reader. This
 					// will cause the next iteration to wait until a new underlying
 					// network connection is attached to the Channel.
 					close(r.q)
 					r = reader{}
 					rOk = false
+					mOk = false
 					continue
 				}
-				m.Data = followUpData[:n]
+				m.SyncData = syncData[:n]
 			}
-
-			mOk = true
 		}
 
 		// At this point, a message is guaranteed to be available, so we attempt
@@ -372,8 +371,6 @@ func (ch *Channel) writeLoop(ctx context.Context) {
 	var mOk bool
 	var mQueue <-chan wire.Msg
 
-	var followUpData [] byte
-
 	for {
 		switch {
 		case wOk && mOk:
@@ -398,11 +395,6 @@ func (ch *Channel) writeLoop(ctx context.Context) {
 			}
 			w, wOk = v, vOk
 		case m, mOk = <-mQueue:
-			if ch.msgFollowup(m.Type) {
-				followUpData = m.Data
-				hash := id.NewHash(followUpData)
-				m.Data = hash[:]
-			}
 			tail, _, err := m.Marshal(buf[:], len(buf))
 			if err != nil {
 				ch.opts.Logger.Error("marshal", zap.Error(err))
@@ -411,7 +403,6 @@ func (ch *Channel) writeLoop(ctx context.Context) {
 				// something that is typically recoverable.
 				m = wire.Msg{}
 				mOk = false
-				followUpData = nil
 				continue
 			}
 			if _, err := w.Encoder(w.Writer, buf[:len(buf)-len(tail)]); err != nil {
@@ -433,8 +424,8 @@ func (ch *Channel) writeLoop(ctx context.Context) {
 				w, wOk = writer{}, false
 				continue
 			}
-			if followUpData != nil {
-				if _, err := w.Encoder(w.Writer, followUpData); err != nil {
+			if m.Type == wire.MsgTypeSync {
+				if _, err := w.Encoder(w.Writer, m.SyncData); err != nil {
 					ch.opts.Logger.Error("encode", zap.NamedError("followup data", err))
 					close(w.q)
 					w, wOk = writer{}, false
@@ -453,7 +444,6 @@ func (ch *Channel) writeLoop(ctx context.Context) {
 			// messages.
 			m = wire.Msg{}
 			mOk = false
-			followUpData = nil
 		}
 	}
 }

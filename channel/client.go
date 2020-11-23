@@ -3,7 +3,6 @@ package channel
 import (
 	"context"
 	"fmt"
-	"github.com/renproject/aw/dht"
 	"net"
 	"sync"
 
@@ -72,6 +71,7 @@ func (opts ClientOptions) WithChannelOptions(channelOpts Options) ClientOptions 
 type Msg struct {
 	wire.Msg
 	From id.Signatory
+	Addr string
 }
 
 type Client struct {
@@ -86,11 +86,10 @@ type Client struct {
 	fanOutRunningMu *sync.Mutex
 	fanOutRunning   bool
 
-	contentResolver dht.ContentResolver
-	msgFollowup func(msgType uint16) bool
+	shouldReadNextMessage func(msg wire.Msg) bool
 }
 
-func NewClient(opts ClientOptions, self id.Signatory, contentResolver dht.ContentResolver, msgFollowup func(msgType uint16) bool) *Client {
+func NewClient(opts ClientOptions, self id.Signatory, shouldReadNextMessage func(msg wire.Msg) bool) *Client {
 	return &Client{
 		opts: opts,
 		self: self,
@@ -102,9 +101,7 @@ func NewClient(opts ClientOptions, self id.Signatory, contentResolver dht.Conten
 		fanOutReceivers: make(chan fanOutReceiver),
 		fanOutRunningMu: new(sync.Mutex),
 		fanOutRunning:   false,
-
-		contentResolver: contentResolver,
-		msgFollowup: msgFollowup,
+		shouldReadNextMessage: shouldReadNextMessage,
 	}
 }
 
@@ -122,7 +119,7 @@ func (client *Client) Bind(remote id.Signatory) {
 	outbound := make(chan wire.Msg, client.opts.OutboundBufferSize)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ch := New(client.opts.ChannelOptions, remote, inbound, outbound, client.contentResolver, client.msgFollowup)
+	ch := New(client.opts.ChannelOptions, remote, inbound, outbound, client.shouldReadNextMessage)
 	go func() {
 		defer close(inbound)
 		if err := ch.Run(ctx); err != nil {
