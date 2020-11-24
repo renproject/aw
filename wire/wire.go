@@ -52,11 +52,11 @@ func (msg Msg) Marshal(buf []byte, rem int) ([]byte, int, error) {
 	if err != nil {
 		return buf, rem, fmt.Errorf("marshal to: %v", err)
 	}
-	if rem < len(msg.Data) {
-		return buf, rem, fmt.Errorf("marshal to: insufficient buffer lenght")
+	buf, rem, err = surge.MarshalBytes(msg.Data, buf, rem)
+	if err != nil {
+		return buf, rem, fmt.Errorf("marshal data: %v", err)
 	}
-	copy(buf, msg.Data)
-	return buf[len(msg.Data):], rem - len(msg.Data), nil
+	return buf, rem, err
 }
 
 // Unmarshal a Msg from binary.
@@ -73,7 +73,9 @@ func (msg *Msg) Unmarshal(buf []byte, rem int) ([]byte, int, error) {
 	if err != nil {
 		return buf, rem, fmt.Errorf("unmarshal to: %v", err)
 	}
-	msg.Data = make([]byte, len(buf))
-	copy(msg.Data, buf)
-	return nil, rem - len(msg.Data), nil
+	buf, rem, err = surge.Unmarshal(&msg.Data, buf, rem)
+	if err != nil {
+		return buf, rem, fmt.Errorf("unmarshal data: %v", err)
+	}
+	return buf, rem, err
 }
