@@ -62,7 +62,7 @@ func handleInstruction(p *peer.Peer, data string) error {
 		case "info":
 			fmt.Printf("My ID: %v\n", p.ID().String())
 			fmt.Printf("Currently added peers: \n")
-			for _, x := range p.Table().All() {
+			for _, x := range p.Table().Addresses(p.Table().NumPeers()) {
 				fmt.Printf("\t%v\n", x.String())
 			}
 			fmt.Println()
@@ -195,7 +195,7 @@ func main() {
 			return true
 		})
 
-	table := transport.NewInMemTable(self)
+	table := dht.NewInMemTable(self)
 
 	t := transport.New(
 		transport.DefaultOptions().
@@ -209,7 +209,7 @@ func main() {
 		h,
 		table)
 
-	callbackFunc, gossip := peer.Gossiper(logger, t, contentResolver, table,
+	callbackFunc, gossip := peer.Gossiper(logger, t, contentResolver, table, 10,
 		peer.Callbacks{
 			DidReceiveMessage: func(from id.Signatory, msg wire.Msg) {
 				switch msg.Type {

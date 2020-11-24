@@ -19,7 +19,7 @@ import (
 
 func main() {
 	loggerConfig := zap.NewProductionConfig()
-	loggerConfig.Level.SetLevel(zap.DebugLevel)
+	loggerConfig.Level.SetLevel(zap.PanicLevel)
 	logger, err := loggerConfig.Build()
 	if err != nil {
 		panic(err)
@@ -41,7 +41,7 @@ func main() {
 
 	// Init and run peers.
 	peers := make([]*peer.Peer, n)
-	tables := make([]peer.Table, n)
+	tables := make([]dht.Table, n)
 	clients := make([]*channel.Client, n)
 	transports := make([]*transport.Transport, n)
 	for i := range peers {
@@ -53,10 +53,16 @@ func main() {
 			channel.DefaultClientOptions().
 				WithLogger(logger),
 			self,
-			contentResolver,
-			func(msgType uint16) bool {
-				   return msgType == wire.MsgTypeSync
+			func(msg wire.Msg) bool {
+				if msg.Type == wire.MsgTypeSync {
+					var contentID dht.ContentID
+					copy(contentID[:], msg.Data)
+					_, ok := contentResolver.Content(contentID)
+					return ok
+				}
+				return true
 			})
+		tables[i] = dht.NewInMemTable(self)
 		transports[i] = transport.New(
 			transport.DefaultOptions().
 				WithLogger(logger).
@@ -66,9 +72,8 @@ func main() {
 			self,
 			clients[i],
 			h,
-			true)
-		tables[i] = peer.NewInMemTable(self)
-		peers[i] = peer.New(opts[i], tables[i], transports[i])
+			tables[i])
+		peers[i] = peer.New(opts[i], transports[i], contentResolver)
 		go func(i int) {
 			for {
 				// Randomly crash peers.
