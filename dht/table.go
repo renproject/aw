@@ -1,4 +1,4 @@
-package transport
+package dht
 
 import (
 	"sort"
@@ -11,10 +11,12 @@ import (
 var _ Table = &InMemTable{}
 
 type Table interface {
-	AddPeer(peerID id.Signatory, peerAddr string)
+	AddPeer(peerID id.Signatory, peerAddr string) bool
 	DeletePeer(peerID id.Signatory)
 	PeerAddress(peerID id.Signatory) (string, bool)
-	All() []id.Signatory
+	Addresses(int) []id.Signatory
+	NumPeers() int
+
 	AddSubnet(signatories []id.Signatory) id.Hash
 	DeleteSubnet(hash id.Hash)
 	Subnet(hash id.Hash) []id.Signatory
@@ -23,8 +25,12 @@ type Table interface {
 type InMemTable struct {
 	self id.Signatory
 
-	peersMu *sync.Mutex
-	peers   map[id.Signatory]string
+	addrsSortedMu *sync.Mutex
+	addrsSorted   []id.Signatory
+
+	addrsBySignatoryMu *sync.Mutex
+	addrsBySignatory   map[id.Signatory]string
+	signatoriesByAddr  map[string]id.Signatory
 
 	subnetsByHashMu *sync.Mutex
 	subnetsByHash   map[id.Hash][]id.Signatory
@@ -32,43 +38,115 @@ type InMemTable struct {
 
 func NewInMemTable(self id.Signatory) *InMemTable {
 	return &InMemTable{
-		peersMu: new(sync.Mutex),
-		peers:   map[id.Signatory]string{},
+		self : self,
+
+		addrsSortedMu: new(sync.Mutex),
+		addrsSorted:   []id.Signatory{},
+
+		addrsBySignatoryMu: new(sync.Mutex),
+		addrsBySignatory:   map[id.Signatory]string{},
+		signatoriesByAddr:  map[string]id.Signatory{},
+
 		subnetsByHashMu: new(sync.Mutex),
-		subnetsByHash: map[id.Hash][]id.Signatory{},
+		subnetsByHash:   map[id.Hash][]id.Signatory{},
 	}
 }
 
-func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr string) {
-	table.peersMu.Lock()
-	defer table.peersMu.Unlock()
+func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr string) bool {
+	table.addrsBySignatoryMu.Lock()
+	table.addrsSortedMu.Lock()
 
-	table.peers[peerID] = peerAddr
+	defer table.addrsBySignatoryMu.Unlock()
+	defer table.addrsSortedMu.Unlock()
+
+	if peerID.Equal(&table.self) {
+		return false
+	}
+
+	existingAddr, ok := table.addrsBySignatory[peerID]
+	if ok {
+		if peerAddr == existingAddr {
+			// If the addresses are the same, then the inserted address is not
+			// new.
+			return false
+		}
+	}
+
+	// Insert into the map to allow for address lookup using the signatory.
+	table.addrsBySignatory[peerID] = peerAddr
+
+	// Insert into the sorted address list based on its XOR distance from our
+	// own address.
+	i := sort.Search(len(table.addrsSorted), func(i int) bool {
+		return table.isCloser(peerID, table.addrsSorted[i])
+	})
+	table.addrsSorted = append(table.addrsSorted, id.Signatory{})
+	copy(table.addrsSorted[i+1:], table.addrsSorted[i:])
+	table.addrsSorted[i] = peerID
+	return true
 }
 
 func (table *InMemTable) DeletePeer(peerID id.Signatory) {
-	table.peersMu.Lock()
-	defer table.peersMu.Unlock()
+	table.addrsBySignatoryMu.Lock()
+	table.addrsSortedMu.Lock()
 
-	delete(table.peers, peerID)
+	defer table.addrsBySignatoryMu.Unlock()
+	defer table.addrsSortedMu.Unlock()
+
+	// Delete from the map.
+	delete(table.addrsBySignatory, peerID)
+
+	// Delete from the sorted list.
+	numAddrs := len(table.addrsSorted)
+	i := sort.Search(numAddrs, func(i int) bool {
+		return table.isCloser(peerID, table.addrsSorted[i])
+	})
+
+	removeIndex := i - 1
+	if removeIndex >= 0 {
+		expectedID := table.addrsSorted[removeIndex]
+		if expectedID.Equal(&peerID) {
+			table.addrsSorted = append(table.addrsSorted[:removeIndex], table.addrsSorted[removeIndex+1:]...)
+		}
+	}
 }
 
 func (table *InMemTable) PeerAddress(peerID id.Signatory) (string, bool) {
-	table.peersMu.Lock()
-	defer table.peersMu.Unlock()
+	table.addrsBySignatoryMu.Lock()
+	defer table.addrsBySignatoryMu.Unlock()
 
-	val, ok := table.peers[peerID]
-	return val, ok
+	addr, ok := table.addrsBySignatory[peerID]
+	return addr, ok
 }
 
-func (table *InMemTable) All() []id.Signatory {
-	sigs := make([]id.Signatory, 0, len(table.peers))
-	for k := range table.peers {
-		sigs = append(sigs, k)
+func (table *InMemTable) Addresses(n int) []id.Signatory {
+	table.addrsBySignatoryMu.Lock()
+	defer table.addrsBySignatoryMu.Unlock()
+
+	if n <= 0 {
+		// For values of n that are less than, or equal to, zero, return an
+		// empty list. We could panic instead, but this is a reasonable and
+		// unsurprising alternative.
+		return []id.Signatory{}
 	}
-	return sigs
+
+	addrs := make([]id.Signatory, 0, n)
+	for _, addr := range table.addrsSorted {
+		addrs = append(addrs, addr) // This is safe, because addresses are cloned by default.
+		if n--; n == 0 {
+			break
+		}
+	}
+
+	return addrs
 }
 
+func (table *InMemTable) NumPeers() int {
+	table.addrsBySignatoryMu.Lock()
+	defer table.addrsBySignatoryMu.Unlock()
+
+	return len(table.addrsBySignatory)
+}
 
 func (table *InMemTable) AddSubnet(signatories []id.Signatory) id.Hash {
 	copied := make([]id.Signatory, len(signatories))
