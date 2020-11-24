@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"fmt"
+	"github.com/renproject/aw/dht"
 	"net"
 	"sync"
 	"time"
@@ -98,10 +99,10 @@ type Transport struct {
 	connsMu *sync.RWMutex
 	conns   map[id.Signatory]int64
 
-	table   Table
+	table dht.Table
 }
 
-func New(opts Options, self id.Signatory, client *channel.Client, h handshake.Handshake, table Table) *Transport {
+func New(opts Options, self id.Signatory, client *channel.Client, h handshake.Handshake, table dht.Table) *Transport {
 	oncePool := handshake.NewOncePool(opts.OncePoolOptions)
 	return &Transport{
 		opts: opts,
@@ -120,7 +121,7 @@ func New(opts Options, self id.Signatory, client *channel.Client, h handshake.Ha
 	}
 }
 
-func (t *Transport) Table() Table {
+func (t *Transport) Table() dht.Table {
 	return t.table
 }
 

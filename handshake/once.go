@@ -57,7 +57,7 @@ func Once(self id.Signatory, pool *OncePool, h Handshake) Handshake {
 		}
 
 		if bytes.Compare(self[:], remote[:]) < 0 {
-			keepAlive := [17]byte{}
+			keepAlive := [128]byte{}
 			if _, err := dec(conn, keepAlive[:1]); err != nil {
 				return enc, dec, remote, fmt.Errorf("decoding keep-alive message: %v", err)
 			}

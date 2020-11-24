@@ -41,7 +41,7 @@ func (p *Peer) ID() id.Signatory {
 	return p.opts.PrivKey.Signatory()
 }
 
-func (p *Peer) Table() transport.Table {
+func (p *Peer) Table() dht.Table {
 	return p.transport.Table()
 }
 

@@ -13,7 +13,7 @@ import (
 type GossipFunc func(ctx context.Context, subnet id.Hash, contentID []byte) error
 
 // Gossiper returns a new set of callback functions and a gossip function that can be used to spread information throughout a network.
-func Gossiper(logger *zap.Logger, t *transport.Transport, contentResolver dht.ContentResolver, addressTable transport.Table, next Callbacks) (Callbacks, GossipFunc) {
+func Gossiper(logger *zap.Logger, t *transport.Transport, contentResolver dht.ContentResolver, addressTable dht.Table, alpha int, next Callbacks) (Callbacks, GossipFunc) {
 
 	gossip := func(ctx context.Context, subnet id.Hash, contentID []byte) error {
 		msg := wire.Msg{Version: wire.MsgVersion1, To: subnet, Type: wire.MsgTypePush, Data: contentID}
@@ -21,7 +21,7 @@ func Gossiper(logger *zap.Logger, t *transport.Transport, contentResolver dht.Co
 		var chainedError error = nil
 		var receivers []id.Signatory
 		if subnet.Equal(&GlobalSubnet) {
-			receivers = addressTable.All()
+			receivers = addressTable.Addresses(alpha)
 		} else {
 			receivers = addressTable.Subnet(subnet)
 		}
