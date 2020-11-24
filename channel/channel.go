@@ -332,7 +332,8 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 					mOk = false
 					continue
 				}
-				m.SyncData = syncData[:n]
+				m.SyncData = make([]byte, n)
+				copy(m.SyncData, syncData[:n])
 			}
 		}
 

@@ -144,9 +144,8 @@ func handleBroadcastToRoom(p *peer.Peer, data string, gossip peer.GossipFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	fmt.Println("Sending data : ", string([]byte(data)))
 	hash := id.NewHash([]byte(data))
-	p.ContentResolver().Insert(dht.ContentID(hash), []byte(data))
+	p.ContentResolver().Insert(hash[:], []byte(data))
 	if err := gossip(ctx, peer.GlobalSubnet, hash[:]); err != nil {
 		p.Logger().Error("gossip broadcast DAT", zap.Error(err))
 	}
@@ -169,7 +168,7 @@ func main() {
 	defer cancel()
 
 	loggerConfig := zap.NewProductionConfig()
-	loggerConfig.Level.SetLevel(zap.DebugLevel)
+	loggerConfig.Level.SetLevel(zap.PanicLevel)
 	logger, err := loggerConfig.Build()
 	if err != nil {
 		panic(err)
@@ -181,14 +180,16 @@ func main() {
 	h := handshake.ECIES(key, r)
 	//h := handshake.Insecure(self)
 	contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
+	channelOpts := channel.DefaultOptions().WithLogger(logger)
 	client := channel.NewClient(
 		channel.DefaultClientOptions().
-			WithLogger(logger),
+			WithLogger(logger).
+			WithChannelOptions(channelOpts),
 		self,
 		func(msg wire.Msg) bool {
 			if msg.Type == wire.MsgTypeSync {
-				var contentID dht.ContentID
-				copy(contentID[:], msg.Data)
+				contentID := make(dht.ContentID, len(msg.Data))
+				copy(contentID, msg.Data)
 				_, ok := contentResolver.Content(contentID)
 				return ok
 			}

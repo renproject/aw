@@ -4,7 +4,7 @@ import (
 	"sync"
 )
 
-type ContentID [32]byte
+type ContentID []byte
 
 // A ContentResolver interface allows for third-party content resolution. This
 // can be used to persist content to the disk.
@@ -60,8 +60,8 @@ type DoubleCacheContentResolver struct {
 
 	cacheMu        *sync.Mutex
 	cacheFrontSize int
-	cacheFront     map[ContentID][]byte // Front is used to add new content until the max capacity is reached.
-	cacheBack      map[ContentID][]byte // Back is used to read old content that has been rotated from the front.
+	cacheFront     map[string][]byte // Front is used to add new content until the max capacity is reached.
+	cacheBack      map[string][]byte // Back is used to read old content that has been rotated from the front.
 }
 
 // NewDoubleCacheContentResolver returns a new double-cache content resolver
@@ -73,8 +73,8 @@ func NewDoubleCacheContentResolver(opts DoubleCacheContentResolverOptions, next 
 
 		cacheMu:        new(sync.Mutex),
 		cacheFrontSize: 0,
-		cacheFront:     make(map[ContentID][]byte, 0),
-		cacheBack:      make(map[ContentID][]byte, 0),
+		cacheFront:     make(map[string][]byte, 0),
+		cacheBack:      make(map[string][]byte, 0),
 	}
 }
 
@@ -99,13 +99,13 @@ func (r *DoubleCacheContentResolver) Insert(id ContentID, content []byte) {
 	if r.cacheFrontSize+len(content) > r.opts.Capacity {
 		r.cacheBack = r.cacheFront
 		r.cacheFrontSize = 0
-		r.cacheFront = make(map[ContentID][]byte, 0)
+		r.cacheFront = make(map[string][]byte, 0)
 	}
 
 	// Insert the content to the front cache and the next resolver (if it
 	// exists).
 	r.cacheFrontSize += len(content)
-	r.cacheFront[id] = content
+	r.cacheFront[string(id)] = content
 
 	if r.next != nil {
 		r.next.Insert(id, content)
@@ -120,11 +120,11 @@ func (r *DoubleCacheContentResolver) Delete(id ContentID) {
 
 	// Delete the content from both caches and the next resolver (if it
 	// exists).
-	if content, ok := r.cacheFront[id]; ok {
+	if content, ok := r.cacheFront[string(id)]; ok {
 		r.cacheFrontSize -= len(content)
-		delete(r.cacheFront, id)
+		delete(r.cacheFront, string(id))
 	}
-	delete(r.cacheBack, id)
+	delete(r.cacheBack, string(id))
 
 	if r.next != nil {
 		r.next.Delete(id)
@@ -139,10 +139,10 @@ func (r *DoubleCacheContentResolver) Content(id ContentID) ([]byte, bool) {
 	defer r.cacheMu.Unlock()
 
 	// Check both caches for the content.
-	if content, ok := r.cacheFront[id]; ok {
+	if content, ok := r.cacheFront[string(id)]; ok {
 		return content, ok
 	}
-	if content, ok := r.cacheBack[id]; ok {
+	if content, ok := r.cacheBack[string(id)]; ok {
 		return content, ok
 	}
 

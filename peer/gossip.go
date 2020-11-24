@@ -42,6 +42,7 @@ func Gossiper(logger *zap.Logger, t *transport.Transport, contentResolver dht.Co
 		}
 		return chainedError
 	}
+
 	didReceivePush := func(from id.Signatory, msg wire.Msg) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -52,35 +53,30 @@ func Gossiper(logger *zap.Logger, t *transport.Transport, contentResolver dht.Co
 			return
 		}
 
-		hash := [32]byte{}
-		copy(hash[:], msg.Data[:])
-
-		if _, ok := contentResolver.Content(hash); !ok {
+		if _, ok := contentResolver.Content(msg.Data); !ok {
 			response := wire.Msg{
 				Version: wire.MsgVersion1,
 				Type: wire.MsgTypePull,
 				To: id.Hash(from),
-				Data: hash[:],
+				Data: msg.Data,
 			}
 
-			contentResolver.Insert(hash, nil)
+			contentResolver.Insert(msg.Data, nil)
 			if err := t.Send(ctx, from, addr, response); err != nil {
-				contentResolver.Delete(hash)
+				contentResolver.Delete(msg.Data)
 				logger.Error("gossip", zap.NamedError("pull", err))
 				return
 			}
-
 		}
 	}
+
 	didReceivePull := func(from id.Signatory, msg wire.Msg) {
-		contentID := [32]byte{}
-		copy(contentID[:], msg.Data[:])
-		if data, ok := contentResolver.Content(contentID); ok {
+		if data, ok := contentResolver.Content(msg.Data); ok {
 			response := wire.Msg{
 				Version: wire.MsgVersion1,
 				To : id.Hash(from),
 				Type: wire.MsgTypeSync,
-				Data: contentID[:],
+				Data: msg.Data,
 				SyncData: data,
 			}
 
@@ -97,11 +93,12 @@ func Gossiper(logger *zap.Logger, t *transport.Transport, contentResolver dht.Co
 			return
 		}
 
-		logger.Error("gossip", zap.String("pull request", "data not present"))
+		logger.Error("gossip", zap.String("pull request", "data not found"))
 	}
+
 	didReceiveSync := func(from id.Signatory, msg wire.Msg) {
-		var contentID dht.ContentID
-		copy(contentID[:], msg.Data)
+		contentID := make(dht.ContentID, len(msg.Data))
+		copy(contentID, msg.Data)
 		content, ok := contentResolver.Content(contentID)
 		if !ok {
 			logger.Error("gossip", zap.String("receiving sync", "unknown id in sync message"))
@@ -115,7 +112,7 @@ func Gossiper(logger *zap.Logger, t *transport.Transport, contentResolver dht.Co
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		if err := gossip(ctx, GlobalSubnet, contentID[:]); err != nil {
+		if err := gossip(ctx, GlobalSubnet, contentID); err != nil {
 			logger.Error("Gossiping synced message" , zap.Error(err))
 		}
 	}
