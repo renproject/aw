@@ -71,7 +71,6 @@ func (opts ClientOptions) WithChannelOptions(channelOpts Options) ClientOptions 
 type Msg struct {
 	wire.Msg
 	From id.Signatory
-	Addr string
 }
 
 type Client struct {

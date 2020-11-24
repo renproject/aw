@@ -426,13 +426,13 @@ func (ch *Channel) writeLoop(ctx context.Context) {
 			}
 			if m.Type == wire.MsgTypeSync {
 				if _, err := w.Encoder(w.Writer, m.SyncData); err != nil {
-					ch.opts.Logger.Error("encode", zap.NamedError("followup data", err))
+					ch.opts.Logger.Error("encode", zap.NamedError("sync data", err))
 					close(w.q)
 					w, wOk = writer{}, false
 					continue
 				}
 				if err := w.Writer.Flush(); err != nil {
-					ch.opts.Logger.Error("flush", zap.NamedError("followup data", err))
+					ch.opts.Logger.Error("flush", zap.NamedError("sync data", err))
 					// An error when flushing is the same as an error when encoding.
 					close(w.q)
 					w, wOk = writer{}, false
