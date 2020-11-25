@@ -25,8 +25,8 @@ type Table interface {
 type InMemTable struct {
 	self id.Signatory
 
-	addrsSortedMu *sync.Mutex
-	addrsSorted   []id.Signatory
+	signatoriesSortedMu *sync.Mutex
+	signatoriesSorted   []id.Signatory
 
 	addrsBySignatoryMu *sync.Mutex
 	addrsBySignatory   map[id.Signatory]string
@@ -40,8 +40,8 @@ func NewInMemTable(self id.Signatory) *InMemTable {
 	return &InMemTable{
 		self : self,
 
-		addrsSortedMu: new(sync.Mutex),
-		addrsSorted:   []id.Signatory{},
+		signatoriesSortedMu: new(sync.Mutex),
+		signatoriesSorted:   []id.Signatory{},
 
 		addrsBySignatoryMu: new(sync.Mutex),
 		addrsBySignatory:   map[id.Signatory]string{},
@@ -54,10 +54,10 @@ func NewInMemTable(self id.Signatory) *InMemTable {
 
 func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr string) bool {
 	table.addrsBySignatoryMu.Lock()
-	table.addrsSortedMu.Lock()
+	table.signatoriesSortedMu.Lock()
 
 	defer table.addrsBySignatoryMu.Unlock()
-	defer table.addrsSortedMu.Unlock()
+	defer table.signatoriesSortedMu.Unlock()
 
 	if peerID.Equal(&table.self) {
 		return false
@@ -77,36 +77,36 @@ func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr string) bool {
 
 	// Insert into the sorted address list based on its XOR distance from our
 	// own address.
-	i := sort.Search(len(table.addrsSorted), func(i int) bool {
-		return table.isCloser(peerID, table.addrsSorted[i])
+	i := sort.Search(len(table.signatoriesSorted), func(i int) bool {
+		return table.isCloser(peerID, table.signatoriesSorted[i])
 	})
-	table.addrsSorted = append(table.addrsSorted, id.Signatory{})
-	copy(table.addrsSorted[i+1:], table.addrsSorted[i:])
-	table.addrsSorted[i] = peerID
+	table.signatoriesSorted = append(table.signatoriesSorted, id.Signatory{})
+	copy(table.signatoriesSorted[i+1:], table.signatoriesSorted[i:])
+	table.signatoriesSorted[i] = peerID
 	return true
 }
 
 func (table *InMemTable) DeletePeer(peerID id.Signatory) {
 	table.addrsBySignatoryMu.Lock()
-	table.addrsSortedMu.Lock()
+	table.signatoriesSortedMu.Lock()
 
 	defer table.addrsBySignatoryMu.Unlock()
-	defer table.addrsSortedMu.Unlock()
+	defer table.signatoriesSortedMu.Unlock()
 
 	// Delete from the map.
 	delete(table.addrsBySignatory, peerID)
 
 	// Delete from the sorted list.
-	numAddrs := len(table.addrsSorted)
+	numAddrs := len(table.signatoriesSorted)
 	i := sort.Search(numAddrs, func(i int) bool {
-		return table.isCloser(peerID, table.addrsSorted[i])
+		return table.isCloser(peerID, table.signatoriesSorted[i])
 	})
 
 	removeIndex := i - 1
 	if removeIndex >= 0 {
-		expectedID := table.addrsSorted[removeIndex]
+		expectedID := table.signatoriesSorted[removeIndex]
 		if expectedID.Equal(&peerID) {
-			table.addrsSorted = append(table.addrsSorted[:removeIndex], table.addrsSorted[removeIndex+1:]...)
+			table.signatoriesSorted = append(table.signatoriesSorted[:removeIndex], table.signatoriesSorted[removeIndex+1:]...)
 		}
 	}
 }
@@ -119,6 +119,9 @@ func (table *InMemTable) PeerAddress(peerID id.Signatory) (string, bool) {
 	return addr, ok
 }
 
+// Addresses takes input `n` and returns the first `n` signatories in the sorted array of signatories it maintains.
+// This is an O(n) operation as it copies the first min(n, len(sortedArrayOfSignatories)) signatories into a newly allocated
+// array and returns it
 func (table *InMemTable) Addresses(n int) []id.Signatory {
 	table.addrsBySignatoryMu.Lock()
 	defer table.addrsBySignatoryMu.Unlock()
@@ -130,15 +133,9 @@ func (table *InMemTable) Addresses(n int) []id.Signatory {
 		return []id.Signatory{}
 	}
 
-	addrs := make([]id.Signatory, 0, n)
-	for _, addr := range table.addrsSorted {
-		addrs = append(addrs, addr) // This is safe, because addresses are cloned by default.
-		if n--; n == 0 {
-			break
-		}
-	}
-
-	return addrs
+	sigs := make([]id.Signatory, min(n, len(table.signatoriesSorted)))
+	copy(sigs, table.signatoriesSorted)
+	return sigs
 }
 
 func (table *InMemTable) NumPeers() int {
@@ -184,6 +181,13 @@ func (table *InMemTable) Subnet(hash id.Hash) []id.Signatory {
 	copied := make([]id.Signatory, len(subnet))
 	copy(copied, subnet)
 	return copied
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (table *InMemTable) isCloser(fst, snd id.Signatory) bool {
