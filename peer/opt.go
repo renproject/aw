@@ -7,9 +7,9 @@ import (
 )
 
 type Options struct {
-	Logger    *zap.Logger
-	PrivKey   *id.PrivKey
-	Callbacks Callbacks
+	Logger   *zap.Logger
+	PrivKey  *id.PrivKey
+	Receiver Receiver
 }
 
 func DefaultOptions() Options {
@@ -21,7 +21,7 @@ func DefaultOptions() Options {
 	return Options{
 		Logger:  logger,
 		PrivKey: privKey,
-		Callbacks: Callbacks{
+		Receiver: Callbacks{
 			DidReceiveMessage: func(id.Signatory, wire.Msg) {},
 		},
 	}
@@ -37,7 +37,7 @@ func (opts Options) WithPrivKey(privKey *id.PrivKey) Options {
 	return opts
 }
 
-func (opts Options) WithCallbacks(cb Callbacks) Options {
-	opts.Callbacks = cb
+func (opts Options) WithReceiver(receiver Receiver) Options {
+	opts.Receiver = receiver
 	return opts
 }

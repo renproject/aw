@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/renproject/aw/channel"
 	"github.com/renproject/aw/transport"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
@@ -20,6 +19,21 @@ var (
 var (
 	ErrPeerNotFound = errors.New("peer not found")
 )
+
+type Receiver interface {
+	DidReceiveMessage(from id.Signatory, msg wire.Msg)
+}
+
+type Callbacks struct {
+	OnDidReceiveMessage func(id.Signatory, wire.Msg)
+}
+
+func (cb Callbacks) OnDidReceiveMessage(from id.Signatory, msg wire.Msg) {
+	if cb.OnDidReceiveMessage == nil {
+		return
+	}
+	cb.OnDidReceiveMessage(from, msg)
+}
 
 type Peer struct {
 	opts      Options
@@ -74,16 +88,8 @@ func (p *Peer) Gossip(ctx context.Context, subnet id.Hash, mgs wire.Msg) error {
 // Run the peer until the context is done. If running encounters an error, or
 // panics, it will automatically recover and continue until the context is done.
 func (p *Peer) Run(ctx context.Context) {
-	receiver := make(chan channel.Msg)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-			case msg := <-receiver:
-				p.opts.Callbacks.DidReceiveMessage(msg.From, msg.Msg)
-			}
-		}
-	}()
-	p.transport.Receive(ctx, receiver)
+	p.transport.Receive(ctx, func(from id.Signatory, msg wire.Msg) {
+		p.opts.Receiver.DidReceiveMessage(from, msg)
+	})
 	p.transport.Run(ctx)
 }
