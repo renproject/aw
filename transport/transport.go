@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"fmt"
+	"github.com/renproject/aw/dht"
 	"net"
 	"sync"
 	"time"
@@ -21,8 +22,8 @@ import (
 var (
 	DefaultHost          = "localhost"
 	DefaultPort          = uint16(3333)
-	DefaultEncoder       = codec.LengthPrefixEncoder(codec.PlainEncoder)
-	DefaultDecoder       = codec.LengthPrefixDecoder(codec.PlainDecoder)
+	DefaultEncoder       = codec.PlainEncoder
+	DefaultDecoder       = codec.PlainDecoder
 	DefaultDialTimeout   = policy.ConstantTimeout(time.Second)
 	DefaultClientTimeout = 10 * time.Second
 	DefaultServerTimeout = 10 * time.Second
@@ -75,6 +76,11 @@ func (opts Options) WithClientTimeout(timeout time.Duration) Options {
 	return opts
 }
 
+func (opts Options) WithServerTimeout(timeout time.Duration) Options {
+	opts.ServerTimeout = timeout
+	return opts
+}
+
 func (opts Options) WithOncePoolOptions(oncePoolOpts handshake.OncePoolOptions) Options {
 	opts.OncePoolOptions = oncePoolOpts
 	return opts
@@ -92,9 +98,11 @@ type Transport struct {
 
 	connsMu *sync.RWMutex
 	conns   map[id.Signatory]int64
+
+	table dht.Table
 }
 
-func New(opts Options, self id.Signatory, client *channel.Client, h handshake.Handshake) *Transport {
+func New(opts Options, self id.Signatory, client *channel.Client, h handshake.Handshake, table dht.Table) *Transport {
 	oncePool := handshake.NewOncePool(opts.OncePoolOptions)
 	return &Transport{
 		opts: opts,
@@ -108,7 +116,13 @@ func New(opts Options, self id.Signatory, client *channel.Client, h handshake.Ha
 
 		connsMu: new(sync.RWMutex),
 		conns:   map[id.Signatory]int64{},
+
+		table: table,
 	}
+}
+
+func (t *Transport) Table() dht.Table {
+	return t.table
 }
 
 func (t *Transport) Send(ctx context.Context, remote id.Signatory, remoteAddr string, msg wire.Msg) error {
@@ -202,6 +216,10 @@ func (t *Transport) run(ctx context.Context) {
 				return
 			}
 
+			t.table.AddPeer(remote, addr)
+			enc = codec.LengthPrefixEncoder(codec.PlainEncoder, enc)
+			dec = codec.LengthPrefixDecoder(codec.PlainDecoder, dec)
+
 			t.connect(remote)
 			defer t.disconnect(remote)
 
@@ -265,13 +283,16 @@ func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAd
 			func(conn net.Conn) {
 				addr := conn.RemoteAddr().String()
 				enc, dec, r, err := t.once(conn, t.opts.Encoder, t.opts.Decoder)
-				if r != remote {
-					t.opts.Logger.Error("handshake", zap.String("expected", remote.String()), zap.String("got", r.String()), zap.Error(fmt.Errorf("bad remote")))
-				}
 				if err != nil {
 					t.opts.Logger.Error("handshake", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
 					return
 				}
+				if !r.Equal(&remote) {
+					t.opts.Logger.Error("handshake", zap.String("expected", remote.String()), zap.String("got", r.String()), zap.Error(fmt.Errorf("bad remote")))
+				}
+
+				enc = codec.LengthPrefixEncoder(codec.PlainEncoder, enc)
+				dec = codec.LengthPrefixDecoder(codec.PlainDecoder, dec)
 
 				t.connect(remote)
 				defer t.disconnect(remote)

@@ -8,3 +8,7 @@ import (
 type Callbacks struct {
 	DidReceiveMessage func(from id.Signatory, msg wire.Msg)
 }
+
+func DefaultDidReceiveMessage(from id.Signatory, msg wire.Msg) {
+
+}

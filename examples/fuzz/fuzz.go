@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/renproject/aw/dht"
 	"log"
 	"math/rand"
 	"time"
@@ -18,7 +19,7 @@ import (
 
 func main() {
 	loggerConfig := zap.NewProductionConfig()
-	loggerConfig.Level.SetLevel(zap.DebugLevel)
+	loggerConfig.Level.SetLevel(zap.PanicLevel)
 	logger, err := loggerConfig.Build()
 	if err != nil {
 		panic(err)
@@ -40,17 +41,28 @@ func main() {
 
 	// Init and run peers.
 	peers := make([]*peer.Peer, n)
-	tables := make([]peer.Table, n)
+	tables := make([]dht.Table, n)
 	clients := make([]*channel.Client, n)
 	transports := make([]*transport.Transport, n)
 	for i := range peers {
 		self := opts[i].PrivKey.Signatory()
 		r := rand.New(rand.NewSource(time.Now().UnixNano() + int64(i)))
 		h := handshake.ECIES(opts[i].PrivKey, r)
+		contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
 		clients[i] = channel.NewClient(
 			channel.DefaultClientOptions().
 				WithLogger(logger),
-			self)
+			self,
+			func(msg wire.Msg) bool {
+				if msg.Type == wire.MsgTypeSync {
+					var contentID dht.ContentID
+					copy(contentID[:], msg.Data)
+					_, ok := contentResolver.Content(contentID)
+					return ok
+				}
+				return true
+			})
+		tables[i] = dht.NewInMemTable(self)
 		transports[i] = transport.New(
 			transport.DefaultOptions().
 				WithLogger(logger).
@@ -59,9 +71,9 @@ func main() {
 				WithPort(uint16(3333+i)),
 			self,
 			clients[i],
-			h)
-		tables[i] = peer.NewInMemTable()
-		peers[i] = peer.New(opts[i], tables[i], transports[i])
+			h,
+			tables[i])
+		peers[i] = peer.New(opts[i], transports[i], contentResolver)
 		go func(i int) {
 			for {
 				// Randomly crash peers.
