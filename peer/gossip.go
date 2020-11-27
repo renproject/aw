@@ -113,7 +113,7 @@ func Gossiper(logger *zap.Logger, t *transport.Transport, contentResolver dht.Co
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		if err := gossip(ctx, GlobalSubnet, contentID); err != nil {
-			logger.Error("Gossiping synced message" , zap.Error(err))
+			logger.Error("gossiping sync" , zap.Error(err))
 		}
 	}
 
