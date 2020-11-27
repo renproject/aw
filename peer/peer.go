@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	"go.uber.org/zap"
+
+	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/transport"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
@@ -36,16 +39,16 @@ func (cb Callbacks) OnDidReceiveMessage(from id.Signatory, msg wire.Msg) {
 }
 
 type Peer struct {
-	opts      Options
-	table     Table
-	transport *transport.Transport
+	opts            Options
+	transport       *transport.Transport
+	contentResolver dht.ContentResolver
 }
 
-func New(opts Options, table Table, transport *transport.Transport) *Peer {
+func New(opts Options, transport *transport.Transport, contentResolver dht.ContentResolver) *Peer {
 	return &Peer{
-		opts:      opts,
-		table:     table,
-		transport: transport,
+		opts:            opts,
+		transport:       transport,
+		contentResolver: contentResolver,
 	}
 }
 
@@ -53,8 +56,16 @@ func (p *Peer) ID() id.Signatory {
 	return p.opts.PrivKey.Signatory()
 }
 
-func (p *Peer) Table() Table {
-	return p.table
+func (p *Peer) Table() dht.Table {
+	return p.transport.Table()
+}
+
+func (p *Peer) ContentResolver() dht.ContentResolver {
+	return p.contentResolver
+}
+
+func (p *Peer) Logger() *zap.Logger {
+	return p.opts.Logger
 }
 
 func (p *Peer) Link(remote id.Signatory) {
@@ -74,15 +85,11 @@ func (p *Peer) Ping(ctx context.Context) error {
 }
 
 func (p *Peer) Send(ctx context.Context, to id.Signatory, msg wire.Msg) error {
-	toAddr, ok := p.table.PeerAddress(to)
+	toAddr, ok := p.transport.Table().PeerAddress(to)
 	if !ok {
 		return fmt.Errorf("%v not found", to)
 	}
 	return p.transport.Send(ctx, to, toAddr, msg)
-}
-
-func (p *Peer) Gossip(ctx context.Context, subnet id.Hash, mgs wire.Msg) error {
-	panic("unimplemented")
 }
 
 // Run the peer until the context is done. If running encounters an error, or
