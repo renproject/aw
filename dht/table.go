@@ -1,8 +1,10 @@
 package dht
 
 import (
+	"math/rand"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/renproject/id"
 )
@@ -15,6 +17,7 @@ type Table interface {
 	DeletePeer(peerID id.Signatory)
 	PeerAddress(peerID id.Signatory) (string, bool)
 	Addresses(int) []id.Signatory
+	RandomAddresses(int) []id.Signatory
 	NumPeers() int
 
 	AddSubnet(signatories []id.Signatory) id.Hash
@@ -135,6 +138,41 @@ func (table *InMemTable) Addresses(n int) []id.Signatory {
 
 	sigs := make([]id.Signatory, min(n, len(table.signatoriesSorted)))
 	copy(sigs, table.signatoriesSorted)
+	return sigs
+}
+
+func (table *InMemTable) RandomAddresses(n int) []id.Signatory {
+	table.addrsBySignatoryMu.Lock()
+	defer table.addrsBySignatoryMu.Unlock()
+
+	if n <= 0 {
+		// For values of n that are less than, or equal to, zero, return an
+		// empty list. We could panic instead, but this is a reasonable and
+		// unsurprising alternative.
+		return []id.Signatory{}
+	}
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	maxLengthOfRandomSigs := min(n, len(table.signatoriesSorted))
+	sigs := make([]id.Signatory, 0, maxLengthOfRandomSigs)
+	filled := 0
+
+	randBits, remaining := r.Int63(), 63
+	for _, sig := range table.signatoriesSorted {
+		if randBits & 0x01 == 1 {
+			sigs = append(sigs, sig)
+			filled++
+			if filled == maxLengthOfRandomSigs {
+				return sigs
+			}
+		}
+		remaining--
+		randBits >>= 1
+		if remaining == 0 {
+			randBits, remaining = r.Int63(), 63
+		}
+	}
+
 	return sigs
 }
 
