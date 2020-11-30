@@ -2,6 +2,7 @@ package peer
 
 import (
 	"github.com/renproject/id"
+
 	"go.uber.org/zap"
 )
 

@@ -15,6 +15,7 @@ import (
 	"github.com/renproject/aw/tcp"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
+
 	"go.uber.org/zap"
 )
 

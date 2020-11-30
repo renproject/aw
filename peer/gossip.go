@@ -3,17 +3,19 @@ package peer
 import (
 	"context"
 	"fmt"
+
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/transport"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
+
 	"go.uber.org/zap"
 )
 
-type GossipFunc func(ctx context.Context, subnet id.Hash, contentID []byte) error
+type Gossip func(ctx context.Context, subnet id.Hash, contentID []byte) error
 
 // Gossiper returns a new set of callback functions and a gossip function that can be used to spread information throughout a network.
-func Gossiper(logger *zap.Logger, t *transport.Transport, contentResolver dht.ContentResolver, addressTable dht.Table, alpha int, next Callbacks) (Callbacks, GossipFunc) {
+func Gossiper(logger *zap.Logger, t *transport.Transport, contentResolver dht.ContentResolver, addressTable dht.Table, alpha int, next Callbacks) (Callbacks, Gossip) {
 
 	gossip := func(ctx context.Context, subnet id.Hash, contentID []byte) error {
 		msg := wire.Msg{Version: wire.MsgVersion1, To: subnet, Type: wire.MsgTypePush, Data: contentID}
@@ -56,9 +58,9 @@ func Gossiper(logger *zap.Logger, t *transport.Transport, contentResolver dht.Co
 		if _, ok := contentResolver.Content(msg.Data); !ok {
 			response := wire.Msg{
 				Version: wire.MsgVersion1,
-				Type: wire.MsgTypePull,
-				To: id.Hash(from),
-				Data: msg.Data,
+				Type: 	 wire.MsgTypePull,
+				To:      id.Hash(from),
+				Data:    msg.Data,
 			}
 
 			contentResolver.Insert(msg.Data, nil)
