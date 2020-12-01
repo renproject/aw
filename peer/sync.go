@@ -14,11 +14,6 @@ import (
 	"go.uber.org/zap"
 )
 
-var (
-	DefaultAlpha   = 5
-	DefaultTimeout = time.Second
-)
-
 type SyncerOptions struct {
 	Logger  *zap.Logger
 	Alpha   int
@@ -188,5 +183,7 @@ func (syncer *Syncer) DidReceiveMessage(from id.Signatory, msg wire.Msg) {
 		}
 		syncer.pendingMu.Unlock()
 	}
-	syncer.next.DidReceiveMessage(from, msg)
+	if syncer.next != nil {
+		syncer.next.DidReceiveMessage(from, msg)
+	}
 }

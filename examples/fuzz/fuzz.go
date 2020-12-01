@@ -76,9 +76,9 @@ func main() {
 			tables[i])
 		peers[i] = peer.New(
 			opts[i],
+			peer.NewGossiper(peer.DefaultGossiperOptions(), channel.NewSyncFilter(), transports[i], contentResolver, nil),
 			peer.NewSyncer(peer.DefaultSyncerOptions(), channel.NewSyncFilter(), transports[i], nil),
-			transports[i],
-			contentResolver)
+			transports[i])
 		go func(i int) {
 			for {
 				// Randomly crash peers.
@@ -97,7 +97,7 @@ func main() {
 		for i := range peers {
 			j := (i + 1) % len(peers)
 			fmt.Printf("peer[%v] sending to peer[%v]\n", i, j)
-			peers[i].Table().AddPeer(peers[j].ID(), fmt.Sprintf("localhost:%v", 3333+int64(j)))
+			tables[i].AddPeer(peers[j].ID(), fmt.Sprintf("localhost:%v", 3333+int64(j)))
 			func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				defer cancel()

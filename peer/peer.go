@@ -4,19 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
-	"go.uber.org/zap"
-
-	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/transport"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 )
 
 var (
-	// GlobalSubnet is a reserved subnet identifier that is used to reference
-	// the entire peer-to-peer network.
-	GlobalSubnet = id.Hash{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+	DefaultSubnet  = id.Hash{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+	DefaultAlpha   = 5
+	DefaultTimeout = time.Second
 )
 
 var (
@@ -24,35 +22,23 @@ var (
 )
 
 type Peer struct {
-	opts            Options
-	syncer          *Syncer
-	transport       *transport.Transport
-	contentResolver dht.ContentResolver
+	opts      Options
+	gossiper  *Gossiper
+	syncer    *Syncer
+	transport *transport.Transport
 }
 
-func New(opts Options, syncer *Syncer, transport *transport.Transport, contentResolver dht.ContentResolver) *Peer {
+func New(opts Options, gossiper *Gossiper, syncer *Syncer, transport *transport.Transport) *Peer {
 	return &Peer{
-		opts:            opts,
-		syncer:          syncer,
-		transport:       transport,
-		contentResolver: contentResolver,
+		opts:      opts,
+		gossiper:  gossiper,
+		syncer:    syncer,
+		transport: transport,
 	}
 }
 
 func (p *Peer) ID() id.Signatory {
 	return p.opts.PrivKey.Signatory()
-}
-
-func (p *Peer) Table() dht.Table {
-	return p.transport.Table()
-}
-
-func (p *Peer) ContentResolver() dht.ContentResolver {
-	return p.contentResolver
-}
-
-func (p *Peer) Logger() *zap.Logger {
-	return p.opts.Logger
 }
 
 func (p *Peer) Link(remote id.Signatory) {
@@ -68,7 +54,7 @@ func (p *Peer) Unlink(remote id.Signatory) {
 // identity of other remote peers in the network. It will continue doing so
 // until the context is done.
 func (p *Peer) Ping(ctx context.Context) error {
-	panic("unimplemented")
+	return fmt.Errorf("unimplemented")
 }
 
 func (p *Peer) Send(ctx context.Context, to id.Signatory, msg wire.Msg) error {
@@ -88,6 +74,8 @@ func (p *Peer) Sync(ctx context.Context, contentID []byte, hint *id.Signatory) (
 func (p *Peer) Run(ctx context.Context) {
 	p.transport.Receive(ctx, func(from id.Signatory, msg wire.Msg) {
 		p.opts.Receiver.DidReceiveMessage(from, msg)
+		p.gossiper.DidReceiveMessage(from, msg)
+		p.syncer.DidReceiveMessage(from, msg)
 	})
 	p.transport.Run(ctx)
 }
