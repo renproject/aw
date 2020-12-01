@@ -79,8 +79,8 @@ func (p *Peer) Gossip(ctx context.Context, contentID, content []byte) error {
 	return fmt.Errorf("unimplemented")
 }
 
-func (p *Peer) Sync(ctx context.Context, contentID []byte) ([]byte, error) {
-	return p.syncer.Sync(ctx, contentID, nil)
+func (p *Peer) Sync(ctx context.Context, contentID []byte, hint *id.Signatory) ([]byte, error) {
+	return p.syncer.Sync(ctx, contentID, hint)
 }
 
 // Run the peer until the context is done. If running encounters an error, or
