@@ -3,6 +3,7 @@ package peer
 import (
 	"context"
 	"fmt"
+
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/transport"
 	"github.com/renproject/aw/wire"
@@ -25,14 +26,9 @@ func Gossiper(logger *zap.Logger, t *transport.Transport, contentResolver dht.Co
 		} else {
 			receivers = addressTable.Subnet(subnet)
 		}
-		
+
 		for _, sig := range receivers {
-			addr, ok := addressTable.PeerAddress(sig)
-			if !ok {
-				logger.Error("gossip", zap.String("table", "peer not found"))
-				continue
-			}
-			if err := t.Send(ctx, sig, addr, msg); err != nil {
+			if err := t.Send(ctx, sig, msg); err != nil {
 				if chainedError == nil {
 					chainedError = fmt.Errorf("%v, gossiping to %v: %v", chainedError, sig, err)
 				} else {
@@ -47,22 +43,16 @@ func Gossiper(logger *zap.Logger, t *transport.Transport, contentResolver dht.Co
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		addr, ok := addressTable.PeerAddress(from)
-		if !ok {
-			logger.Error("gossip", zap.Error(ErrPeerNotFound))
-			return
-		}
-
 		if _, ok := contentResolver.Content(msg.Data); !ok {
 			response := wire.Msg{
 				Version: wire.MsgVersion1,
-				Type: wire.MsgTypePull,
-				To: id.Hash(from),
-				Data: msg.Data,
+				Type:    wire.MsgTypePull,
+				To:      id.Hash(from),
+				Data:    msg.Data,
 			}
 
 			contentResolver.Insert(msg.Data, nil)
-			if err := t.Send(ctx, from, addr, response); err != nil {
+			if err := t.Send(ctx, from, response); err != nil {
 				contentResolver.Delete(msg.Data)
 				logger.Error("gossip", zap.NamedError("pull", err))
 				return
@@ -73,21 +63,17 @@ func Gossiper(logger *zap.Logger, t *transport.Transport, contentResolver dht.Co
 	didReceivePull := func(from id.Signatory, msg wire.Msg) {
 		if data, ok := contentResolver.Content(msg.Data); ok {
 			response := wire.Msg{
-				Version: wire.MsgVersion1,
-				To : id.Hash(from),
-				Type: wire.MsgTypeSync,
-				Data: msg.Data,
+				Version:  wire.MsgVersion1,
+				To:       id.Hash(from),
+				Type:     wire.MsgTypeSync,
+				Data:     msg.Data,
 				SyncData: data,
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			addr, ok := addressTable.PeerAddress(from)
-			if !ok {
-				logger.Error("gossip", zap.String("table", "peer not found"))
-				return
-			}
-			if err := t.Send(ctx, from, addr, response); err != nil {
+
+			if err := t.Send(ctx, from, response); err != nil {
 				logger.Error("gossip", zap.NamedError("sending sync", err))
 			}
 			return
@@ -113,12 +99,12 @@ func Gossiper(logger *zap.Logger, t *transport.Transport, contentResolver dht.Co
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		if err := gossip(ctx, GlobalSubnet, contentID); err != nil {
-			logger.Error("gossiping sync" , zap.Error(err))
+			logger.Error("gossiping sync", zap.Error(err))
 		}
 	}
 
 	return Callbacks{
-			DidReceiveMessage: func(from id.Signatory, msg wire.Msg) {
+			OnDidReceiveMessage: func(from id.Signatory, msg wire.Msg) {
 				switch msg.Type {
 				case wire.MsgTypePush:
 					didReceivePush(from, msg)

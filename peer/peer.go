@@ -3,7 +3,6 @@ package peer
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"go.uber.org/zap"
 
@@ -22,21 +21,6 @@ var (
 var (
 	ErrPeerNotFound = errors.New("peer not found")
 )
-
-type Receiver interface {
-	DidReceiveMessage(from id.Signatory, msg wire.Msg)
-}
-
-type Callbacks struct {
-	OnDidReceiveMessage func(id.Signatory, wire.Msg)
-}
-
-func (cb Callbacks) OnDidReceiveMessage(from id.Signatory, msg wire.Msg) {
-	if cb.OnDidReceiveMessage == nil {
-		return
-	}
-	cb.OnDidReceiveMessage(from, msg)
-}
 
 type Peer struct {
 	opts            Options
@@ -85,11 +69,7 @@ func (p *Peer) Ping(ctx context.Context) error {
 }
 
 func (p *Peer) Send(ctx context.Context, to id.Signatory, msg wire.Msg) error {
-	toAddr, ok := p.transport.Table().PeerAddress(to)
-	if !ok {
-		return fmt.Errorf("%v not found", to)
-	}
-	return p.transport.Send(ctx, to, toAddr, msg)
+	return p.transport.Send(ctx, to, msg)
 }
 
 // Run the peer until the context is done. If running encounters an error, or

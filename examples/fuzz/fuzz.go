@@ -3,10 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/renproject/aw/dht"
 	"log"
 	"math/rand"
 	"time"
+
+	"github.com/renproject/aw/dht"
 
 	"github.com/renproject/aw/channel"
 	"github.com/renproject/aw/handshake"
@@ -26,14 +27,14 @@ func main() {
 	}
 
 	// Number of peers.
-	n := 2
+	n := 200
 
 	// Init options for all peers.
 	opts := make([]peer.Options, n)
 	for i := range opts {
 		i := i
-		opts[i] = peer.DefaultOptions().WithLogger(logger).WithCallbacks(peer.Callbacks{
-			DidReceiveMessage: func(from id.Signatory, msg wire.Msg) {
+		opts[i] = peer.DefaultOptions().WithLogger(logger).WithReceiver(peer.Callbacks{
+			OnDidReceiveMessage: func(from id.Signatory, msg wire.Msg) {
 				fmt.Printf("%4v: received \"%v\" from %4v\n", opts[i].PrivKey.Signatory(), string(msg.Data), from)
 			},
 		})

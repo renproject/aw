@@ -3,10 +3,11 @@ package transport
 import (
 	"context"
 	"fmt"
-	"github.com/renproject/aw/dht"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/renproject/aw/dht"
 
 	"github.com/renproject/aw/channel"
 	"github.com/renproject/aw/codec"
@@ -125,7 +126,12 @@ func (t *Transport) Table() dht.Table {
 	return t.table
 }
 
-func (t *Transport) Send(ctx context.Context, remote id.Signatory, remoteAddr string, msg wire.Msg) error {
+func (t *Transport) Send(ctx context.Context, remote id.Signatory, msg wire.Msg) error {
+	remoteAddr, ok := t.table.PeerAddress(remote)
+	if !ok {
+		return fmt.Errorf("peer not found: %v", remote)
+	}
+
 	if t.IsConnected(remote) {
 		t.opts.Logger.Debug("send", zap.Bool("connected", true), zap.String("remote", remote.String()), zap.String("addr", remoteAddr))
 		return t.client.Send(ctx, remote, msg)
@@ -146,7 +152,7 @@ func (t *Transport) Send(ctx context.Context, remote id.Signatory, remoteAddr st
 	return t.client.Send(ctx, remote, msg)
 }
 
-func (t *Transport) Receive(ctx context.Context, receiver chan<- channel.Msg) {
+func (t *Transport) Receive(ctx context.Context, receiver func(id.Signatory, wire.Msg)) {
 	t.client.Receive(ctx, receiver)
 }
 

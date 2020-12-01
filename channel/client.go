@@ -14,7 +14,7 @@ import (
 
 type fanOutReceiver struct {
 	ctx      context.Context
-	receiver chan<- Msg
+	receiver func(id.Signatory, wire.Msg)
 }
 
 type sharedChannel struct {
@@ -204,7 +204,7 @@ func (client *Client) Send(ctx context.Context, remote id.Signatory, msg wire.Ms
 	}
 }
 
-func (client *Client) Receive(ctx context.Context, receiver chan<- Msg) {
+func (client *Client) Receive(ctx context.Context, receiver func(id.Signatory, wire.Msg)) {
 	client.fanOutRunningMu.Lock()
 	if client.fanOutRunning {
 		return
@@ -227,7 +227,8 @@ func (client *Client) Receive(ctx context.Context, receiver chan<- Msg) {
 					case <-fanOutReceiver.ctx.Done():
 						// Do nothing. This will implicitly mark it for
 						// deletion.
-					case fanOutReceiver.receiver <- msg:
+					default:
+						fanOutReceiver.receiver(msg.From, msg.Msg)
 						fanOutReceivers[marker] = fanOutReceiver
 						marker++
 					}

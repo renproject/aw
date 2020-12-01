@@ -22,7 +22,7 @@ func DefaultOptions() Options {
 		Logger:  logger,
 		PrivKey: privKey,
 		Receiver: Callbacks{
-			DidReceiveMessage: func(id.Signatory, wire.Msg) {},
+			OnDidReceiveMessage: func(id.Signatory, wire.Msg) {},
 		},
 	}
 }
