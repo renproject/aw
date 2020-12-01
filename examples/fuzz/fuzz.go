@@ -44,7 +44,7 @@ func main() {
 	for i := range peers {
 		self := opts[i].PrivKey.Signatory()
 		r := rand.New(rand.NewSource(time.Now().UnixNano() + int64(i)))
-		h := handshake.ECIES(opts[i].PrivKey, r)
+		h := handshake.Filter(func(id.Signatory) error { return nil }, handshake.ECIES(opts[i].PrivKey, r))
 		contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
 		clients[i] = channel.NewClient(
 			channel.DefaultClientOptions().
