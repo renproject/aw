@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/renproject/aw/channel"
 	"github.com/renproject/aw/transport"
@@ -13,39 +12,6 @@ import (
 	"github.com/renproject/id"
 	"go.uber.org/zap"
 )
-
-type SyncerOptions struct {
-	Logger  *zap.Logger
-	Alpha   int
-	Timeout time.Duration
-}
-
-func DefaultSyncerOptions() SyncerOptions {
-	logger, err := zap.NewDevelopment()
-	if err != nil {
-		panic(err)
-	}
-	return SyncerOptions{
-		Logger:  logger,
-		Alpha:   DefaultAlpha,
-		Timeout: DefaultTimeout,
-	}
-}
-
-func (opts SyncerOptions) WithLogger(logger *zap.Logger) SyncerOptions {
-	opts.Logger = logger
-	return opts
-}
-
-func (opts SyncerOptions) WithAlpha(alpha int) SyncerOptions {
-	opts.Alpha = alpha
-	return opts
-}
-
-func (opts SyncerOptions) WithTimeout(timeout time.Duration) SyncerOptions {
-	opts.Timeout = timeout
-	return opts
-}
 
 type pendingContent struct {
 	// content is nil while synchronisation is happening. After synchronisation
@@ -90,11 +56,9 @@ type Syncer struct {
 
 	pendingMu *sync.Mutex
 	pending   map[string]pendingContent
-
-	next Receiver
 }
 
-func NewSyncer(opts SyncerOptions, filter *channel.SyncFilter, transport *transport.Transport, next Receiver) *Syncer {
+func NewSyncer(opts SyncerOptions, filter *channel.SyncFilter, transport *transport.Transport) *Syncer {
 	return &Syncer{
 		opts:      opts,
 		filter:    filter,
@@ -102,12 +66,10 @@ func NewSyncer(opts SyncerOptions, filter *channel.SyncFilter, transport *transp
 
 		pendingMu: new(sync.Mutex),
 		pending:   make(map[string]pendingContent, 1024),
-
-		next: next,
 	}
 }
 
-func (syncer *Syncer) Sync(ctx context.Context, contentID []byte, from *id.Signatory) ([]byte, error) {
+func (syncer *Syncer) Sync(ctx context.Context, contentID []byte, hint *id.Signatory) ([]byte, error) {
 	syncer.pendingMu.Lock()
 	pending, ok := syncer.pending[string(contentID)]
 	if !ok {
@@ -139,8 +101,8 @@ func (syncer *Syncer) Sync(ctx context.Context, contentID []byte, from *id.Signa
 	// in order and attempt to synchronise content by sending them pull
 	// messages.
 	peers := syncer.transport.Table().Addresses(syncer.opts.Alpha)
-	if from != nil {
-		peers = append([]id.Signatory{*from}, peers...)
+	if hint != nil {
+		peers = append([]id.Signatory{*hint}, peers...)
 	}
 
 	for _, peer := range peers {
@@ -182,8 +144,5 @@ func (syncer *Syncer) DidReceiveMessage(from id.Signatory, msg wire.Msg) {
 			pending.signal(msg.SyncData)
 		}
 		syncer.pendingMu.Unlock()
-	}
-	if syncer.next != nil {
-		syncer.next.DidReceiveMessage(from, msg)
 	}
 }

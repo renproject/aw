@@ -85,10 +85,10 @@ type Client struct {
 	fanOutRunningMu *sync.Mutex
 	fanOutRunning   bool
 
-	filter func(msg wire.Msg) bool
+	filter Filter
 }
 
-func NewClient(opts ClientOptions, self id.Signatory, filter func(msg wire.Msg) bool) *Client {
+func NewClient(opts ClientOptions, self id.Signatory, filter Filter) *Client {
 	return &Client{
 		opts: opts,
 		self: self,
@@ -100,7 +100,8 @@ func NewClient(opts ClientOptions, self id.Signatory, filter func(msg wire.Msg) 
 		fanOutReceivers: make(chan fanOutReceiver),
 		fanOutRunningMu: new(sync.Mutex),
 		fanOutRunning:   false,
-		filter:          filter,
+
+		filter: filter,
 	}
 }
 

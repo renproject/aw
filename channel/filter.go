@@ -4,11 +4,26 @@ import (
 	"sync"
 
 	"github.com/renproject/aw/wire"
+	"github.com/renproject/id"
 )
 
-// A SyncFilter is used to filter synchronisation messages sent by remote peers.
-// If the local peer is not expecting to receive a synchronisation message, then
-// the message will be filtered and the respective channel will be dropped.
+// A Filter is used to drop messages, and their respective channels, when the
+// messages are unexpected or malicious.
+type Filter interface {
+	Filter(id.Signatory, wire.Msg) bool
+}
+
+// FilterFunc is a wrapper around a function that implements the Filter
+// interface.
+type FilterFunc func(id.Signatory, wire.Msg) bool
+
+func (f FilterFunc) Filter(from id.Signatory, msg wire.Msg) bool {
+	return f(from, msg)
+}
+
+// A SyncFilter is used to filter synchronisation messages. If the local peer
+// is not expecting to receive a synchronisation message, then the message will
+// be filtered and the respective channel will be dropped.
 type SyncFilter struct {
 	expectingMu *sync.RWMutex
 	expecting   map[string]int
@@ -50,7 +65,7 @@ func (f *SyncFilter) Deny(contentID []byte) {
 
 // Filter returns true if the message is not a synchronisation message, or the
 // content ID has one or more outstanding allowance.
-func (f *SyncFilter) Filter(msg wire.Msg) bool {
+func (f *SyncFilter) Filter(from id.Signatory, msg wire.Msg) bool {
 	if msg.Type != wire.MsgTypeSync {
 		return true
 	}

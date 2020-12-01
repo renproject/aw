@@ -152,7 +152,7 @@ type Channel struct {
 	readers chan reader
 	writers chan writer
 
-	shouldReadNextMsg func(msg wire.Msg) bool
+	filter Filter
 }
 
 // New returns an abstract Channel connection to a remote peer. It will have no
@@ -166,9 +166,9 @@ type Channel struct {
 // outbound messaging channel, but there is no functional attached network
 // connection, or when messages are being received on an attached network
 // connection, but the inbound message channel is not being drained.
-func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-chan wire.Msg, shouldReadNextMsg func(msg wire.Msg) bool) *Channel {
-	if shouldReadNextMsg == nil {
-		shouldReadNextMsg = func(msg wire.Msg) bool {return true}
+func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-chan wire.Msg, filter Filter) *Channel {
+	if filter == nil {
+		filter = FilterFunc(func(id.Signatory, wire.Msg) bool { return true })
 	}
 	return &Channel{
 		opts:   opts,
@@ -180,7 +180,7 @@ func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-
 		readers: make(chan reader, 1),
 		writers: make(chan writer, 1),
 
-		shouldReadNextMsg: shouldReadNextMsg,
+		filter: filter,
 	}
 }
 
@@ -311,7 +311,7 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 
 			mOk = true
 
-			if !ch.shouldReadNextMsg(m) {
+			if !ch.filter.Filter(ch.remote, m) {
 				ch.opts.Logger.Error("invalid message sequence")
 				if r.q != nil {
 					close(r.q)

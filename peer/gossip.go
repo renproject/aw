@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"sync"
-	"time"
 
 	"github.com/renproject/aw/channel"
 	"github.com/renproject/aw/dht"
@@ -14,59 +13,47 @@ import (
 	"go.uber.org/zap"
 )
 
-type GossiperOptions struct {
-	Logger  *zap.Logger
-	Alpha   int
-	Timeout time.Duration
-}
-
-func DefaultGossiperOptions() GossiperOptions {
-	logger, err := zap.NewDevelopment()
-	if err != nil {
-		panic(err)
-	}
-	return GossiperOptions{
-		Logger:  logger,
-		Alpha:   DefaultAlpha,
-		Timeout: DefaultTimeout,
-	}
-}
-
 type Gossiper struct {
 	opts GossiperOptions
 
 	filter    *channel.SyncFilter
 	transport *transport.Transport
 	resolver  dht.ContentResolver
-	next      Receiver
 
 	subnetsMu *sync.Mutex
 	subnets   map[string]id.Hash
 }
 
-func NewGossiper(opts GossiperOptions, filter *channel.SyncFilter, transport *transport.Transport, resolver dht.ContentResolver, next Receiver) *Gossiper {
+func NewGossiper(opts GossiperOptions, filter *channel.SyncFilter, transport *transport.Transport, resolver dht.ContentResolver) *Gossiper {
 	return &Gossiper{
 		opts: opts,
 
 		filter:    filter,
 		transport: transport,
 		resolver:  resolver,
-		next:      next,
 
 		subnetsMu: new(sync.Mutex),
 		subnets:   make(map[string]id.Hash, 1024),
 	}
 }
 
-func (g *Gossiper) Gossip(ctx context.Context, subnet id.Hash, contentID []byte) {
+func (g *Gossiper) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash) {
+	if subnet == nil {
+		subnet = &DefaultSubnet
+	}
+
+	// TODO: We always want to select only alpha recipients, even in the case
+	// when a specific subnet is provided. The alpha recipients should be the
+	// closest recipients to us, where distance is measured as the XOR distance
+	// of peer IDs.
 	recipients := []id.Signatory{}
 	if subnet.Equal(&DefaultSubnet) {
 		recipients = g.transport.Table().Addresses(g.opts.Alpha)
 	} else {
-		recipients = g.transport.Table().Subnet(subnet)
+		recipients = g.transport.Table().Subnet(*subnet)
 	}
 
-	msg := wire.Msg{Version: wire.MsgVersion1, To: subnet, Type: wire.MsgTypePush, Data: contentID}
+	msg := wire.Msg{Version: wire.MsgVersion1, To: *subnet, Type: wire.MsgTypePush, Data: contentID}
 	for _, recipient := range recipients {
 		if err := g.transport.Send(ctx, recipient, msg); err != nil {
 			g.opts.Logger.Error("pushing gossip", zap.String("peer", recipient.String()), zap.Error(err))
@@ -82,9 +69,6 @@ func (g *Gossiper) DidReceiveMessage(from id.Signatory, msg wire.Msg) {
 		g.didReceivePull(from, msg)
 	case wire.MsgTypeSync:
 		g.didReceiveSync(from, msg)
-	}
-	if g.next != nil {
-		g.next.DidReceiveMessage(from, msg)
 	}
 }
 
@@ -189,5 +173,5 @@ func (g *Gossiper) didReceiveSync(from id.Signatory, msg wire.Msg) {
 	ctx, cancel := context.WithTimeout(context.Background(), g.opts.Timeout)
 	defer cancel()
 
-	g.Gossip(ctx, subnet, msg.Data)
+	g.Gossip(ctx, msg.Data, &subnet)
 }

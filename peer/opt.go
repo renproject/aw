@@ -1,15 +1,71 @@
 package peer
 
 import (
-	"github.com/renproject/aw/wire"
+	"time"
+
+	"github.com/renproject/aw/channel"
 	"github.com/renproject/id"
 	"go.uber.org/zap"
 )
 
+type SyncerOptions struct {
+	Logger  *zap.Logger
+	Alpha   int
+	Timeout time.Duration
+}
+
+func DefaultSyncerOptions() SyncerOptions {
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		panic(err)
+	}
+	return SyncerOptions{
+		Logger:  logger,
+		Alpha:   DefaultAlpha,
+		Timeout: DefaultTimeout,
+	}
+}
+
+func (opts SyncerOptions) WithLogger(logger *zap.Logger) SyncerOptions {
+	opts.Logger = logger
+	return opts
+}
+
+func (opts SyncerOptions) WithAlpha(alpha int) SyncerOptions {
+	opts.Alpha = alpha
+	return opts
+}
+
+func (opts SyncerOptions) WithTimeout(timeout time.Duration) SyncerOptions {
+	opts.Timeout = timeout
+	return opts
+}
+
+type GossiperOptions struct {
+	Logger  *zap.Logger
+	Alpha   int
+	Timeout time.Duration
+}
+
+func DefaultGossiperOptions() GossiperOptions {
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		panic(err)
+	}
+	return GossiperOptions{
+		Logger:  logger,
+		Alpha:   DefaultAlpha,
+		Timeout: DefaultTimeout,
+	}
+}
+
 type Options struct {
-	Logger   *zap.Logger
-	PrivKey  *id.PrivKey
-	Receiver Receiver
+	SyncerOptions
+	GossiperOptions
+
+	Logger  *zap.Logger
+	PrivKey *id.PrivKey
+	Filter  *channel.SyncFilter
 }
 
 func DefaultOptions() Options {
@@ -19,11 +75,12 @@ func DefaultOptions() Options {
 	}
 	privKey := id.NewPrivKey()
 	return Options{
+		SyncerOptions:   DefaultSyncerOptions(),
+		GossiperOptions: DefaultGossiperOptions(),
+
 		Logger:  logger,
 		PrivKey: privKey,
-		Receiver: Callbacks{
-			OnDidReceiveMessage: func(id.Signatory, wire.Msg) {},
-		},
+		Filter:  channel.NewSyncFilter(),
 	}
 }
 
@@ -34,10 +91,5 @@ func (opts Options) WithLogger(logger *zap.Logger) Options {
 
 func (opts Options) WithPrivKey(privKey *id.PrivKey) Options {
 	opts.PrivKey = privKey
-	return opts
-}
-
-func (opts Options) WithReceiver(receiver Receiver) Options {
-	opts.Receiver = receiver
 	return opts
 }

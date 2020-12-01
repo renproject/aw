@@ -33,11 +33,7 @@ func main() {
 	opts := make([]peer.Options, n)
 	for i := range opts {
 		i := i
-		opts[i] = peer.DefaultOptions().WithLogger(logger).WithReceiver(peer.Callbacks{
-			OnDidReceiveMessage: func(from id.Signatory, msg wire.Msg) {
-				fmt.Printf("%4v: received \"%v\" from %4v\n", opts[i].PrivKey.Signatory(), string(msg.Data), from)
-			},
-		})
+		opts[i] = peer.DefaultOptions().WithLogger(logger)
 	}
 
 	// Init and run peers.
@@ -54,15 +50,7 @@ func main() {
 			channel.DefaultClientOptions().
 				WithLogger(logger),
 			self,
-			func(msg wire.Msg) bool {
-				if msg.Type == wire.MsgTypeSync {
-					var contentID dht.ContentID
-					copy(contentID[:], msg.Data)
-					_, ok := contentResolver.Content(contentID)
-					return ok
-				}
-				return true
-			})
+			opts[i].Filter)
 		tables[i] = dht.NewInMemTable(self)
 		transports[i] = transport.New(
 			transport.DefaultOptions().
@@ -76,9 +64,11 @@ func main() {
 			tables[i])
 		peers[i] = peer.New(
 			opts[i],
-			peer.NewGossiper(peer.DefaultGossiperOptions(), channel.NewSyncFilter(), transports[i], contentResolver, nil),
-			peer.NewSyncer(peer.DefaultSyncerOptions(), channel.NewSyncFilter(), transports[i], nil),
-			transports[i])
+			transports[i],
+			contentResolver)
+		peers[i].Receive(context.Background(), func(from id.Signatory, msg wire.Msg) {
+			fmt.Printf("%4v: received \"%v\" from %4v\n", opts[i].PrivKey.Signatory(), string(msg.Data), from)
+		})
 		go func(i int) {
 			for {
 				// Randomly crash peers.
