@@ -49,8 +49,7 @@ func main() {
 		clients[i] = channel.NewClient(
 			channel.DefaultClientOptions().
 				WithLogger(logger),
-			self,
-			opts[i].Filter)
+			self)
 		tables[i] = dht.NewInMemTable(self)
 		transports[i] = transport.New(
 			transport.DefaultOptions().
@@ -66,8 +65,9 @@ func main() {
 			opts[i],
 			transports[i],
 			contentResolver)
-		peers[i].Receive(context.Background(), func(from id.Signatory, msg wire.Msg) {
+		peers[i].Receive(context.Background(), func(from id.Signatory, msg wire.Msg) error {
 			fmt.Printf("%4v: received \"%v\" from %4v\n", opts[i].PrivKey.Signatory(), string(msg.Data), from)
+			return nil
 		})
 		go func(i int) {
 			for {

@@ -3,6 +3,7 @@ package peer
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"sync"
 
 	"github.com/renproject/aw/channel"
@@ -61,15 +62,19 @@ func (g *Gossiper) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash
 	}
 }
 
-func (g *Gossiper) DidReceiveMessage(from id.Signatory, msg wire.Msg) {
+func (g *Gossiper) DidReceiveMessage(from id.Signatory, msg wire.Msg) error {
 	switch msg.Type {
 	case wire.MsgTypePush:
 		g.didReceivePush(from, msg)
 	case wire.MsgTypePull:
 		g.didReceivePull(from, msg)
 	case wire.MsgTypeSync:
+		if g.filter.Filter(from, msg) {
+			return fmt.Errorf("denied message from %v", from)
+		}
 		g.didReceiveSync(from, msg)
 	}
+	return nil
 }
 
 func (g *Gossiper) didReceivePush(from id.Signatory, msg wire.Msg) {

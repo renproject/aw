@@ -136,8 +136,11 @@ func (syncer *Syncer) Sync(ctx context.Context, contentID []byte, hint *id.Signa
 	return nil, fmt.Errorf("content not found: %v", base64.RawURLEncoding.EncodeToString(contentID))
 }
 
-func (syncer *Syncer) DidReceiveMessage(from id.Signatory, msg wire.Msg) {
+func (syncer *Syncer) DidReceiveMessage(from id.Signatory, msg wire.Msg) error {
 	if msg.Type == wire.MsgTypeSync {
+		if !syncer.filter.Filter(from, msg) {
+			return fmt.Errorf("denied message from %v", from)
+		}
 		syncer.pendingMu.Lock()
 		pending, ok := syncer.pending[string(msg.Data)]
 		if ok && msg.SyncData != nil {
@@ -145,4 +148,5 @@ func (syncer *Syncer) DidReceiveMessage(from id.Signatory, msg wire.Msg) {
 		}
 		syncer.pendingMu.Unlock()
 	}
+	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/renproject/aw/channel"
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/transport"
 	"github.com/renproject/aw/wire"
@@ -30,11 +31,12 @@ type Peer struct {
 }
 
 func New(opts Options, transport *transport.Transport, contentResolver dht.ContentResolver) *Peer {
+	filter := channel.NewSyncFilter()
 	return &Peer{
 		opts:      opts,
 		transport: transport,
-		syncer:    NewSyncer(opts.SyncerOptions, opts.Filter, transport),
-		gossiper:  NewGossiper(opts.GossiperOptions, opts.Filter, transport, contentResolver),
+		syncer:    NewSyncer(opts.SyncerOptions, filter, transport),
+		gossiper:  NewGossiper(opts.GossiperOptions, filter, transport, contentResolver),
 	}
 }
 
@@ -67,13 +69,18 @@ func (p *Peer) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash) {
 }
 
 func (p *Peer) Run(ctx context.Context) {
-	p.transport.Receive(ctx, func(from id.Signatory, msg wire.Msg) {
-		p.syncer.DidReceiveMessage(from, msg)
-		p.gossiper.DidReceiveMessage(from, msg)
+	p.transport.Receive(ctx, func(from id.Signatory, msg wire.Msg) error {
+		if err := p.syncer.DidReceiveMessage(from, msg); err != nil {
+			return err
+		}
+		if err := p.gossiper.DidReceiveMessage(from, msg); err != nil {
+			return err
+		}
+		return nil
 	})
 	p.transport.Run(ctx)
 }
 
-func (p *Peer) Receive(ctx context.Context, f func(id.Signatory, wire.Msg)) {
+func (p *Peer) Receive(ctx context.Context, f func(id.Signatory, wire.Msg) error) {
 	p.transport.Receive(ctx, f)
 }

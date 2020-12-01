@@ -3,7 +3,6 @@ package peer
 import (
 	"time"
 
-	"github.com/renproject/aw/channel"
 	"github.com/renproject/id"
 	"go.uber.org/zap"
 )
@@ -65,7 +64,6 @@ type Options struct {
 
 	Logger  *zap.Logger
 	PrivKey *id.PrivKey
-	Filter  *channel.SyncFilter
 }
 
 func DefaultOptions() Options {
@@ -80,7 +78,6 @@ func DefaultOptions() Options {
 
 		Logger:  logger,
 		PrivKey: privKey,
-		Filter:  channel.NewSyncFilter(),
 	}
 }
 

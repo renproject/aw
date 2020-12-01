@@ -12,9 +12,9 @@ import (
 	"go.uber.org/zap"
 )
 
-type fanOutReceiver struct {
-	ctx      context.Context
-	receiver func(id.Signatory, wire.Msg)
+type receiver struct {
+	ctx context.Context
+	f   func(id.Signatory, wire.Msg) error
 }
 
 type sharedChannel struct {
@@ -80,15 +80,13 @@ type Client struct {
 	sharedChannelsMu *sync.RWMutex
 	sharedChannels   map[id.Signatory]*sharedChannel
 
-	inbound         chan Msg
-	fanOutReceivers chan fanOutReceiver
-	fanOutRunningMu *sync.Mutex
-	fanOutRunning   bool
-
-	filter Filter
+	inbound            chan Msg
+	receivers          chan receiver
+	receiversRunningMu *sync.Mutex
+	receiversRunning   bool
 }
 
-func NewClient(opts ClientOptions, self id.Signatory, filter Filter) *Client {
+func NewClient(opts ClientOptions, self id.Signatory) *Client {
 	return &Client{
 		opts: opts,
 		self: self,
@@ -96,12 +94,10 @@ func NewClient(opts ClientOptions, self id.Signatory, filter Filter) *Client {
 		sharedChannelsMu: new(sync.RWMutex),
 		sharedChannels:   map[id.Signatory]*sharedChannel{},
 
-		inbound:         make(chan Msg),
-		fanOutReceivers: make(chan fanOutReceiver),
-		fanOutRunningMu: new(sync.Mutex),
-		fanOutRunning:   false,
-
-		filter: filter,
+		inbound:            make(chan Msg),
+		receivers:          make(chan receiver),
+		receiversRunningMu: new(sync.Mutex),
+		receiversRunning:   false,
 	}
 }
 
@@ -109,9 +105,9 @@ func (client *Client) Bind(remote id.Signatory) {
 	client.sharedChannelsMu.Lock()
 	defer client.sharedChannelsMu.Unlock()
 
-	sc, ok := client.sharedChannels[remote]
+	shared, ok := client.sharedChannels[remote]
 	if ok {
-		sc.rc++
+		shared.rc++
 		return
 	}
 
@@ -119,7 +115,7 @@ func (client *Client) Bind(remote id.Signatory) {
 	outbound := make(chan wire.Msg, client.opts.OutboundBufferSize)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ch := New(client.opts.ChannelOptions, remote, inbound, outbound, client.filter)
+	ch := New(client.opts.ChannelOptions, remote, inbound, outbound)
 	go func() {
 		defer close(inbound)
 		if err := ch.Run(ctx); err != nil {
@@ -148,14 +144,14 @@ func (client *Client) Unbind(remote id.Signatory) {
 	client.sharedChannelsMu.Lock()
 	defer client.sharedChannelsMu.Unlock()
 
-	sc, ok := client.sharedChannels[remote]
+	shared, ok := client.sharedChannels[remote]
 	if !ok {
 		return
 	}
 
-	sc.rc--
-	if sc.rc == 0 {
-		sc.cancel()
+	shared.rc--
+	if shared.rc == 0 {
+		shared.cancel()
 		delete(client.sharedChannels, remote)
 	}
 }
@@ -174,7 +170,7 @@ func (client *Client) IsBound(remote id.Signatory) bool {
 // blocking.
 func (client *Client) Attach(ctx context.Context, remote id.Signatory, conn net.Conn, enc codec.Encoder, dec codec.Decoder) error {
 	client.sharedChannelsMu.RLock()
-	sc, ok := client.sharedChannels[remote]
+	shared, ok := client.sharedChannels[remote]
 	if !ok {
 		client.sharedChannelsMu.RUnlock()
 		return fmt.Errorf("attach: no connection to %v", remote)
@@ -182,7 +178,7 @@ func (client *Client) Attach(ctx context.Context, remote id.Signatory, conn net.
 	client.sharedChannelsMu.RUnlock()
 
 	client.opts.Logger.Debug("attach", zap.String("self", client.self.String()), zap.String("remote", remote.String()), zap.String("addr", conn.RemoteAddr().String()))
-	if err := sc.ch.Attach(ctx, remote, conn, enc, dec); err != nil {
+	if err := shared.ch.Attach(ctx, remote, conn, enc, dec); err != nil {
 		return fmt.Errorf("attach: %v", err)
 	}
 	return nil
@@ -190,68 +186,81 @@ func (client *Client) Attach(ctx context.Context, remote id.Signatory, conn net.
 
 func (client *Client) Send(ctx context.Context, remote id.Signatory, msg wire.Msg) error {
 	client.sharedChannelsMu.RLock()
-	sc, ok := client.sharedChannels[remote]
+	shared, ok := client.sharedChannels[remote]
 	if !ok {
 		client.sharedChannelsMu.RUnlock()
-		return fmt.Errorf("send: no connection to %v", remote)
+		return fmt.Errorf("channel not found: %v", remote)
 	}
 	client.sharedChannelsMu.RUnlock()
 
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case sc.outbound <- msg:
+	case shared.outbound <- msg:
 		return nil
 	}
 }
 
-func (client *Client) Receive(ctx context.Context, receiver func(id.Signatory, wire.Msg)) {
-	client.fanOutRunningMu.Lock()
-	if client.fanOutRunning {
+func (client *Client) Receive(ctx context.Context, f func(id.Signatory, wire.Msg) error) {
+	client.receiversRunningMu.Lock()
+	if client.receiversRunning {
 		return
 	}
-	client.fanOutRunning = true
-	client.fanOutRunningMu.Unlock()
+	client.receiversRunning = true
+	client.receiversRunningMu.Unlock()
 
 	go func() {
-		fanOutReceivers := []fanOutReceiver{}
+		receivers := []receiver{}
 
 		for {
 			select {
-			case fanOutReceiver := <-client.fanOutReceivers:
-				// A new fanOutReceiver has been registered.
-				fanOutReceivers = append(fanOutReceivers, fanOutReceiver)
+			case receiver := <-client.receivers:
+				// A new receiver has been registered.
+				receivers = append(receivers, receiver)
 			case msg := <-client.inbound:
 				marker := 0
-				for _, fanOutReceiver := range fanOutReceivers {
+				for _, receiver := range receivers {
 					select {
-					case <-fanOutReceiver.ctx.Done():
+					case <-receiver.ctx.Done():
 						// Do nothing. This will implicitly mark it for
 						// deletion.
 					default:
-						fanOutReceiver.receiver(msg.From, msg.Msg)
-						fanOutReceivers[marker] = fanOutReceiver
+						if err := receiver.f(msg.From, msg.Msg); err != nil {
+							// When a channel is killed, its context will be
+							// cancelled, its underlying network connections
+							// will be dropped, and sending will fail. A killed
+							// channel can only be revived by completely
+							// unbinding all references, and binding a new
+							// reference.
+							client.opts.Logger.Error("filter", zap.String("remote", msg.From.String()), zap.Error(err))
+							client.sharedChannelsMu.Lock()
+							if shared, ok := client.sharedChannels[msg.From]; ok {
+								shared.cancel()
+							}
+							client.sharedChannelsMu.Unlock()
+						}
+						receivers[marker] = receiver
 						marker++
 					}
 				}
 				// Delete everything that was marked for deletion.
-				for del := marker; del < len(fanOutReceivers); del++ {
-					fanOutReceivers[del] = fanOutReceiver{}
+				for del := marker; del < len(receivers); del++ {
+					receivers[del] = receiver{}
 				}
-				fanOutReceivers = fanOutReceivers[:marker]
+				receivers = receivers[:marker]
 			}
-			if len(fanOutReceivers) == 0 {
+			if len(receivers) == 0 {
 				break
 			}
 		}
 
-		client.fanOutRunningMu.Lock()
-		client.fanOutRunning = false
-		client.fanOutRunningMu.Unlock()
+		client.receiversRunningMu.Lock()
+		client.receiversRunning = false
+		client.receiversRunningMu.Unlock()
 	}()
 
 	select {
 	case <-ctx.Done():
-	case client.fanOutReceivers <- fanOutReceiver{ctx: ctx, receiver: receiver}:
+	case client.receivers <- receiver{ctx: ctx, f: f}:
 	}
 }

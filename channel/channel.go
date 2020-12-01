@@ -151,8 +151,6 @@ type Channel struct {
 
 	readers chan reader
 	writers chan writer
-
-	filter Filter
 }
 
 // New returns an abstract Channel connection to a remote peer. It will have no
@@ -166,10 +164,7 @@ type Channel struct {
 // outbound messaging channel, but there is no functional attached network
 // connection, or when messages are being received on an attached network
 // connection, but the inbound message channel is not being drained.
-func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-chan wire.Msg, filter Filter) *Channel {
-	if filter == nil {
-		filter = FilterFunc(func(id.Signatory, wire.Msg) bool { return true })
-	}
+func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-chan wire.Msg) *Channel {
 	return &Channel{
 		opts:   opts,
 		remote: remote,
@@ -179,8 +174,6 @@ func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-
 
 		readers: make(chan reader, 1),
 		writers: make(chan writer, 1),
-
-		filter: filter,
 	}
 }
 
@@ -311,14 +304,13 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 
 			mOk = true
 
-			if !ch.filter.Filter(ch.remote, m) {
-				ch.opts.Logger.Error("invalid message sequence")
-				if r.q != nil {
-					close(r.q)
-				}
-				return fmt.Errorf("invalid message sequence")
-			}
-
+			// An aggressive filtering strategy would involve pre-filtering
+			// synchronisation messages before reading the synchronisation data.
+			// However, in practice, this does not provide much of an advantage
+			// because we can (a) restrict how much synchronisation data we are
+			// willing to read upfront and count it against bandwidth
+			// rate-limiting, and (b) filtering that happens in the client
+			// results in bad channels being killed quickly anyway.
 			if m.Type == wire.MsgTypeSync {
 				n, err := r.Decoder(r.Reader, syncData)
 				if err != nil {
