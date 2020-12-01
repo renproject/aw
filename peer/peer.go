@@ -3,6 +3,7 @@ package peer
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"go.uber.org/zap"
 
@@ -24,13 +25,15 @@ var (
 
 type Peer struct {
 	opts            Options
+	syncer          *Syncer
 	transport       *transport.Transport
 	contentResolver dht.ContentResolver
 }
 
-func New(opts Options, transport *transport.Transport, contentResolver dht.ContentResolver) *Peer {
+func New(opts Options, syncer *Syncer, transport *transport.Transport, contentResolver dht.ContentResolver) *Peer {
 	return &Peer{
 		opts:            opts,
+		syncer:          syncer,
 		transport:       transport,
 		contentResolver: contentResolver,
 	}
@@ -70,6 +73,14 @@ func (p *Peer) Ping(ctx context.Context) error {
 
 func (p *Peer) Send(ctx context.Context, to id.Signatory, msg wire.Msg) error {
 	return p.transport.Send(ctx, to, msg)
+}
+
+func (p *Peer) Gossip(ctx context.Context, contentID, content []byte) error {
+	return fmt.Errorf("unimplemented")
+}
+
+func (p *Peer) Sync(ctx context.Context, contentID []byte) ([]byte, error) {
+	return p.syncer.Sync(ctx, contentID, nil)
 }
 
 // Run the peer until the context is done. If running encounters an error, or

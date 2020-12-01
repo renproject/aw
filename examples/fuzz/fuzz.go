@@ -74,7 +74,11 @@ func main() {
 			clients[i],
 			h,
 			tables[i])
-		peers[i] = peer.New(opts[i], transports[i], contentResolver)
+		peers[i] = peer.New(
+			opts[i],
+			peer.NewSyncer(peer.DefaultSyncerOptions(), channel.NewSyncFilter(), transports[i], nil),
+			transports[i],
+			contentResolver)
 		go func(i int) {
 			for {
 				// Randomly crash peers.

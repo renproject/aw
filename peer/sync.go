@@ -90,23 +90,25 @@ func (pending *pendingContent) signal(content []byte) {
 
 type Syncer struct {
 	opts      SyncerOptions
-	next      Receiver
 	filter    *channel.SyncFilter
 	transport *transport.Transport
 
 	pendingMu *sync.Mutex
 	pending   map[string]pendingContent
+
+	next Receiver
 }
 
-func NewSyncer(opts SyncerOptions, next Receiver, filter *channel.SyncFilter, transport *transport.Transport) *Syncer {
+func NewSyncer(opts SyncerOptions, filter *channel.SyncFilter, transport *transport.Transport, next Receiver) *Syncer {
 	return &Syncer{
 		opts:      opts,
-		next:      next,
 		filter:    filter,
 		transport: transport,
 
 		pendingMu: new(sync.Mutex),
 		pending:   make(map[string]pendingContent, 1024),
+
+		next: next,
 	}
 }
 
