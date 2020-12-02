@@ -24,8 +24,10 @@ type Attacher interface {
 var (
 	DefaultDrainTimeout      = 30 * time.Second
 	DefaultDrainInBackground = true
-	DefaultMaxMessageSize    = 4 * 1024 * 1024 // 4MB
-	DefaultBufferSize        = 4 * 1204 * 1024 // 4MB
+	DefaultMaxMessageSize    = 4 * 1024 * 1024         // 4MB
+	DefaultBufferSize        = 4 * 1204 * 1024         // 4MB
+	DefaultRateLimit         = rate.Limit(1024 * 1024) // 1MB per second
+	DefaultBurst             = 4 * 1024 * 1024         // 4MB
 )
 
 // Options for parameterizing the behaviour of a Channel.
@@ -51,6 +53,8 @@ func DefaultOptions() Options {
 		DrainInBackground: DefaultDrainInBackground,
 		MaxMessageSize:    DefaultMaxMessageSize,
 		BufferSize:        DefaultBufferSize,
+		RateLimit:         DefaultRateLimit,
+		Burst:             DefaultBurst,
 	}
 }
 
@@ -75,6 +79,21 @@ func (opts Options) WithDrainTimeout(timeout time.Duration) Options {
 // the deliver order of messages.
 func (opts Options) WithDrainInBackground(enable bool) Options {
 	opts.DrainInBackground = enable
+	return opts
+}
+
+// WithRateLimit sets the bytes-per-second rate limit that will be enforced on
+// all network connections. If a network connection exceeds this limit, then the
+// connection will be closed, and a new one will need to be established.
+func (opts Options) WithRateLimit(rateLimit rate.Limit) Options {
+	opts.RateLimit = rateLimit
+	return opts
+}
+
+// WithBurst sets the temporary burst of bytes-per-second that can exceed the
+// usual rate limit.
+func (opts Options) WithBurst(burst int) Options {
+	opts.Burst = burst
 	return opts
 }
 
