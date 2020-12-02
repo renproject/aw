@@ -12,6 +12,7 @@ import (
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 )
 
 // An Attacher is able to attach a network connection to itself.
@@ -34,6 +35,8 @@ type Options struct {
 	DrainInBackground bool
 	MaxMessageSize    int
 	BufferSize        int
+	RateLimit         rate.Limit
+	Burst             int
 }
 
 // DefaultOptions returns Options with sane defaults.
@@ -151,6 +154,8 @@ type Channel struct {
 
 	readers chan reader
 	writers chan writer
+
+	rateLimiter *rate.Limiter
 }
 
 // New returns an abstract Channel connection to a remote peer. It will have no
@@ -174,6 +179,8 @@ func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-
 
 		readers: make(chan reader, 1),
 		writers: make(chan writer, 1),
+
+		rateLimiter: rate.NewLimiter(opts.RateLimit, opts.Burst),
 	}
 }
 
@@ -294,6 +301,17 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 				rOk = false
 				continue
 			}
+
+			// Check that the underlying connection is not exceeding its rate
+			// limit.
+			if !ch.rateLimiter.AllowN(time.Now(), n) {
+				ch.opts.Logger.Error("rate limit exceeded", zap.String("remote", ch.remote.String()), zap.String("addr", r.Conn.RemoteAddr().String()))
+				close(r.q)
+				r = reader{}
+				rOk = false
+				continue
+			}
+
 			// Unmarshal the message from binary. If this is successfully, then
 			// we mark the message as available (and will attempt to write it to
 			// the inbound message channel).
