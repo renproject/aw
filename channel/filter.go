@@ -56,7 +56,7 @@ func (f *SyncFilter) Deny(contentID []byte) {
 	defer f.expectingMu.Unlock()
 
 	contentIDAsString := string(contentID)
-	if f.expecting[contentIDAsString] > 1 {
+	if f.expecting[contentIDAsString] == 1 {
 		delete(f.expecting, contentIDAsString)
 		return
 	}
