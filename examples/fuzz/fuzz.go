@@ -87,7 +87,7 @@ func main() {
 		for i := range peers {
 			j := (i + 1) % len(peers)
 			fmt.Printf("peer[%v] sending to peer[%v]\n", i, j)
-			tables[i].AddPeer(peers[j].ID(), fmt.Sprintf("localhost:%v", 3333+int64(j)))
+			tables[i].AddPeer(peers[j].ID(), wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("localhost:%v", 3333+int64(j)), uint64(time.Now().UnixNano())))
 			func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				defer cancel()

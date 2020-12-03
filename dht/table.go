@@ -4,33 +4,55 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 )
 
 // Force InMemTable to implement the Table interface.
 var _ Table = &InMemTable{}
 
+// A Table is responsible for keeping tack of peers, their network addresses,
+// and the subnet to which they belong.
 type Table interface {
-	AddPeer(peerID id.Signatory, peerAddr string) bool
-	DeletePeer(peerID id.Signatory)
-	PeerAddress(peerID id.Signatory) (string, bool)
-	Addresses(int) []id.Signatory
+	// Self returns the local peer. It does not return the network address of
+	// the local peer, because it can change frequently, and is not guaranteed
+	// to exist.
+	Self() id.Signatory
+
+	// AddPeer to the table with an associate network address.
+	AddPeer(id.Signatory, wire.Address)
+	// DeletePeer from the table.
+	DeletePeer(id.Signatory)
+	// PeerAddress returns the network address associated with the given peer.
+	PeerAddress(id.Signatory) (wire.Address, bool)
+
+	// Peers returns the n closest peers to the local peer, using XORing as the
+	// measure of distance between two peers.
+	Peers(int) []id.Signatory
+	// NumPeers returns the total number of peers with associated network
+	// addresses in the table.
 	NumPeers() int
 
-	AddSubnet(signatories []id.Signatory) id.Hash
-	DeleteSubnet(hash id.Hash)
-	Subnet(hash id.Hash) []id.Signatory
+	// AddSubnet to the table. This returns a subnet hash that can be used to
+	// read/delete the subnet. It is the merkle root hash of the peers in the
+	// subnet.
+	AddSubnet([]id.Signatory) id.Hash
+	// DeleteSubnet from the table. If the subnet was in the table, then the
+	// peers are returned.
+	DeleteSubnet(id.Hash)
+	// Subnet returns the peers from the table.
+	Subnet(id.Hash) []id.Signatory
 }
 
+// InMemTable implements the Table using in-memory storage.
 type InMemTable struct {
 	self id.Signatory
 
-	signatoriesSortedMu *sync.Mutex
-	signatoriesSorted   []id.Signatory
+	sortedMu *sync.Mutex
+	sorted   []id.Signatory
 
 	addrsBySignatoryMu *sync.Mutex
-	addrsBySignatory   map[id.Signatory]string
-	signatoriesByAddr  map[string]id.Signatory
+	addrsBySignatory   map[id.Signatory]wire.Address
 
 	subnetsByHashMu *sync.Mutex
 	subnetsByHash   map[id.Hash][]id.Signatory
@@ -38,38 +60,32 @@ type InMemTable struct {
 
 func NewInMemTable(self id.Signatory) *InMemTable {
 	return &InMemTable{
-		self : self,
+		self: self,
 
-		signatoriesSortedMu: new(sync.Mutex),
-		signatoriesSorted:   []id.Signatory{},
+		sortedMu: new(sync.Mutex),
+		sorted:   []id.Signatory{},
 
 		addrsBySignatoryMu: new(sync.Mutex),
-		addrsBySignatory:   map[id.Signatory]string{},
-		signatoriesByAddr:  map[string]id.Signatory{},
+		addrsBySignatory:   map[id.Signatory]wire.Address{},
 
 		subnetsByHashMu: new(sync.Mutex),
 		subnetsByHash:   map[id.Hash][]id.Signatory{},
 	}
 }
 
-func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr string) bool {
-	table.addrsBySignatoryMu.Lock()
-	table.signatoriesSortedMu.Lock()
+func (table *InMemTable) Self() id.Signatory {
+	return table.self
+}
 
+func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr wire.Address) {
+	table.sortedMu.Lock()
+	table.addrsBySignatoryMu.Lock()
+
+	defer table.sortedMu.Unlock()
 	defer table.addrsBySignatoryMu.Unlock()
-	defer table.signatoriesSortedMu.Unlock()
 
 	if peerID.Equal(&table.self) {
-		return false
-	}
-
-	existingAddr, ok := table.addrsBySignatory[peerID]
-	if ok {
-		if peerAddr == existingAddr {
-			// If the addresses are the same, then the inserted address is not
-			// new.
-			return false
-		}
+		return
 	}
 
 	// Insert into the map to allow for address lookup using the signatory.
@@ -77,41 +93,37 @@ func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr string) bool {
 
 	// Insert into the sorted address list based on its XOR distance from our
 	// own address.
-	i := sort.Search(len(table.signatoriesSorted), func(i int) bool {
-		return table.isCloser(peerID, table.signatoriesSorted[i])
+	i := sort.Search(len(table.sorted), func(i int) bool {
+		return table.isCloser(peerID, table.sorted[i])
 	})
-	table.signatoriesSorted = append(table.signatoriesSorted, id.Signatory{})
-	copy(table.signatoriesSorted[i+1:], table.signatoriesSorted[i:])
-	table.signatoriesSorted[i] = peerID
-	return true
+	table.sorted = append(table.sorted, id.Signatory{})
+	copy(table.sorted[i+1:], table.sorted[i:])
+	table.sorted[i] = peerID
 }
 
 func (table *InMemTable) DeletePeer(peerID id.Signatory) {
+	table.sortedMu.Lock()
 	table.addrsBySignatoryMu.Lock()
-	table.signatoriesSortedMu.Lock()
 
+	defer table.sortedMu.Unlock()
 	defer table.addrsBySignatoryMu.Unlock()
-	defer table.signatoriesSortedMu.Unlock()
 
 	// Delete from the map.
 	delete(table.addrsBySignatory, peerID)
 
 	// Delete from the sorted list.
-	numAddrs := len(table.signatoriesSorted)
+	numAddrs := len(table.sorted)
 	i := sort.Search(numAddrs, func(i int) bool {
-		return table.isCloser(peerID, table.signatoriesSorted[i])
+		return table.isCloser(peerID, table.sorted[i])
 	})
 
 	removeIndex := i - 1
 	if removeIndex >= 0 {
-		expectedID := table.signatoriesSorted[removeIndex]
-		if expectedID.Equal(&peerID) {
-			table.signatoriesSorted = append(table.signatoriesSorted[:removeIndex], table.signatoriesSorted[removeIndex+1:]...)
-		}
+		table.sorted = append(table.sorted[:removeIndex], table.sorted[removeIndex+1:]...)
 	}
 }
 
-func (table *InMemTable) PeerAddress(peerID id.Signatory) (string, bool) {
+func (table *InMemTable) PeerAddress(peerID id.Signatory) (wire.Address, bool) {
 	table.addrsBySignatoryMu.Lock()
 	defer table.addrsBySignatoryMu.Unlock()
 
@@ -119,12 +131,10 @@ func (table *InMemTable) PeerAddress(peerID id.Signatory) (string, bool) {
 	return addr, ok
 }
 
-// Addresses takes input `n` and returns the first `n` signatories in the sorted array of signatories it maintains.
-// This is an O(n) operation as it copies the first min(n, len(sortedArrayOfSignatories)) signatories into a newly allocated
-// array and returns it
-func (table *InMemTable) Addresses(n int) []id.Signatory {
-	table.addrsBySignatoryMu.Lock()
-	defer table.addrsBySignatoryMu.Unlock()
+// Peers returns the n closest peer IDs.
+func (table *InMemTable) Peers(n int) []id.Signatory {
+	table.sortedMu.Lock()
+	defer table.sortedMu.Unlock()
 
 	if n <= 0 {
 		// For values of n that are less than, or equal to, zero, return an
@@ -133,8 +143,8 @@ func (table *InMemTable) Addresses(n int) []id.Signatory {
 		return []id.Signatory{}
 	}
 
-	sigs := make([]id.Signatory, min(n, len(table.signatoriesSorted)))
-	copy(sigs, table.signatoriesSorted)
+	sigs := make([]id.Signatory, min(n, len(table.sorted)))
+	copy(sigs, table.sorted)
 	return sigs
 }
 
@@ -149,11 +159,16 @@ func (table *InMemTable) AddSubnet(signatories []id.Signatory) id.Hash {
 	copied := make([]id.Signatory, len(signatories))
 	copy(copied, signatories)
 
-	// Sort signatories in order of their XOR distance from our own address.
+	// Sort signatories in order of their XOR distance from the local peer. This
+	// allows different peers to easily iterate over the same subnet in a
+	// different order.
 	sort.Slice(copied, func(i, j int) bool {
 		return table.isCloser(copied[i], copied[j])
 	})
 
+	// It it important to note that we are using the unsorted slice for
+	// computing the merkle root hash. This is done so that everyone can have
+	// the same subnet ID for a given slice of signatories.
 	hash := id.NewMerkleHashFromSignatories(signatories)
 
 	table.subnetsByHashMu.Lock()
@@ -183,13 +198,6 @@ func (table *InMemTable) Subnet(hash id.Hash) []id.Signatory {
 	return copied
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func (table *InMemTable) isCloser(fst, snd id.Signatory) bool {
 	for b := 0; b < 32; b++ {
 		d1 := table.self[b] ^ fst[b]
@@ -202,4 +210,11 @@ func (table *InMemTable) isCloser(fst, snd id.Signatory) bool {
 		}
 	}
 	return false
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

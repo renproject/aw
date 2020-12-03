@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -13,19 +14,44 @@ import (
 	"github.com/renproject/surge"
 )
 
+// Protocol defines the network protocol used by an address for
+// sending/receiving data over-the-wire.
+type Protocol uint8
+
+func (p Protocol) String() string {
+	switch p {
+	case TCP:
+		return "tcp"
+	case UDP:
+		return "udp"
+	case WebSocket:
+		return "ws"
+	default:
+		return "unknown"
+	}
+}
+
+func (p Protocol) MarshalJSON() ([]byte, error) {
+	return json.Marshal(uint8(p))
+}
+
+func (p *Protocol) UnmarshalJSON(data []byte) error {
+	return json.Unmarshal(data, (*uint8)(p))
+}
+
 // Protocol values for the different network address protocols that are
 // supported.
 const (
-	UndefinedProtocol = uint8(0)
-	TCP               = uint8(1)
-	UDP               = uint8(2)
-	WebSocket         = uint8(3)
+	UndefinedProtocol = Protocol(0)
+	TCP               = Protocol(1)
+	UDP               = Protocol(2)
+	WebSocket         = Protocol(3)
 )
 
 // NewAddressHash returns the Hash of an Address for signing by the peer. An
 // error is returned when the arguments too large and cannot be marshaled into
 // bytes without exceeding memory allocation restrictions.
-func NewAddressHash(protocol uint8, value string, nonce uint64) (id.Hash, error) {
+func NewAddressHash(protocol Protocol, value string, nonce uint64) (id.Hash, error) {
 	buf := make([]byte, surge.SizeHintU8+surge.SizeHintString(value)+surge.SizeHintU64)
 	return NewAddressHashWithBuffer(protocol, value, nonce, buf)
 }
@@ -35,11 +61,11 @@ func NewAddressHash(protocol uint8, value string, nonce uint64) (id.Hash, error)
 // large and cannot be marshaled into bytes without exceeding memory allocation
 // restrictions. This function is useful when doing a lot of hashing, because it
 // allows for buffer re-use.
-func NewAddressHashWithBuffer(protocol uint8, value string, nonce uint64, data []byte) (id.Hash, error) {
+func NewAddressHashWithBuffer(protocol Protocol, value string, nonce uint64, data []byte) (id.Hash, error) {
 	var err error
 	buf := data
 	rem := surge.MaxBytes
-	if buf, rem, err = surge.MarshalU8(protocol, buf, rem); err != nil {
+	if buf, rem, err = surge.MarshalU8(uint8(protocol), buf, rem); err != nil {
 		return id.Hash{}, err
 	}
 	if buf, rem, err = surge.MarshalString(value, buf, rem); err != nil {
@@ -57,7 +83,7 @@ func NewAddressHashWithBuffer(protocol uint8, value string, nonce uint64, data [
 // new Address for the same peer, using a later nonce. By convention, nonces are
 // interpreted as seconds since UNIX epoch.
 type Address struct {
-	Protocol  uint8        `json:"protocol"`
+	Protocol  Protocol     `json:"protocol"`
 	Value     string       `json:"value"`
 	Nonce     uint64       `json:"nonce"`
 	Signature id.Signature `json:"signature"`
@@ -65,7 +91,7 @@ type Address struct {
 
 // NewUnsignedAddress returns an Address that has an empty signature. The Sign
 // method should be called before the returned Address is used.
-func NewUnsignedAddress(protocol uint8, value string, nonce uint64) Address {
+func NewUnsignedAddress(protocol Protocol, value string, nonce uint64) Address {
 	return Address{
 		Protocol: protocol,
 		Value:    value,
@@ -85,7 +111,7 @@ func (addr Address) SizeHint() int {
 // Marshal this Address into binary.
 func (addr Address) Marshal(buf []byte, rem int) ([]byte, int, error) {
 	var err error
-	if buf, rem, err = surge.MarshalU8(addr.Protocol, buf, rem); err != nil {
+	if buf, rem, err = surge.MarshalU8(uint8(addr.Protocol), buf, rem); err != nil {
 		return buf, rem, err
 	}
 	if buf, rem, err = surge.MarshalString(addr.Value, buf, rem); err != nil {
@@ -100,7 +126,7 @@ func (addr Address) Marshal(buf []byte, rem int) ([]byte, int, error) {
 // Unmarshal from binary into this Address.
 func (addr *Address) Unmarshal(buf []byte, rem int) ([]byte, int, error) {
 	var err error
-	buf, rem, err = surge.UnmarshalU8(&addr.Protocol, buf, rem)
+	buf, rem, err = surge.UnmarshalU8((*uint8)(&addr.Protocol), buf, rem)
 	if err != nil {
 		return buf, rem, err
 	}
@@ -157,7 +183,7 @@ func (addr *Address) VerifyWithBuffer(signatory id.Signatory, buf []byte) error 
 	}
 	verifiedSignatory := id.NewSignatory((*id.PubKey)(verifiedPubKey))
 	if !signatory.Equal(&verifiedSignatory) {
-		return fmt.Errorf("verifying address signatory: expected=%v, got=%v", signatory, verifiedSignatory)
+		return fmt.Errorf("verifying address signatory: expected %v, got %v", signatory, verifiedSignatory)
 	}
 	return nil
 }
@@ -193,16 +219,7 @@ func (addr *Address) SignatoryWithBuffer(buf []byte) (id.Signatory, error) {
 // String returns a human-readable representation of the Address. The string
 // representation is safe for use in URLs and filenames.
 func (addr Address) String() string {
-	protocol := ""
-	switch addr.Protocol {
-	case TCP:
-		protocol = "tcp"
-	case UDP:
-		protocol = "udp"
-	case WebSocket:
-		protocol = "ws"
-	}
-	return fmt.Sprintf("/%v/%v/%v/%v", protocol, addr.Value, addr.Nonce, addr.Signature)
+	return fmt.Sprintf("/%v/%v/%v/%v", addr.Protocol, addr.Value, addr.Nonce, addr.Signature)
 }
 
 // Equal compares two Addressees. Returns true if they are the same, otherwise
@@ -223,9 +240,9 @@ func DecodeString(addr string) (Address, error) {
 
 	addrParts := strings.Split(addr, "/")
 	if len(addrParts) != 4 {
-		return Address{}, fmt.Errorf("invalid format=%v", addr)
+		return Address{}, fmt.Errorf("invalid format %v", addr)
 	}
-	var protocol uint8
+	var protocol Protocol
 	switch addrParts[0] {
 	case "tcp":
 		protocol = TCP
@@ -234,7 +251,7 @@ func DecodeString(addr string) (Address, error) {
 	case "ws":
 		protocol = WebSocket
 	default:
-		return Address{}, fmt.Errorf("invalid protocol=%v", addrParts[0])
+		return Address{}, fmt.Errorf("invalid protocol %v", addrParts[0])
 	}
 	value := addrParts[1]
 	nonce, err := strconv.ParseUint(addrParts[2], 10, 64)
@@ -247,7 +264,7 @@ func DecodeString(addr string) (Address, error) {
 		return Address{}, err
 	}
 	if len(sigBytes) != 65 {
-		return Address{}, fmt.Errorf("invalid signature=%v", addrParts[3])
+		return Address{}, fmt.Errorf("invalid signature %v", addrParts[3])
 	}
 	copy(sig[:], sigBytes)
 	return Address{

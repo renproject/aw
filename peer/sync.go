@@ -100,7 +100,7 @@ func (syncer *Syncer) Sync(ctx context.Context, contentID []byte, hint *id.Signa
 	// Get addresses close to our address. We will iterate over these addresses
 	// in order and attempt to synchronise content by sending them pull
 	// messages.
-	peers := syncer.transport.Table().Addresses(syncer.opts.Alpha)
+	peers := syncer.transport.Table().Peers(syncer.opts.Alpha)
 	if hint != nil {
 		peers = append([]id.Signatory{*hint}, peers...)
 	}

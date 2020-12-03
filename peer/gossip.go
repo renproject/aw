@@ -43,15 +43,13 @@ func (g *Gossiper) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash
 		subnet = &DefaultSubnet
 	}
 
-	// TODO: We always want to select only alpha recipients, even in the case
-	// when a specific subnet is provided. The alpha recipients should be the
-	// closest recipients to us, where distance is measured as the XOR distance
-	// of peer IDs.
 	recipients := []id.Signatory{}
 	if subnet.Equal(&DefaultSubnet) {
-		recipients = g.transport.Table().Addresses(g.opts.Alpha)
+		recipients = g.transport.Table().Peers(g.opts.Alpha)
 	} else {
-		recipients = g.transport.Table().Subnet(*subnet)
+		if recipients = g.transport.Table().Subnet(*subnet); len(recipients) > g.opts.Alpha {
+			recipients = recipients[:g.opts.Alpha]
+		}
 	}
 
 	msg := wire.Msg{Version: wire.MsgVersion1, To: *subnet, Type: wire.MsgTypePush, Data: contentID}
