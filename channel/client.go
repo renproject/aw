@@ -33,48 +33,13 @@ type sharedChannel struct {
 	outbound chan<- wire.Msg
 }
 
-var (
-	DefaultInboundBufferSize  = 0
-	DefaultOutboundBufferSize = 0
-)
-
-type ClientOptions struct {
-	Logger             *zap.Logger
-	InboundBufferSize  int
-	OutboundBufferSize int
-	ChannelOptions     Options
-}
-
-func DefaultClientOptions() ClientOptions {
-	logger, err := zap.NewDevelopment()
-	if err != nil {
-		panic(err)
-	}
-	return ClientOptions{
-		Logger:             logger,
-		InboundBufferSize:  DefaultInboundBufferSize,
-		OutboundBufferSize: DefaultOutboundBufferSize,
-		ChannelOptions:     DefaultOptions(),
-	}
-}
-
-func (opts ClientOptions) WithLogger(logger *zap.Logger) ClientOptions {
-	opts.Logger = logger
-	return opts
-}
-
-func (opts ClientOptions) WithChannelOptions(channelOpts Options) ClientOptions {
-	opts.ChannelOptions = channelOpts
-	return opts
-}
-
 type Msg struct {
 	wire.Msg
 	From id.Signatory
 }
 
 type Client struct {
-	opts ClientOptions
+	opts Options
 	self id.Signatory
 
 	sharedChannelsMu *sync.RWMutex
@@ -86,7 +51,7 @@ type Client struct {
 	receiversRunning   bool
 }
 
-func NewClient(opts ClientOptions, self id.Signatory) *Client {
+func NewClient(opts Options, self id.Signatory) *Client {
 	return &Client{
 		opts: opts,
 		self: self,
@@ -115,7 +80,7 @@ func (client *Client) Bind(remote id.Signatory) {
 	outbound := make(chan wire.Msg, client.opts.OutboundBufferSize)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ch := New(client.opts.ChannelOptions, remote, inbound, outbound)
+	ch := New(client.opts, remote, inbound, outbound)
 	go func() {
 		defer close(inbound)
 		if err := ch.Run(ctx); err != nil {

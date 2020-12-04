@@ -21,81 +21,7 @@ type Attacher interface {
 }
 
 // Default options.
-var (
-	DefaultDrainTimeout      = 30 * time.Second
-	DefaultDrainInBackground = true
-	DefaultMaxMessageSize    = 4 * 1024 * 1024         // 4MB
-	DefaultBufferSize        = 4 * 1204 * 1024         // 4MB
-	DefaultRateLimit         = rate.Limit(1024 * 1024) // 1MB per second
-	DefaultBurst             = 4 * 1024 * 1024         // 4MB
-)
-
-// Options for parameterizing the behaviour of a Channel.
-type Options struct {
-	Logger            *zap.Logger
-	DrainTimeout      time.Duration
-	DrainInBackground bool
-	MaxMessageSize    int
-	BufferSize        int
-	RateLimit         rate.Limit
-	Burst             int
-}
-
-// DefaultOptions returns Options with sane defaults.
-func DefaultOptions() Options {
-	logger, err := zap.NewDevelopment()
-	if err != nil {
-		panic(err)
-	}
-	return Options{
-		Logger:            logger,
-		DrainTimeout:      DefaultDrainTimeout,
-		DrainInBackground: DefaultDrainInBackground,
-		MaxMessageSize:    DefaultMaxMessageSize,
-		BufferSize:        DefaultBufferSize,
-		RateLimit:         DefaultRateLimit,
-		Burst:             DefaultBurst,
-	}
-}
-
-// WithLogger sets the Logger used for logging all errors, warnings, information,
-// debug traces, and so on.
-func (opts Options) WithLogger(logger *zap.Logger) Options {
-	opts.Logger = logger
-	return opts
-}
-
-// WithDrainTimeout sets the timeout used by the Channel when draining replaced
-// connections. If a Channel does not see a message on a draining connection
-// before the timeout, then the draining connection is dropped and closed, and
-// all future messages sent to the connection will be lost.
-func (opts Options) WithDrainTimeout(timeout time.Duration) Options {
-	opts.DrainTimeout = timeout
-	return opts
-}
-
-// WithDrainInBackground enables/disable background draining of replaced
-// connections. Setting this to true can improve performance, but it also break
-// the deliver order of messages.
-func (opts Options) WithDrainInBackground(enable bool) Options {
-	opts.DrainInBackground = enable
-	return opts
-}
-
-// WithRateLimit sets the bytes-per-second rate limit that will be enforced on
-// all network connections. If a network connection exceeds this limit, then the
-// connection will be closed, and a new one will need to be established.
-func (opts Options) WithRateLimit(rateLimit rate.Limit) Options {
-	opts.RateLimit = rateLimit
-	return opts
-}
-
-// WithBurst sets the temporary burst of bytes-per-second that can exceed the
-// usual rate limit.
-func (opts Options) WithBurst(burst int) Options {
-	opts.Burst = burst
-	return opts
-}
+var ()
 
 // reader represents the read-half of a network connection. It also contains a
 // quit channel that is closed when the reader is no longer being used by the
@@ -199,7 +125,7 @@ func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-
 		readers: make(chan reader, 1),
 		writers: make(chan writer, 1),
 
-		rateLimiter: rate.NewLimiter(opts.RateLimit, opts.Burst),
+		rateLimiter: rate.NewLimiter(opts.RateLimit, opts.MaxMessageSize),
 	}
 }
 
@@ -257,13 +183,13 @@ func (ch *Channel) Attach(ctx context.Context, remote id.Signatory, conn net.Con
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case ch.readers <- reader{Conn: conn, Reader: bufio.NewReaderSize(conn, ch.opts.BufferSize), Decoder: dec, q: rq}:
+	case ch.readers <- reader{Conn: conn, Reader: bufio.NewReaderSize(conn, ch.opts.MaxMessageSize), Decoder: dec, q: rq}:
 	}
 	// Signal that a new writer should be used.
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case ch.writers <- writer{Conn: conn, Writer: bufio.NewWriterSize(conn, ch.opts.BufferSize), Encoder: enc, q: wq}:
+	case ch.writers <- writer{Conn: conn, Writer: bufio.NewWriterSize(conn, ch.opts.MaxMessageSize), Encoder: enc, q: wq}:
 	}
 
 	// Wait for the reader to be closed.

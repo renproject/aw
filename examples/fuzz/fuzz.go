@@ -47,7 +47,7 @@ func main() {
 		h := handshake.Filter(func(id.Signatory) error { return nil }, handshake.ECIES(opts[i].PrivKey, r))
 		contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
 		clients[i] = channel.NewClient(
-			channel.DefaultClientOptions().
+			channel.DefaultOptions().
 				WithLogger(logger),
 			self)
 		tables[i] = dht.NewInMemTable(self)
