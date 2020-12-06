@@ -21,7 +21,7 @@ type SignatoryAndAddress struct {
 }
 
 func (sigAndAddr SignatoryAndAddress) Marshal(buf []byte, rem int) ([]byte, int, error) {
-	buf, rem, err := surge.Marshal(sigAndAddr.Signatory, buf, rem)
+	buf, rem, err := sigAndAddr.Signatory.Marshal(buf, rem)
 	if err != nil {
 		return buf, rem, fmt.Errorf("marshal signatory: %v", err)
 	}
@@ -31,12 +31,12 @@ func (sigAndAddr SignatoryAndAddress) Marshal(buf []byte, rem int) ([]byte, int,
 	}
 	return buf, rem, err
 }
-func (sigAndAddr SignatoryAndAddress) UnMarshal(buf []byte, rem int) ([]byte, int, error) {
-	buf, rem, err := surge.Unmarshal(&sigAndAddr.Signatory, buf, rem)
+func (sigAndAddr *SignatoryAndAddress) Unmarshal(buf []byte, rem int) ([]byte, int, error) {
+	buf, rem, err := (&sigAndAddr.Signatory).Unmarshal(buf, rem)
 	if err != nil {
 		return buf, rem, fmt.Errorf("unmarshal signatory: %v", err)
 	}
-	buf, rem, err = surge.Unmarshal(&sigAndAddr.Address, buf, rem)
+	buf, rem, err = surge.UnmarshalString(&sigAndAddr.Address, buf, rem)
 	if err != nil {
 		return buf, rem, fmt.Errorf("unmarshal address: %v", err)
 	}
@@ -63,7 +63,7 @@ func PeerDisovery(t *transport.Transport, addressTable dht.Table, logger *zap.Lo
 					Data:    expNumPeerBuf[:],
 				}
 
-				for _, sig := range addressTable.RandomAddresses(alpha) {
+				for _, sig := range addressTable.Addresses(alpha) {
 					addr, ok := addressTable.PeerAddress(sig)
 					if ok {
 						msg.To = id.Hash(sig)
@@ -89,20 +89,20 @@ func PeerDisovery(t *transport.Transport, addressTable dht.Table, logger *zap.Lo
 		var addressBuf [1024]byte
 		addressByteSlice := addressBuf[:0]
 		expNumPeer := int(binary.LittleEndian.Uint64(msg.To[:]))
-		for _, sig := range addressTable.RandomAddresses(expNumPeer) {
-			var addrAndSigBig [128]byte
-			addrAndSigBigSlice := addrAndSigBig[:]
+		for _, sig := range addressTable.Addresses(expNumPeer) {
+			var addrAndSig [128]byte
+			addrAndSigSlice := addrAndSig[:]
 			addr, ok := addressTable.PeerAddress(sig)
 			if !ok {
 				logger.Debug("sending pingAck", zap.String("peer", "does not exist in table"))
 				addressTable.DeletePeer(sig)
 			}
 			sigAndAddr := SignatoryAndAddress{Signatory: sig, Address: addr}
-			tail, rem, err := sigAndAddr.Marshal(addrAndSigBigSlice, len(addrAndSigBigSlice))
+			tail, _, err := sigAndAddr.Marshal(addrAndSigSlice, len(addrAndSigSlice))
 			if err != nil {
 				logger.Debug("sending pingAck", zap.Error(err))
 			}
-			addressByteSlice = append(addressByteSlice, tail[:len(tail)-rem]...)
+			addressByteSlice = append(addressByteSlice, addrAndSigSlice[:len(addrAndSigSlice)-len(tail)]...)
 		}
 		response := wire.Msg{
 			Version: wire.MsgVersion1,
@@ -121,34 +121,36 @@ func PeerDisovery(t *transport.Transport, addressTable dht.Table, logger *zap.Lo
 	}
 
 	didReceivePingAck := func(from id.Signatory, msg wire.Msg) {
-		rem := len(msg.Data)
-
 		var sigAndAddr SignatoryAndAddress
-		for rem > 0 {
-			_, _, err := sigAndAddr.UnMarshal(msg.Data, len(msg.Data))
+		dataLeft := msg.Data
+		for len(dataLeft) > 0 {
+			tail, _, err := sigAndAddr.Unmarshal(dataLeft, len(dataLeft))
+			dataLeft = tail
 			if err != nil {
 				logger.Debug("receiving pingAck ", zap.Error(err))
 				break
 			}
+
 			addressTable.AddPeer(sigAndAddr.Signatory, sigAndAddr.Address)
+			fmt.Printf("sig: %v, addr: %v\n", sigAndAddr.Signatory.String(), sigAndAddr.Address)
 			sigAndAddr = SignatoryAndAddress{}
 		}
 
 	}
 
 	return Callbacks{
-		DidReceiveMessage: func(from id.Signatory, msg wire.Msg) {
-			switch msg.Type {
-			case wire.MsgTypePing:
-				didReceivePing(from, msg)
-			case wire.MsgTypePingAck:
-				didReceivePingAck(from, msg)
-			}
+			DidReceiveMessage: func(from id.Signatory, msg wire.Msg) {
+				switch msg.Type {
+				case wire.MsgTypePing:
+					didReceivePing(from, msg)
+				case wire.MsgTypePingAck:
+					didReceivePingAck(from, msg)
+				}
 
-			if next.DidReceiveMessage != nil {
-				next.DidReceiveMessage(from, msg)
-			}
+				if next.DidReceiveMessage != nil {
+					next.DidReceiveMessage(from, msg)
+				}
+			},
 		},
-	},
-	discover
+		discover
 }
