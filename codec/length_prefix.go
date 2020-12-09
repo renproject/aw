@@ -6,6 +6,9 @@ import (
 	"io"
 )
 
+// LengthPrefixEncoder returns an Encoder that prefixes all data with a uint32
+// length. The returned Encoder wraps two other Encoders, one that is used to
+// encode the length prefix, and one that is used to encode the actual data.
 func LengthPrefixEncoder(prefixEnc Encoder, bodyEnc Encoder) Encoder {
 	return func(w io.Writer, buf []byte) (int, error) {
 		prefix := uint32(len(buf))
@@ -22,6 +25,10 @@ func LengthPrefixEncoder(prefixEnc Encoder, bodyEnc Encoder) Encoder {
 	}
 }
 
+// LengthPrefixDecoder returns an Decoder that assumes all data is prefixed with
+// a uint32 length. The returned Decoder wraps two other Decoders, one that is
+// used to decode the length prefix, and one that is used to decode the actual
+// data.
 func LengthPrefixDecoder(prefixDec Decoder, bodyDec Decoder) Decoder {
 	return func(r io.Reader, buf []byte) (int, error) {
 		prefixBytes := [4]byte{}
