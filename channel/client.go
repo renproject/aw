@@ -169,6 +169,7 @@ func (client *Client) Send(ctx context.Context, remote id.Signatory, msg wire.Ms
 func (client *Client) Receive(ctx context.Context, f func(id.Signatory, wire.Msg) error) {
 	client.receiversRunningMu.Lock()
 	if client.receiversRunning {
+		client.receiversRunningMu.Unlock()
 		return
 	}
 	client.receiversRunning = true
