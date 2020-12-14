@@ -222,7 +222,6 @@ func (t *Transport) run(ctx context.Context) {
 				return
 			}
 
-			t.table.AddPeer(remote, wire.NewUnsignedAddress(wire.TCP, addr, uint64(time.Now().UnixNano())))
 			enc = codec.LengthPrefixEncoder(codec.PlainEncoder, enc)
 			dec = codec.LengthPrefixDecoder(codec.PlainDecoder, dec)
 
