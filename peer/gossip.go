@@ -84,7 +84,6 @@ func (g *Gossiper) didReceivePush(from id.Signatory, msg wire.Msg) {
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), g.opts.Timeout)
-	defer cancel()
 
 	// Later, we will probably receive a synchronisation message for the content
 	// associated with this push. We store the subnet now, so that we know how
@@ -103,6 +102,7 @@ func (g *Gossiper) didReceivePush(from id.Signatory, msg wire.Msg) {
 	// this content ID.
 	go func() {
 		<-ctx.Done()
+		cancel()
 
 		g.subnetsMu.Lock()
 		delete(g.subnets, string(msg.Data))
