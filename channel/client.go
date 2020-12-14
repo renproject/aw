@@ -170,6 +170,10 @@ func (client *Client) Receive(ctx context.Context, f func(id.Signatory, wire.Msg
 	client.receiversRunningMu.Lock()
 	if client.receiversRunning {
 		client.receiversRunningMu.Unlock()
+		select {
+		case <-ctx.Done():
+		case client.receivers <- receiver{ctx: ctx, f: f}:
+		}
 		return
 	}
 	client.receiversRunning = true
