@@ -64,7 +64,7 @@ func (f *SyncFilter) Deny(contentID []byte) {
 }
 
 // Filter returns true if the message is not a synchronisation message, or the
-// content ID has one or more outstanding allowance.
+// content ID is not expected.
 func (f *SyncFilter) Filter(from id.Signatory, msg wire.Msg) bool {
 	if msg.Type != wire.MsgTypeSync {
 		return true
@@ -73,5 +73,9 @@ func (f *SyncFilter) Filter(from id.Signatory, msg wire.Msg) bool {
 	f.expectingMu.RLock()
 	defer f.expectingMu.RUnlock()
 
-	return f.expecting[string(msg.Data)] > 0
+	_, ok := f.expecting[string(msg.Data)]
+	if !ok {
+		return true
+	}
+	return false
 }
