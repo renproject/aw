@@ -47,6 +47,7 @@ func (pending *pendingContent) signal(content []byte) {
 	pending.cond.L.Lock()
 	pending.content = content
 	pending.cond.L.Unlock()
+	pending.cond.Broadcast()
 }
 
 type Syncer struct {
@@ -55,7 +56,7 @@ type Syncer struct {
 	transport *transport.Transport
 
 	pendingMu *sync.Mutex
-	pending   map[string]pendingContent
+	pending   map[string]*pendingContent
 }
 
 func NewSyncer(opts SyncerOptions, filter *channel.SyncFilter, transport *transport.Transport) *Syncer {
@@ -65,7 +66,7 @@ func NewSyncer(opts SyncerOptions, filter *channel.SyncFilter, transport *transp
 		transport: transport,
 
 		pendingMu: new(sync.Mutex),
-		pending:   make(map[string]pendingContent, 1024),
+		pending:   make(map[string]*pendingContent, 1024),
 	}
 }
 
@@ -73,7 +74,7 @@ func (syncer *Syncer) Sync(ctx context.Context, contentID []byte, hint *id.Signa
 	syncer.pendingMu.Lock()
 	pending, ok := syncer.pending[string(contentID)]
 	if !ok {
-		pending = pendingContent{
+		pending = &pendingContent{
 			content: nil,
 			cond:    sync.NewCond(new(sync.Mutex)),
 		}
