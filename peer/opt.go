@@ -1,7 +1,6 @@
 package peer
 
 import (
-	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 	"go.uber.org/zap"
 )
@@ -22,7 +21,7 @@ func DefaultOptions() Options {
 		Logger:  logger,
 		PrivKey: privKey,
 		Callbacks: Callbacks{
-			DidReceiveMessage: func(id.Signatory, wire.Msg) {},
+			DefaultDidReceiveMessage,
 		},
 	}
 }

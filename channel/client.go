@@ -33,9 +33,16 @@ type sharedChannel struct {
 	outbound chan<- wire.Msg
 }
 
+var (
+	DefaultInboundBufferSize  = 0
+	DefaultOutboundBufferSize = 0
+)
+
 type ClientOptions struct {
-	Logger         *zap.Logger
-	ChannelOptions Options
+	Logger             *zap.Logger
+	InboundBufferSize  int
+	OutboundBufferSize int
+	ChannelOptions     Options
 }
 
 func DefaultClientOptions() ClientOptions {
@@ -44,8 +51,10 @@ func DefaultClientOptions() ClientOptions {
 		panic(err)
 	}
 	return ClientOptions{
-		Logger:         logger,
-		ChannelOptions: DefaultOptions(),
+		Logger:             logger,
+		InboundBufferSize:  DefaultInboundBufferSize,
+		OutboundBufferSize: DefaultOutboundBufferSize,
+		ChannelOptions:     DefaultOptions(),
 	}
 }
 
@@ -75,9 +84,11 @@ type Client struct {
 	fanOutReceivers chan fanOutReceiver
 	fanOutRunningMu *sync.Mutex
 	fanOutRunning   bool
+
+	shouldReadNextMessage func(msg wire.Msg) bool
 }
 
-func NewClient(opts ClientOptions, self id.Signatory) *Client {
+func NewClient(opts ClientOptions, self id.Signatory, shouldReadNextMessage func(msg wire.Msg) bool) *Client {
 	return &Client{
 		opts: opts,
 		self: self,
@@ -89,6 +100,7 @@ func NewClient(opts ClientOptions, self id.Signatory) *Client {
 		fanOutReceivers: make(chan fanOutReceiver),
 		fanOutRunningMu: new(sync.Mutex),
 		fanOutRunning:   false,
+		shouldReadNextMessage: shouldReadNextMessage,
 	}
 }
 
@@ -102,11 +114,11 @@ func (client *Client) Bind(remote id.Signatory) {
 		return
 	}
 
-	inbound := make(chan wire.Msg)
-	outbound := make(chan wire.Msg)
+	inbound := make(chan wire.Msg, client.opts.InboundBufferSize)
+	outbound := make(chan wire.Msg, client.opts.OutboundBufferSize)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ch := New(client.opts.ChannelOptions, remote, inbound, outbound)
+	ch := New(client.opts.ChannelOptions, remote, inbound, outbound, client.shouldReadNextMessage)
 	go func() {
 		defer close(inbound)
 		if err := ch.Run(ctx); err != nil {

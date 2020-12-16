@@ -151,6 +151,8 @@ type Channel struct {
 
 	readers chan reader
 	writers chan writer
+
+	shouldReadNextMsg func(msg wire.Msg) bool
 }
 
 // New returns an abstract Channel connection to a remote peer. It will have no
@@ -164,7 +166,10 @@ type Channel struct {
 // outbound messaging channel, but there is no functional attached network
 // connection, or when messages are being received on an attached network
 // connection, but the inbound message channel is not being drained.
-func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-chan wire.Msg) *Channel {
+func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-chan wire.Msg, shouldReadNextMsg func(msg wire.Msg) bool) *Channel {
+	if shouldReadNextMsg == nil {
+		shouldReadNextMsg = func(msg wire.Msg) bool {return true}
+	}
 	return &Channel{
 		opts:   opts,
 		remote: remote,
@@ -174,6 +179,8 @@ func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-
 
 		readers: make(chan reader, 1),
 		writers: make(chan writer, 1),
+
+		shouldReadNextMsg: shouldReadNextMsg,
 	}
 }
 
@@ -270,6 +277,8 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 	var m wire.Msg
 	var mOk bool
 
+	syncData := make([]byte, ch.opts.MaxMessageSize)
+
 	for {
 		if !rOk {
 			select {
@@ -299,7 +308,33 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 				ch.opts.Logger.Error("unmarshal", zap.Error(err))
 				continue
 			}
+
 			mOk = true
+
+			if !ch.shouldReadNextMsg(m) {
+				ch.opts.Logger.Error("invalid message sequence")
+				if r.q != nil {
+					close(r.q)
+				}
+				return fmt.Errorf("invalid message sequence")
+			}
+
+			if m.Type == wire.MsgTypeSync {
+				n, err := r.Decoder(r.Reader, syncData)
+				if err != nil {
+					ch.opts.Logger.Error("decode sync data", zap.Error(err))
+					// If reading from the reader fails, then clear the reader. This
+					// will cause the next iteration to wait until a new underlying
+					// network connection is attached to the Channel.
+					close(r.q)
+					r = reader{}
+					rOk = false
+					mOk = false
+					continue
+				}
+				m.SyncData = make([]byte, n)
+				copy(m.SyncData, syncData[:n])
+			}
 		}
 
 		// At this point, a message is guaranteed to be available, so we attempt
@@ -390,6 +425,22 @@ func (ch *Channel) writeLoop(ctx context.Context) {
 				w, wOk = writer{}, false
 				continue
 			}
+			if m.Type == wire.MsgTypeSync {
+				if _, err := w.Encoder(w.Writer, m.SyncData); err != nil {
+					ch.opts.Logger.Error("encode", zap.NamedError("sync data", err))
+					close(w.q)
+					w, wOk = writer{}, false
+					continue
+				}
+				if err := w.Writer.Flush(); err != nil {
+					ch.opts.Logger.Error("flush", zap.NamedError("sync data", err))
+					// An error when flushing is the same as an error when encoding.
+					close(w.q)
+					w, wOk = writer{}, false
+					continue
+				}
+			}
+
 			// Clear the latest message so that we can move on to other
 			// messages.
 			m = wire.Msg{}

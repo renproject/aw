@@ -90,9 +90,9 @@ func GCMEncoder(session *GCMSession, enc Encoder) Encoder {
 		binary.BigEndian.PutUint64(nonceBuf[4:], session.writeNonce.bottom)
 		session.writeNonce.next()
 		encoded := session.gcm.Seal(nil, nonceBuf[:], buf, nil)
-		n, err := enc(w, encoded)
+		_, err := enc(w, encoded)
 		if err != nil {
-			return n, fmt.Errorf("Encoded sealed data: %v", err)
+			return 0, fmt.Errorf("encoding sealed data: %v", err)
 		}
 		return len(buf), nil
 	}
@@ -101,6 +101,11 @@ func GCMEncoder(session *GCMSession, enc Encoder) Encoder {
 // GCMDEcoder accepts a GCMSession and a decoder that wraps data decryption
 func GCMDecoder(session *GCMSession, dec Decoder) Decoder {
 	return func(r io.Reader, buf []byte) (int, error) {
+		extendedSize := len(buf) + 16
+		if cap(buf) < extendedSize {
+			return 0, fmt.Errorf("decoding data: buffer too small, expected buffer capacity %v, got buffer capacity %v", extendedSize, cap(buf))
+		}
+		buf = buf[:extendedSize]
 		n, err := dec(r, buf)
 		if err != nil {
 			return n, fmt.Errorf("decoding data: %v", err)

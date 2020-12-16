@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/renproject/aw/dht"
 	"log"
 	"math/rand"
 	"time"
@@ -25,7 +26,7 @@ func main() {
 	}
 
 	// Number of peers.
-	n := 10
+	n := 2
 
 	// Init options for all peers.
 	opts := make([]peer.Options, n)
@@ -40,26 +41,39 @@ func main() {
 
 	// Init and run peers.
 	peers := make([]*peer.Peer, n)
-	tables := make([]peer.Table, n)
+	tables := make([]dht.Table, n)
 	clients := make([]*channel.Client, n)
 	transports := make([]*transport.Transport, n)
 	for i := range peers {
 		self := opts[i].PrivKey.Signatory()
 		r := rand.New(rand.NewSource(time.Now().UnixNano() + int64(i)))
 		h := handshake.ECIES(opts[i].PrivKey, r)
+		contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
 		clients[i] = channel.NewClient(
 			channel.DefaultClientOptions().
 				WithLogger(logger),
-			self)
+			self,
+			func(msg wire.Msg) bool {
+				if msg.Type == wire.MsgTypeSync {
+					var contentID dht.ContentID
+					copy(contentID[:], msg.Data)
+					_, ok := contentResolver.Content(contentID)
+					return ok
+				}
+				return true
+			})
+		tables[i] = dht.NewInMemTable(self)
 		transports[i] = transport.New(
 			transport.DefaultOptions().
 				WithLogger(logger).
+				WithClientTimeout(5*time.Second).
+				WithOncePoolOptions(handshake.DefaultOncePoolOptions().WithMinimumExpiryAge(10*time.Second)).
 				WithPort(uint16(3333+i)),
 			self,
 			clients[i],
-			h)
-		tables[i] = peer.NewInMemTable()
-		peers[i] = peer.New(opts[i], tables[i], transports[i])
+			h,
+			tables[i])
+		peers[i] = peer.New(opts[i], transports[i], contentResolver)
 		go func(i int) {
 			for {
 				// Randomly crash peers.
@@ -79,9 +93,13 @@ func main() {
 			j := (i + 1) % len(peers)
 			fmt.Printf("peer[%v] sending to peer[%v]\n", i, j)
 			peers[i].Table().AddPeer(peers[j].ID(), fmt.Sprintf("localhost:%v", 3333+int64(j)))
-			if err := peers[i].Send(context.Background(), peers[j].ID(), wire.Msg{Data: []byte(fmt.Sprintf("hello from %v!", i))}); err != nil {
-				log.Printf("send: %v", err)
-			}
+			func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel()
+				if err := peers[i].Send(ctx, peers[j].ID(), wire.Msg{Data: []byte(fmt.Sprintf("hello from %v!", i))}); err != nil {
+					log.Printf("send: %v", err)
+				}
+			}()
 		}
 	}
 }

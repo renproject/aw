@@ -66,14 +66,14 @@ var _ = Describe("Client", func() {
 
 			local := channel.NewClient(
 				channel.DefaultClientOptions(),
-				localPrivKey.Signatory())
+				localPrivKey.Signatory(), nil)
 			local.Bind(remotePrivKey.Signatory())
 			defer local.Unbind(remotePrivKey.Signatory())
 			Expect(local.IsBound(remotePrivKey.Signatory())).To(BeTrue())
 
 			remote := channel.NewClient(
 				channel.DefaultClientOptions(),
-				remotePrivKey.Signatory())
+				remotePrivKey.Signatory(), nil)
 			remote.Bind(localPrivKey.Signatory())
 			defer remote.Unbind(localPrivKey.Signatory())
 			Expect(remote.IsBound(localPrivKey.Signatory())).To(BeTrue())
@@ -104,14 +104,14 @@ var _ = Describe("Client", func() {
 
 			local := channel.NewClient(
 				channel.DefaultClientOptions(),
-				localPrivKey.Signatory())
+				localPrivKey.Signatory(), nil)
 			local.Bind(remotePrivKey.Signatory())
 			defer local.Unbind(remotePrivKey.Signatory())
 			Expect(local.IsBound(remotePrivKey.Signatory())).To(BeTrue())
 
 			remote := channel.NewClient(
 				channel.DefaultClientOptions(),
-				remotePrivKey.Signatory())
+				remotePrivKey.Signatory(), nil)
 			remote.Bind(localPrivKey.Signatory())
 			defer remote.Unbind(localPrivKey.Signatory())
 			Expect(remote.IsBound(localPrivKey.Signatory())).To(BeTrue())
@@ -171,7 +171,7 @@ var _ = Describe("Client", func() {
 			localPrivKey := id.NewPrivKey()
 			local := channel.NewClient(
 				channel.DefaultClientOptions(),
-				localPrivKey.Signatory())
+				localPrivKey.Signatory(), nil)
 			Expect(local.Send(ctx, remotePrivKey.Signatory(), wire.Msg{})).To(HaveOccurred())
 		})
 	})
@@ -185,7 +185,7 @@ var _ = Describe("Client", func() {
 			localPrivKey := id.NewPrivKey()
 			local := channel.NewClient(
 				channel.DefaultClientOptions(),
-				localPrivKey.Signatory())
+				localPrivKey.Signatory(), nil)
 			Expect(local.Attach(ctx, remotePrivKey.Signatory(), nil, nil, nil)).To(HaveOccurred())
 		})
 	})

@@ -1,4 +1,4 @@
-package handshake_test
+package dht_test
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestHandshake(t *testing.T) {
+func TestDHT(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Handshake suite")
+	RunSpecs(t, "DHT Suite")
 }
