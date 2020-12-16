@@ -108,10 +108,10 @@ func (syncer *Syncer) Sync(ctx context.Context, contentID []byte, hint *id.Signa
 
 	for _, peer := range peers {
 		content, err := func() ([]byte, error) {
-			ctx, cancel := context.WithTimeout(ctx, syncer.opts.Timeout)
-			defer cancel()
+			innerCtx, innerCancel := context.WithTimeout(ctx, syncer.opts.Timeout)
+			defer innerCancel()
 
-			err := syncer.transport.Send(ctx, peer, wire.Msg{
+			err := syncer.transport.Send(innerCtx, peer, wire.Msg{
 				Version: wire.MsgVersion1,
 				Type:    wire.MsgTypePull,
 				Data:    contentID,
