@@ -25,9 +25,9 @@ var _ = Describe("GCM Codec", func() {
 			gcmSession2, err := codec.NewGCMSession(key, id.NewSignatory(privKey2.PubKey()), id.NewSignatory(privKey1.PubKey()))
 			Expect(err).To(BeNil())
 
-			enc1 := codec.GCMEncoder(gcmSession1, codec.LengthPrefixEncoder(codec.PlainEncoder))
+			enc1 := codec.LengthPrefixEncoder(codec.PlainEncoder, codec.GCMEncoder(gcmSession1, codec.PlainEncoder))
 			n1, err1 := enc1(&readerWriter1, []byte(data1))
-			enc2 := codec.GCMEncoder(gcmSession2, codec.LengthPrefixEncoder(codec.PlainEncoder))
+			enc2 := codec.LengthPrefixEncoder(codec.PlainEncoder, codec.GCMEncoder(gcmSession2, codec.PlainEncoder))
 			n2, err2 := enc2(&readerWriter2, []byte(data2))
 			Expect(err1).To(BeNil())
 			Expect(n1).To(Equal(16))
@@ -36,9 +36,9 @@ var _ = Describe("GCM Codec", func() {
 
 			var buf1 [4086]byte
 			var buf2 [4086]byte
-			dec1 := codec.GCMDecoder(gcmSession1, codec.LengthPrefixDecoder(codec.PlainDecoder))
+			dec1 := codec.LengthPrefixDecoder(codec.PlainDecoder, codec.GCMDecoder(gcmSession1, codec.PlainDecoder))
 			n1, err1 = dec1(&readerWriter2, buf1[:])
-			dec2 := codec.GCMDecoder(gcmSession2, codec.LengthPrefixDecoder(codec.PlainDecoder))
+			dec2 := codec.LengthPrefixDecoder(codec.PlainDecoder, codec.GCMDecoder(gcmSession2, codec.PlainDecoder))
 			n2, err2 = dec2(&readerWriter1, buf2[:])
 			Expect(err1).To(BeNil())
 			Expect(n1).To(Equal(16))

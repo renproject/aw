@@ -13,13 +13,13 @@ var _ = Describe("Length Prefix Codec", func() {
 			var readerWriter bytes.Buffer
 			data := "Hi there!"
 
-			enc := codec.LengthPrefixEncoder(codec.PlainEncoder)
+			enc := codec.LengthPrefixEncoder(codec.PlainEncoder, codec.PlainEncoder)
 			n, err := enc(&readerWriter, []byte(data))
 			Expect(n).To(Equal(9))
 			Expect(err).To(BeNil())
 
 			var buf [4086]byte
-			dec := codec.LengthPrefixDecoder(codec.PlainDecoder)
+			dec := codec.LengthPrefixDecoder(codec.PlainDecoder, codec.PlainDecoder)
 			n, err = dec(&readerWriter, buf[:9])
 			Expect(n).To(Equal(9))
 			Expect(err).To(BeNil())
@@ -33,13 +33,13 @@ var _ = Describe("Length Prefix Codec", func() {
 			var readerWriter bytes.Buffer
 			data := "Hi there!"
 
-			enc := codec.LengthPrefixEncoder(codec.PlainEncoder)
+			enc := codec.LengthPrefixEncoder(codec.PlainEncoder, codec.PlainEncoder)
 			n, err := enc(&readerWriter, []byte(data))
 			Expect(n).To(Equal(9))
 			Expect(err).To(BeNil())
 
 			var buf [4086]byte
-			dec := codec.LengthPrefixDecoder(codec.PlainDecoder)
+			dec := codec.LengthPrefixDecoder(codec.PlainDecoder, codec.PlainDecoder)
 			n, err = dec(&readerWriter, buf[:])
 			Expect(n).To(Equal(9))
 			Expect(err).To(BeNil())
