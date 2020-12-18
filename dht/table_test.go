@@ -188,10 +188,10 @@ var _ = Describe("DHT", func() {
 			})
 		})
 
-		Measure("Adding 1000 addresses to distributed hash table", func(b Benchmarker) {
+		Measure("Adding 10000 addresses to distributed hash table", func(b Benchmarker) {
 			table, _ := initDHT()
 			signatories := make([]id.Signatory, 0)
-			for i := 0; i < 1000; i++ {
+			for i := 0; i < 10000; i++ {
 				privKey := id.NewPrivKey()
 				sig := privKey.Signatory()
 				signatories = append(signatories, sig)
@@ -205,10 +205,10 @@ var _ = Describe("DHT", func() {
 			Ω(runtime.Seconds())
 		}, 10)
 
-		Measure("Removing 1000 addresses from distributed hash table", func(b Benchmarker) {
+		Measure("Removing 10000 addresses from distributed hash table", func(b Benchmarker) {
 			table, _ := initDHT()
 			signatories := make([]id.Signatory, 0)
-			for i := 0; i < 1000; i++ {
+			for i := 0; i < 10000; i++ {
 				privKey := id.NewPrivKey()
 				sig := privKey.Signatory()
 				addr := "172.16.254.1:" + strconv.Itoa(i)
