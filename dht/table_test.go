@@ -1,9 +1,11 @@
 package dht_test
 
 import (
+	"github.com/renproject/aw/wire"
 	"math/rand"
 	"strconv"
 	"testing/quick"
+	"time"
 
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/dht/dhtutil"
@@ -22,10 +24,9 @@ var _ = Describe("DHT", func() {
 				f := func(seed int64) bool {
 					privKey := id.NewPrivKey()
 					sig := privKey.Signatory()
-					addr := "172.16.254.1:3000"
+					addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
 
-					ok := table.AddPeer(sig, addr)
-					Expect(ok).To(BeTrue())
+					table.AddPeer(sig, addr)
 
 					signatory := id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
 					newAddr, ok := table.PeerAddress(signatory)
@@ -35,39 +36,6 @@ var _ = Describe("DHT", func() {
 				}
 				Expect(quick.Check(f, nil)).To(Succeed())
 			})
-
-			Context("if the address is new", func() {
-				It("should return true", func() {
-					table, _ := initDHT()
-
-					f := func(seed int64) bool {
-						privKey := id.NewPrivKey()
-						sig := privKey.Signatory()
-						addr := "172.16.254.1:3000"
-
-						return table.AddPeer(sig, addr)
-					}
-					Expect(quick.Check(f, nil)).To(Succeed())
-				})
-			})
-
-			Context("if the address already exists", func() {
-				It("should return false", func() {
-					table, _ := initDHT()
-
-					f := func(seed int64) bool {
-						privKey := id.NewPrivKey()
-						sig := privKey.Signatory()
-						addr := "172.16.254.1:3000"
-
-						ok := table.AddPeer(sig, addr)
-						Expect(ok).To(BeTrue())
-
-						return !table.AddPeer(sig, addr)
-					}
-					Expect(quick.Check(f, nil)).To(Succeed())
-				})
-			})
 		})
 
 		Context("when deleting an address", func() {
@@ -76,7 +44,7 @@ var _ = Describe("DHT", func() {
 
 				f := func(seed int64) bool {
 					privKey := id.NewPrivKey()
-					addr := "172.16.254.1:3000"
+					addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
 
 					// Try to delete the address prior to inserting to make sure
 					// it does not panic.
@@ -84,14 +52,13 @@ var _ = Describe("DHT", func() {
 					table.DeletePeer(signatory)
 
 					// Insert the address.
-					ok := table.AddPeer(signatory, addr)
-					Expect(ok).To(BeTrue())
+					table.AddPeer(signatory, addr)
 
 					// Delete the address and make sure it no longer exists when
 					// querying the DHT.
 					table.DeletePeer(signatory)
 
-					_, ok = table.PeerAddress(signatory)
+					_, ok := table.PeerAddress(signatory)
 					return !ok
 				}
 				Expect(quick.Check(f, nil)).To(Succeed())
@@ -108,10 +75,9 @@ var _ = Describe("DHT", func() {
 				for i := 0; i < numAddrs; i++ {
 					privKey := id.NewPrivKey()
 					sig := privKey.Signatory()
-					addr := "172.16.254.1:3000"
+					addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
 
-					ok := table.AddPeer(sig, addr)
-					Expect(ok).To(BeTrue())
+					table.AddPeer(sig, addr)
 
 					signatories = append(signatories, sig)
 				}
@@ -119,7 +85,7 @@ var _ = Describe("DHT", func() {
 				// Check addresses are returned in order of their XOR distance
 				// from our own address.
 				numQueriedAddrs := rand.Intn(numAddrs)
-				queriedAddrs := table.Addresses(numQueriedAddrs)
+				queriedAddrs := table.Peers(numQueriedAddrs)
 				Expect(len(queriedAddrs)).To(Equal(numQueriedAddrs))
 				Expect(dhtutil.IsSorted(identity, queriedAddrs)).To(BeTrue())
 
@@ -130,7 +96,7 @@ var _ = Describe("DHT", func() {
 					table.DeletePeer(signatory)
 				}
 
-				queriedAddrs = table.Addresses(numAddrs - numDeletedAddrs)
+				queriedAddrs = table.Peers(numAddrs - numDeletedAddrs)
 				Expect(len(queriedAddrs)).To(Equal(numAddrs - numDeletedAddrs))
 				Expect(dhtutil.IsSorted(identity, queriedAddrs)).To(BeTrue())
 			})
@@ -144,13 +110,12 @@ var _ = Describe("DHT", func() {
 					for i := 0; i < numAddrs; i++ {
 						privKey := id.NewPrivKey()
 						sig := privKey.Signatory()
-						addr := "172.16.254.1:3000"
+						addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
 
-						ok := table.AddPeer(sig, addr)
-						Expect(ok).To(BeTrue())
+						table.AddPeer(sig, addr)
 					}
 
-					addrs := table.Addresses(100)
+					addrs := table.Peers(100)
 					Expect(len(addrs)).To(Equal(numAddrs))
 				})
 			})
@@ -159,10 +124,10 @@ var _ = Describe("DHT", func() {
 				It("should return no addresses", func() {
 					table, _ := initDHT()
 
-					addrs := table.Addresses(100)
+					addrs := table.Peers(100)
 					Expect(len(addrs)).To(Equal(0))
 
-					addrs = table.Addresses(0)
+					addrs = table.Peers(0)
 					Expect(len(addrs)).To(Equal(0))
 				})
 			})
@@ -177,10 +142,9 @@ var _ = Describe("DHT", func() {
 				for i := 0; i < numAddrs; i++ {
 					privKey := id.NewPrivKey()
 					sig := privKey.Signatory()
-					addr := "172.16.254.1:3000"
+					addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
 
-					ok := table.AddPeer(sig, addr)
-					Expect(ok).To(BeTrue())
+					table.AddPeer(sig, addr)
 				}
 
 				n := table.NumPeers()
@@ -198,7 +162,7 @@ var _ = Describe("DHT", func() {
 			}
 			runtime := b.Time("runtime", func() {
 				for i := 0; i < len(signatories); i++ {
-					addr := "172.16.254.1:" + strconv.Itoa(i)
+					addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:" + strconv.Itoa(i), uint64(time.Now().UnixNano()))
 					table.AddPeer(signatories[i], addr)
 				}
 			})
@@ -211,7 +175,7 @@ var _ = Describe("DHT", func() {
 			for i := 0; i < 10000; i++ {
 				privKey := id.NewPrivKey()
 				sig := privKey.Signatory()
-				addr := "172.16.254.1:" + strconv.Itoa(i)
+				addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:" + strconv.Itoa(i), uint64(time.Now().UnixNano()))
 				table.AddPeer(sig, addr)
 				signatories = append(signatories, sig)
 			}
