@@ -155,11 +155,11 @@ var _ = Describe("Channels", func() {
 			time.Sleep(time.Second)
 
 			// Remote channel will listen for incoming connections.
-			listen(ctx, remoteCh, remotePrivKey.Signatory(), localPrivKey.Signatory(), 3334)
+			listen(ctx, remoteCh, remotePrivKey.Signatory(), localPrivKey.Signatory(), 3343)
 			// Local channel will dial the listener (and re-dial once per
 			// minute; so it should not impact the test, which is expected
 			// to complete in less than one minute).
-			dial(ctx, localCh, localPrivKey.Signatory(), remotePrivKey.Signatory(), 3334, time.Minute)
+			dial(ctx, localCh, localPrivKey.Signatory(), remotePrivKey.Signatory(), 3343, time.Minute)
 
 			<-q1
 			<-q2
@@ -191,10 +191,10 @@ var _ = Describe("Channels", func() {
 				q4 := stream(localInbound, n, false)
 
 				// Remote channel will listen for incoming connections.
-				listen(ctx, remoteCh, remotePrivKey.Signatory(), localPrivKey.Signatory(), 3335)
+				listen(ctx, remoteCh, remotePrivKey.Signatory(), localPrivKey.Signatory(), 3353)
 				// Local channel will dial the listener (and re-dial once per
 				// second).
-				dial(ctx, localCh, localPrivKey.Signatory(), remotePrivKey.Signatory(), 3335, time.Second)
+				dial(ctx, localCh, localPrivKey.Signatory(), remotePrivKey.Signatory(), 3353, time.Second)
 
 				// Wait for sinking and streaming to finish.
 				<-q1
@@ -226,10 +226,10 @@ var _ = Describe("Channels", func() {
 				q4 := stream(localInbound, n, true)
 
 				// Remote channel will listen for incoming connections.
-				listen(ctx, remoteCh, remotePrivKey.Signatory(), localPrivKey.Signatory(), 3336)
+				listen(ctx, remoteCh, remotePrivKey.Signatory(), localPrivKey.Signatory(), 3363)
 				// Local channel will dial the listener (and re-dial once per
 				// second).
-				dial(ctx, localCh, localPrivKey.Signatory(), remotePrivKey.Signatory(), 3336, time.Second)
+				dial(ctx, localCh, localPrivKey.Signatory(), remotePrivKey.Signatory(), 3363, time.Second)
 
 				// Wait for sinking and streaming to finish.
 				<-q1
