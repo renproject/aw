@@ -18,8 +18,8 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("TCP", func() {
-	Describe("Channel", func() {
+var _ = Describe("Handshake", func() {
+	Describe("Once", func() {
 		Context("when a pair of nodes are trying to establish connections both ways", func() {
 			It("should only maintain one connection", func() {
 				pool1 := handshake.NewOncePool(handshake.DefaultOncePoolOptions())
@@ -100,7 +100,7 @@ var _ = Describe("TCP", func() {
 				)
 
 				<-time.After(time.Second * 1)
-				Expect(connectionKillCount).To(Equal(int64(2)))
+				Expect(atomic.LoadInt64(&connectionKillCount)).To(Equal(int64(2)))
 
 			})
 		})
@@ -167,7 +167,7 @@ var _ = Describe("TCP", func() {
 				)
 
 				<-time.After(time.Second * 1)
-				Expect(connectionKillCount).To(Equal(int64(2)))
+				Expect(atomic.LoadInt64(&connectionKillCount)).To(Equal(int64(2)))
 
 			})
 		})
