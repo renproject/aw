@@ -34,8 +34,8 @@ func listen(ctx context.Context, attacher channel.Attacher, self, other id.Signa
 				log.Printf("accepted: %v", conn.RemoteAddr())
 				enc, dec, remote, err := handshake.Insecure(self)(
 					conn,
-					codec.LengthPrefixEncoder(codec.PlainEncoder),
-					codec.LengthPrefixDecoder(codec.PlainDecoder),
+					codec.LengthPrefixEncoder(codec.PlainEncoder, codec.PlainEncoder),
+					codec.LengthPrefixDecoder(codec.PlainDecoder, codec.PlainDecoder),
 				)
 				if err != nil {
 					log.Printf("handshake: %v", err)
@@ -80,8 +80,8 @@ func dial(ctx context.Context, attacher channel.Attacher, self, other id.Signato
 						log.Printf("dialed: %v", conn.RemoteAddr())
 						enc, dec, remote, err := handshake.Insecure(self)(
 							conn,
-							codec.LengthPrefixEncoder(codec.PlainEncoder),
-							codec.LengthPrefixDecoder(codec.PlainDecoder),
+							codec.LengthPrefixEncoder(codec.PlainEncoder, codec.PlainEncoder),
+							codec.LengthPrefixDecoder(codec.PlainDecoder, codec.PlainDecoder),
 						)
 						if err != nil {
 							log.Printf("handshake: %v", err)
