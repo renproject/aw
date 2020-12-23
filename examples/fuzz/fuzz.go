@@ -43,8 +43,7 @@ func main() {
 	transports := make([]*transport.Transport, n)
 	for i := range peers {
 		self := opts[i].PrivKey.Signatory()
-		r := rand.New(rand.NewSource(time.Now().UnixNano() + int64(i)))
-		h := handshake.Filter(func(id.Signatory) error { return nil }, handshake.ECIES(opts[i].PrivKey, r))
+		h := handshake.Filter(func(id.Signatory) error { return nil }, handshake.ECIES(opts[i].PrivKey))
 		contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
 		clients[i] = channel.NewClient(
 			channel.DefaultOptions().
@@ -73,6 +72,7 @@ func main() {
 			for {
 				// Randomly crash peers.
 				func() {
+					r := rand.New(rand.NewSource(time.Now().UnixNano() + int64(i)))
 					d := time.Minute * time.Duration(1000+r.Int()%9000)
 					ctx, cancel := context.WithTimeout(context.Background(), d)
 					defer cancel()

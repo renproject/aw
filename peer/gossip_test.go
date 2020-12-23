@@ -3,7 +3,6 @@ package peer_test
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"time"
 
 	"github.com/renproject/aw/channel"
@@ -40,8 +39,7 @@ func setup(numPeers int) ([]peer.Options, []*peer.Peer, []dht.Table, []dht.Conte
 	transports := make([]*transport.Transport, numPeers)
 	for i := range peers {
 		self := opts[i].PrivKey.Signatory()
-		r := rand.New(rand.NewSource(time.Now().UnixNano() + int64(i)))
-		h := handshake.Filter(func(id.Signatory) error { return nil }, handshake.ECIES(opts[i].PrivKey, r))
+		h := handshake.Filter(func(id.Signatory) error { return nil }, handshake.ECIES(opts[i].PrivKey))
 		clients[i] = channel.NewClient(
 			channel.DefaultOptions().
 				WithLogger(logger),
