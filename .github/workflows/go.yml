@@ -41,12 +41,13 @@ jobs:
                   cd $GITHUB_WORKSPACE
                   CI=true ginkgo --v --race --cover --coverprofile coverprofile.out ./...
                   covermerge                        \
+                    channel/coverprofile.out        \
+                    codec/coverprofile.out          \
                     dht/coverprofile.out            \
-                    gossip/coverprofile.out         \
                     handshake/coverprofile.out      \
                     peer/coverprofile.out           \
+                    policy/coverprofile.out         \
                     tcp/coverprofile.out            \
                     transport/coverprofile.out      \
                     wire/coverprofile.out           \
-                    wire/wireutil/coverprofile.out > coverprofile.out
                   goveralls -coverprofile=coverprofile.out -service=github
