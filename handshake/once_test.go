@@ -3,7 +3,6 @@ package handshake_test
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net"
 	"sync/atomic"
 	"time"
@@ -35,7 +34,7 @@ var _ = Describe("Handshake", func() {
 					tcp.Listen(ctx,
 						"localhost:12345",
 						func(conn net.Conn) {
-							h := handshake.ECIES(privKey1, rand.New(rand.NewSource(time.Now().UnixNano())))
+							h := handshake.ECIES(privKey1)
 							h = handshake.Once(privKey1.Signatory(), &pool1, h)
 							_, _, _, err := h(conn, codec.PlainEncoder, codec.PlainDecoder)
 							if err != nil {
@@ -53,7 +52,7 @@ var _ = Describe("Handshake", func() {
 					tcp.Listen(ctx,
 						"localhost:12346",
 						func(conn net.Conn) {
-							h := handshake.ECIES(privKey2, rand.New(rand.NewSource(time.Now().UnixNano())))
+							h := handshake.ECIES(privKey2)
 							h = handshake.Once(privKey2.Signatory(), &pool2, h)
 							_, _, _, err := h(conn, codec.PlainEncoder, codec.PlainDecoder)
 							if err != nil {
@@ -71,7 +70,7 @@ var _ = Describe("Handshake", func() {
 					tcp.Dial(ctx,
 						"localhost:12346",
 						func(conn net.Conn) {
-							h := handshake.ECIES(privKey1, rand.New(rand.NewSource(time.Now().UnixNano())))
+							h := handshake.ECIES(privKey1)
 							h = handshake.Once(privKey1.Signatory(), &pool1, h)
 							_, _, _, err := h(conn, codec.PlainEncoder, codec.PlainDecoder)
 							if err != nil {
@@ -87,7 +86,7 @@ var _ = Describe("Handshake", func() {
 				tcp.Dial(ctx,
 					"localhost:12345",
 					func(conn net.Conn) {
-						h := handshake.ECIES(privKey2, rand.New(rand.NewSource(time.Now().UnixNano())))
+						h := handshake.ECIES(privKey2)
 						h = handshake.Once(privKey2.Signatory(), &pool2, h)
 						_, _, _, err := h(conn, codec.PlainEncoder, codec.PlainDecoder)
 						if err != nil {
@@ -120,7 +119,7 @@ var _ = Describe("Handshake", func() {
 					tcp.Listen(ctx,
 						"localhost:12345",
 						func(conn net.Conn) {
-							h := handshake.ECIES(privKey1, rand.New(rand.NewSource(time.Now().UnixNano())))
+							h := handshake.ECIES(privKey1)
 							h = handshake.Once(privKey1.Signatory(), &pool1, h)
 							_, _, _, err := h(conn, codec.PlainEncoder, codec.PlainDecoder)
 							if err != nil {
@@ -138,7 +137,7 @@ var _ = Describe("Handshake", func() {
 					tcp.Dial(ctx,
 						"localhost:12345",
 						func(conn net.Conn) {
-							h := handshake.ECIES(privKey2, rand.New(rand.NewSource(time.Now().UnixNano())))
+							h := handshake.ECIES(privKey2)
 							h = handshake.Once(privKey2.Signatory(), &pool2, h)
 							_, _, _, err := h(conn, codec.PlainEncoder, codec.PlainDecoder)
 							if err != nil {
@@ -154,7 +153,7 @@ var _ = Describe("Handshake", func() {
 				tcp.Dial(ctx,
 					"localhost:12345",
 					func(conn net.Conn) {
-						h := handshake.ECIES(privKey2, rand.New(rand.NewSource(time.Now().UnixNano())))
+						h := handshake.ECIES(privKey2)
 						h = handshake.Once(privKey2.Signatory(), &pool2, h)
 						_, _, _, err := h(conn, codec.PlainEncoder, codec.PlainDecoder)
 						if err != nil {

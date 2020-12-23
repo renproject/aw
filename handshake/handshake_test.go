@@ -2,7 +2,6 @@ package handshake_test
 
 import (
 	"context"
-	"math/rand"
 	"net"
 	"sync"
 	"time"
@@ -25,9 +24,8 @@ var _ = Describe("Handshake", func() {
 				time.Sleep(0)
 				<-time.After(listenAfter)
 
-				r := rand.New(rand.NewSource(time.Now().UnixNano()))
 				privKey := id.NewPrivKey()
-				h := handshake.ECIES(privKey, r)
+				h := handshake.ECIES(privKey)
 
 				tcp.Listen(ctx,
 					"127.0.0.1:3334",
@@ -48,9 +46,8 @@ var _ = Describe("Handshake", func() {
 			<-time.After(dialAfter)
 
 			retrySignalOnce := sync.Once{}
-			r := rand.New(rand.NewSource(time.Now().UnixNano()))
 			privKey := id.NewPrivKey()
-			h := handshake.ECIES(privKey, r)
+			h := handshake.ECIES(privKey)
 
 			tcp.Dial(ctx,
 				"127.0.0.1:3334",
