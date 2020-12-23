@@ -49,5 +49,5 @@ jobs:
                     policy/coverprofile.out         \
                     tcp/coverprofile.out            \
                     transport/coverprofile.out      \
-                    wire/coverprofile.out           \
+                    wire/coverprofile.out > coverprofile.out
                   goveralls -coverprofile=coverprofile.out -service=github
