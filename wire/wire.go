@@ -2,6 +2,7 @@ package wire
 
 import (
 	"fmt"
+
 	"github.com/renproject/id"
 
 	"github.com/renproject/surge"
@@ -14,10 +15,10 @@ const (
 
 // Enumerate all valid MsgType values.
 const (
-	MsgTypePush    = uint16(1)
-	MsgTypePull    = uint16(2)
-	MsgTypeSync    = uint16(3)
-	MsgTypeSend    = uint16(4)
+	MsgTypePush = uint16(1)
+	MsgTypePull = uint16(2)
+	MsgTypeSync = uint16(3)
+	MsgTypeSend = uint16(4)
 )
 
 // Msg defines the low-level message structure that is sent on-the-wire between
@@ -27,7 +28,7 @@ type Msg struct {
 	Type     uint16  `json:"type"`
 	To       id.Hash `json:"to"`
 	Data     []byte  `json:"data"`
-	SyncData []byte  `json:"syncdata"`
+	SyncData []byte  `json:"syncData"`
 }
 
 // SizeHint returns the number of bytes required to represent a Msg in binary.

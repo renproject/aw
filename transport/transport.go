@@ -3,10 +3,11 @@ package transport
 import (
 	"context"
 	"fmt"
-	"github.com/renproject/aw/dht"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/renproject/aw/dht"
 
 	"github.com/renproject/aw/channel"
 	"github.com/renproject/aw/codec"
@@ -125,19 +126,24 @@ func (t *Transport) Table() dht.Table {
 	return t.table
 }
 
-func (t *Transport) Send(ctx context.Context, remote id.Signatory, remoteAddr string, msg wire.Msg) error {
+func (t *Transport) Send(ctx context.Context, remote id.Signatory, msg wire.Msg) error {
+	remoteAddr, ok := t.table.PeerAddress(remote)
+	if !ok {
+		return fmt.Errorf("peer not found: %v", remote)
+	}
+
 	if t.IsConnected(remote) {
-		t.opts.Logger.Debug("send", zap.Bool("connected", true), zap.String("remote", remote.String()), zap.String("addr", remoteAddr))
+		t.opts.Logger.Debug("send", zap.Bool("connected", true), zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()))
 		return t.client.Send(ctx, remote, msg)
 	}
 
 	if t.IsLinked(remote) {
-		t.opts.Logger.Debug("send", zap.Bool("linked", true), zap.String("remote", remote.String()), zap.String("addr", remoteAddr))
+		t.opts.Logger.Debug("send", zap.Bool("linked", true), zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()))
 		go t.dial(ctx, remote, remoteAddr)
 		return t.client.Send(ctx, remote, msg)
 	}
 
-	t.opts.Logger.Debug("send", zap.Bool("linked", false), zap.Bool("connected", false), zap.String("remote", remote.String()), zap.String("addr", remoteAddr))
+	t.opts.Logger.Debug("send", zap.Bool("linked", false), zap.Bool("connected", false), zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()))
 	t.client.Bind(remote)
 	go func() {
 		defer t.client.Unbind(remote)
@@ -146,7 +152,7 @@ func (t *Transport) Send(ctx context.Context, remote id.Signatory, remoteAddr st
 	return t.client.Send(ctx, remote, msg)
 }
 
-func (t *Transport) Receive(ctx context.Context, receiver chan<- channel.Msg) {
+func (t *Transport) Receive(ctx context.Context, receiver func(id.Signatory, wire.Msg) error) {
 	t.client.Receive(ctx, receiver)
 }
 
@@ -216,7 +222,6 @@ func (t *Transport) run(ctx context.Context) {
 				return
 			}
 
-			t.table.AddPeer(remote, addr)
 			enc = codec.LengthPrefixEncoder(codec.PlainEncoder, enc)
 			dec = codec.LengthPrefixDecoder(codec.PlainDecoder, dec)
 
@@ -264,22 +269,27 @@ func (t *Transport) run(ctx context.Context) {
 	}
 }
 
-func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAddr string) {
+func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAddr wire.Address) {
 	// It is tempting to skip dialing if there is already a connection. However,
 	// it is desirable to be able to re-dial in the case that the network
 	// address has changed. As such, we do not do any skip checks, and assume
 	// that dial is only called when the caller is absolutely sure that a dial
 	// should happen.
 
+	if remoteAddr.Protocol != wire.TCP {
+		t.opts.Logger.Debug("skipping non-tcp address", zap.String("addr", remoteAddr.String()))
+		return
+	}
+
 	for {
 		dialCtx, cancel := context.WithTimeout(context.Background(), t.opts.ClientTimeout)
 		defer cancel()
 
-		t.opts.Logger.Debug("dialing", zap.String("remote", remote.String()), zap.String("addr", remoteAddr))
+		t.opts.Logger.Debug("dialing", zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()))
 
 		err := tcp.Dial(
 			dialCtx,
-			remoteAddr,
+			remoteAddr.Value,
 			func(conn net.Conn) {
 				addr := conn.RemoteAddr().String()
 				enc, dec, r, err := t.once(conn, t.opts.Encoder, t.opts.Decoder)
@@ -289,6 +299,7 @@ func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAd
 				}
 				if !r.Equal(&remote) {
 					t.opts.Logger.Error("handshake", zap.String("expected", remote.String()), zap.String("got", r.String()), zap.Error(fmt.Errorf("bad remote")))
+					return
 				}
 
 				enc = codec.LengthPrefixEncoder(codec.PlainEncoder, enc)
@@ -318,11 +329,11 @@ func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAd
 				}
 			},
 			func(err error) {
-				t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr), zap.Error(err))
+				t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()), zap.Error(err))
 			},
 			t.opts.DialTimeout)
 		if err != nil {
-			t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr), zap.Error(err))
+			t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()), zap.Error(err))
 			select {
 			case <-retryCtx.Done():
 			case <-dialCtx.Done():

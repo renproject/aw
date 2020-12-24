@@ -29,18 +29,18 @@ func (nonce gcmNonce) next() {
 }
 
 func (nonce gcmNonce) succ() {
-	nonce.bottom += 1
+	nonce.bottom++
 	// If bottom overflows, increment top by 1
 	if nonce.bottom == 0 {
-		nonce.top += 1
+		nonce.top++
 	}
 }
 
 func (nonce gcmNonce) pred() {
-	nonce.bottom -= 1
+	nonce.bottom--
 	// If bottom underflows, decrement top by 1
 	if nonce.bottom == math.MaxUint64 {
-		nonce.top -= 1
+		nonce.top--
 	}
 }
 

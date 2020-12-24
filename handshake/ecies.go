@@ -3,10 +3,10 @@ package handshake
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"math/big"
-	"math/rand"
 	"net"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -18,7 +18,7 @@ import (
 const sizeOfSecretKey = 32
 const sizeOfEncryptedSecretKey = 145 // 113-byte encryption header + 32-byte secret key
 
-func ECIES(privKey *id.PrivKey, r *rand.Rand) Handshake {
+func ECIES(privKey *id.PrivKey) Handshake {
 	return func(conn net.Conn, enc codec.Encoder, dec codec.Decoder) (codec.Encoder, codec.Decoder, id.Signatory, error) {
 		// Channel for passing errors from the writing goroutine to the reading
 		// goroutine (which has the ability to return the error).
@@ -40,7 +40,7 @@ func ECIES(privKey *id.PrivKey, r *rand.Rand) Handshake {
 		// Generate a local secret key. We do it here, because it is needed by
 		// the writing and reading goroutine.
 		localSecretKey := [sizeOfSecretKey]byte{}
-		if _, err := r.Read(localSecretKey[:]); err != nil {
+		if _, err := rand.Read(localSecretKey[:]); err != nil {
 			return nil, nil, id.Signatory{}, fmt.Errorf("generate local secret key: %v", err)
 		}
 
@@ -69,7 +69,7 @@ func ECIES(privKey *id.PrivKey, r *rand.Rand) Handshake {
 				return
 			}
 			importedRemotePubKey := ecies.ImportECDSAPublic((*ecdsa.PublicKey)(&remotePubKey))
-			encryptedLocalSecretKey, err := ecies.Encrypt(r, importedRemotePubKey, localSecretKey[:], nil, nil)
+			encryptedLocalSecretKey, err := ecies.Encrypt(rand.Reader, importedRemotePubKey, localSecretKey[:], nil, nil)
 			if err != nil {
 				errCh <- fmt.Errorf("encrypt local secret key: %v", err)
 				return
@@ -87,7 +87,7 @@ func ECIES(privKey *id.PrivKey, r *rand.Rand) Handshake {
 			if !ok {
 				return
 			}
-			encryptedRemoteSecretKey, err := ecies.Encrypt(r, importedRemotePubKey, remoteSecretKey, nil, nil)
+			encryptedRemoteSecretKey, err := ecies.Encrypt(rand.Reader, importedRemotePubKey, remoteSecretKey, nil, nil)
 			if err != nil {
 				errCh <- fmt.Errorf("encrypt remote secret key: %v", err)
 				return
