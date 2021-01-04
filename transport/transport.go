@@ -127,6 +127,10 @@ func (t *Transport) Table() dht.Table {
 	return t.table
 }
 
+func (t *Transport) Self() id.Signatory {
+	return t.self
+}
+
 func (t *Transport) Send(ctx context.Context, remote id.Signatory, msg wire.Msg) error {
 	remoteAddr, ok := t.table.PeerAddress(remote)
 	if !ok {

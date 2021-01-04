@@ -106,8 +106,12 @@ func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) {
 
 	var addressBuf [1024]byte
 	addressByteSlice := addressBuf[:0]
-	expNumPeer := int(binary.LittleEndian.Uint64(msg.To[:]))
-	for _, sig := range dc.transport.Table().Peers(expNumPeer) {
+	expNumPeer := int(binary.LittleEndian.Uint64(msg.Data[:]))
+
+	peers := dc.transport.Table().Peers(expNumPeer)
+	peers = append(peers, dc.transport.Self())
+
+	for _, sig := range peers {
 		var addrAndSig [128]byte
 		addrAndSigSlice := addrAndSig[:]
 		addr, ok := dc.transport.Table().PeerAddress(sig)
@@ -146,7 +150,6 @@ func (dc *DiscoveryClient) didReceivePingAck(from id.Signatory, msg wire.Msg) {
 		}
 
 		dc.transport.Table().AddPeer(sigAndAddr.Signatory, sigAndAddr.Address)
-		fmt.Printf("sig: %v, addr: %v\n", sigAndAddr.Signatory.String(), sigAndAddr.Address)
 		sigAndAddr = SignatoryAndAddress{}
 	}
 }
