@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"github.com/renproject/surge"
 	"time"
 
 	"github.com/renproject/aw/dht"
@@ -17,7 +16,7 @@ import (
 
 type SignatoryAndAddress struct {
 	Signatory id.Signatory
-	Address      string
+	Address   wire.Address
 }
 
 func (sigAndAddr SignatoryAndAddress) Marshal(buf []byte, rem int) ([]byte, int, error) {
@@ -25,7 +24,7 @@ func (sigAndAddr SignatoryAndAddress) Marshal(buf []byte, rem int) ([]byte, int,
 	if err != nil {
 		return buf, rem, fmt.Errorf("marshal signatory: %v", err)
 	}
-	buf, rem, err = surge.MarshalString(sigAndAddr.Address, buf, rem)
+	buf, rem, err = sigAndAddr.Address.Marshal(buf, rem)
 	if err != nil {
 		return buf, rem, fmt.Errorf("marshal address: %v", err)
 	}
@@ -36,121 +35,118 @@ func (sigAndAddr *SignatoryAndAddress) Unmarshal(buf []byte, rem int) ([]byte, i
 	if err != nil {
 		return buf, rem, fmt.Errorf("unmarshal signatory: %v", err)
 	}
-	buf, rem, err = surge.UnmarshalString(&sigAndAddr.Address, buf, rem)
+	buf, rem, err = sigAndAddr.Address.Unmarshal(buf, rem)
 	if err != nil {
 		return buf, rem, fmt.Errorf("unmarshal address: %v", err)
 	}
 	return buf, rem, err
 }
 
-type Ping func(context context.Context)
+type DiscoveryClient struct {
+	opts DiscoveryOptions
 
-func PeerDisovery(t *transport.Transport, addressTable dht.Table, logger *zap.Logger, alpha int, maxExpectedPeers int, pingTimePeriod time.Duration, next Callbacks) (Callbacks, Ping) {
+	transport *transport.Transport
+	resolver dht.ContentResolver
+}
 
-	discover := func(ctx context.Context) {
-		if maxExpectedPeers <= 0  {
-			logger.Debug("pinging", zap.String("max expected peers cannot be less than 1", "setting to default - 5"))
-			maxExpectedPeers = 5
-		}
+func NewDiscoveryClient(opts DiscoveryOptions, transport *transport.Transport, resolver dht.ContentResolver) *DiscoveryClient {
+	return &DiscoveryClient{
+		opts: opts,
 
-		go func() {
-			var expNumPeerBuf [8]byte
-			for {
-				binary.LittleEndian.PutUint64(expNumPeerBuf[:], uint64(maxExpectedPeers))
-				msg := wire.Msg{
-					Version: wire.MsgVersion1,
-					Type:    wire.MsgTypePing,
-					Data:    expNumPeerBuf[:],
-				}
+		transport: transport,
+		resolver:  resolver,
+	}
+}
 
-				for _, sig := range addressTable.Addresses(alpha) {
-					addr, ok := addressTable.PeerAddress(sig)
-					if ok {
-						msg.To = id.Hash(sig)
-						err := t.Send(ctx, sig, addr, msg)
-						if err != nil {
-							logger.Debug("pinging", zap.Error(err))
-							addressTable.DeletePeer(sig)
-						}
-					} else {
-						logger.Debug("pinging", zap.String("peer", "does not exist in table"))
-						addressTable.DeletePeer(sig)
-					}
-				}
-				<-time.After(pingTimePeriod)
-			}
-		}()
+func (dc *DiscoveryClient) DiscoverPeers(ctx context.Context) {
+	var maxExpectedPeers int
+	if dc.opts.MaxExpectedPeers <= 0  {
+		dc.opts.Logger.Debug("pinging", zap.String("max expected peers cannot be less than 1", "setting to default - 5"))
+		maxExpectedPeers = 5
+	} else {
+		maxExpectedPeers = dc.opts.MaxExpectedPeers
 	}
 
-	didReceivePing := func(from id.Signatory, msg wire.Msg) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+	go func() {
+		var expNumPeerBuf [8]byte
+		for {
+			binary.LittleEndian.PutUint64(expNumPeerBuf[:], uint64(maxExpectedPeers))
+			msg := wire.Msg{
+				Version: wire.MsgVersion1,
+				Type:    wire.MsgTypePing,
+				Data:    expNumPeerBuf[:],
+			}
 
-		var addressBuf [1024]byte
-		addressByteSlice := addressBuf[:0]
-		expNumPeer := int(binary.LittleEndian.Uint64(msg.To[:]))
-		for _, sig := range addressTable.Addresses(expNumPeer) {
-			var addrAndSig [128]byte
-			addrAndSigSlice := addrAndSig[:]
-			addr, ok := addressTable.PeerAddress(sig)
-			if !ok {
-				logger.Debug("sending pingAck", zap.String("peer", "does not exist in table"))
-				addressTable.DeletePeer(sig)
+			for _, sig := range dc.transport.Table().Peers(dc.opts.Alpha) {
+				msg.To = id.Hash(sig)
+				err := dc.transport.Send(ctx, sig, msg)
+				if err != nil {
+					dc.opts.Logger.Debug("pinging", zap.Error(err))
+					dc.transport.Table().DeletePeer(sig)
+				}
 			}
-			sigAndAddr := SignatoryAndAddress{Signatory: sig, Address: addr}
-			tail, _, err := sigAndAddr.Marshal(addrAndSigSlice, len(addrAndSigSlice))
-			if err != nil {
-				logger.Debug("sending pingAck", zap.Error(err))
-			}
-			addressByteSlice = append(addressByteSlice, addrAndSigSlice[:len(addrAndSigSlice)-len(tail)]...)
+			<-time.After(dc.opts.PingTimePeriod)
 		}
-		response := wire.Msg{
-			Version: wire.MsgVersion1,
-			Type:    wire.MsgTypePingAck,
-			To:      id.Hash(from),
-			Data:    addressByteSlice,
-		}
-		addr, ok := addressTable.PeerAddress(from)
+	}()
+}
+
+func (dc *DiscoveryClient) DidReceiveMessage(from id.Signatory, msg wire.Msg) error {
+	switch msg.Type {
+	case wire.MsgTypePing:
+		dc.didReceivePing(from, msg)
+	case wire.MsgTypePingAck:
+		dc.didReceivePingAck(from, msg)
+	}
+	return nil
+}
+
+func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var addressBuf [1024]byte
+	addressByteSlice := addressBuf[:0]
+	expNumPeer := int(binary.LittleEndian.Uint64(msg.To[:]))
+	for _, sig := range dc.transport.Table().Peers(expNumPeer) {
+		var addrAndSig [128]byte
+		addrAndSigSlice := addrAndSig[:]
+		addr, ok := dc.transport.Table().PeerAddress(sig)
 		if !ok {
-			logger.Debug("sending pingAck", zap.String("peer", "does not exist in table"))
+			dc.opts.Logger.Debug("sending pingAck", zap.String("peer", "does not exist in table"))
+			dc.transport.Table().DeletePeer(sig)
 		}
-		err := t.Send(ctx, from, addr, response)
+		sigAndAddr := SignatoryAndAddress{Signatory: sig, Address: addr}
+		tail, _, err := sigAndAddr.Marshal(addrAndSigSlice, len(addrAndSigSlice))
 		if err != nil {
-			logger.Debug("sending pingAck", zap.Error(err))
+			dc.opts.Logger.Debug("sending pingAck", zap.Error(err))
 		}
+		addressByteSlice = append(addressByteSlice, addrAndSigSlice[:len(addrAndSigSlice)-len(tail)]...)
 	}
+	response := wire.Msg{
+		Version: wire.MsgVersion1,
+		Type:    wire.MsgTypePingAck,
+		To:      id.Hash(from),
+		Data:    addressByteSlice,
+	}
+	err := dc.transport.Send(ctx, from, response)
+	if err != nil {
+		dc.opts.Logger.Debug("sending pingAck", zap.Error(err))
+	}
+}
 
-	didReceivePingAck := func(from id.Signatory, msg wire.Msg) {
-		var sigAndAddr SignatoryAndAddress
-		dataLeft := msg.Data
-		for len(dataLeft) > 0 {
-			tail, _, err := sigAndAddr.Unmarshal(dataLeft, len(dataLeft))
-			dataLeft = tail
-			if err != nil {
-				logger.Debug("receiving pingAck ", zap.Error(err))
-				break
-			}
-
-			addressTable.AddPeer(sigAndAddr.Signatory, sigAndAddr.Address)
-			fmt.Printf("sig: %v, addr: %v\n", sigAndAddr.Signatory.String(), sigAndAddr.Address)
-			sigAndAddr = SignatoryAndAddress{}
+func (dc *DiscoveryClient) didReceivePingAck(from id.Signatory, msg wire.Msg) {
+	var sigAndAddr SignatoryAndAddress
+	dataLeft := msg.Data
+	for len(dataLeft) > 0 {
+		tail, _, err := sigAndAddr.Unmarshal(dataLeft, len(dataLeft))
+		dataLeft = tail
+		if err != nil {
+			dc.opts.Logger.Debug("receiving pingAck ", zap.Error(err))
+			break
 		}
 
+		dc.transport.Table().AddPeer(sigAndAddr.Signatory, sigAndAddr.Address)
+		fmt.Printf("sig: %v, addr: %v\n", sigAndAddr.Signatory.String(), sigAndAddr.Address)
+		sigAndAddr = SignatoryAndAddress{}
 	}
-
-	return Callbacks{
-			DidReceiveMessage: func(from id.Signatory, msg wire.Msg) {
-				switch msg.Type {
-				case wire.MsgTypePing:
-					didReceivePing(from, msg)
-				case wire.MsgTypePingAck:
-					didReceivePingAck(from, msg)
-				}
-
-				if next.DidReceiveMessage != nil {
-					next.DidReceiveMessage(from, msg)
-				}
-			},
-		},
-		discover
 }
