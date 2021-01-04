@@ -2,7 +2,6 @@ package handshake_test
 
 import (
 	"context"
-	"math/rand"
 	"net"
 	"sync"
 	"time"
@@ -25,16 +24,15 @@ var _ = Describe("Handshake", func() {
 				time.Sleep(0)
 				<-time.After(listenAfter)
 
-				r := rand.New(rand.NewSource(time.Now().UnixNano()))
 				privKey := id.NewPrivKey()
-				h := handshake.ECIES(privKey, r)
+				h := handshake.ECIES(privKey)
 
 				tcp.Listen(ctx,
 					"127.0.0.1:3334",
 					func(conn net.Conn) {
 						h(conn,
-							codec.LengthPrefixEncoder(codec.PlainEncoder),
-							codec.LengthPrefixDecoder(codec.PlainDecoder),
+							codec.PlainEncoder,
+							codec.PlainDecoder,
 						)
 					},
 					nil,
@@ -48,16 +46,15 @@ var _ = Describe("Handshake", func() {
 			<-time.After(dialAfter)
 
 			retrySignalOnce := sync.Once{}
-			r := rand.New(rand.NewSource(time.Now().UnixNano()))
 			privKey := id.NewPrivKey()
-			h := handshake.ECIES(privKey, r)
+			h := handshake.ECIES(privKey)
 
 			tcp.Dial(ctx,
 				"127.0.0.1:3334",
 				func(conn net.Conn) {
 					_, _, _, err := h(conn,
-						codec.LengthPrefixEncoder(codec.PlainEncoder),
-						codec.LengthPrefixDecoder(codec.PlainDecoder))
+						codec.PlainEncoder,
+						codec.PlainDecoder)
 					if err == nil {
 						dialSuccess <- true
 					}
@@ -74,8 +71,8 @@ var _ = Describe("Handshake", func() {
 		}()
 	}
 
-	Context("when connecting a client to a server", func() {
-		Context("when the server is online", func() {
+	Context("connecting a client to a server", func() {
+		When("the server is online", func() {
 			It("should connect successfully", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
@@ -85,7 +82,7 @@ var _ = Describe("Handshake", func() {
 			})
 		})
 
-		Context("when the server is offline", func() {
+		When("the server is offline", func() {
 			It("should retry", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
@@ -94,15 +91,13 @@ var _ = Describe("Handshake", func() {
 				Expect(<-dialRetry).Should(BeTrue())
 			})
 
-			Context("when the server comes online", func() {
-				It("should eventually connect successfully", func() {
-					ctx, cancel := context.WithCancel(context.Background())
-					defer cancel()
-					var dialRetry, dialSuccess chan bool = make(chan bool), make(chan bool)
-					run(ctx, 0, 500*time.Millisecond, true, dialRetry, dialSuccess)
-					Expect(<-dialRetry).Should(BeTrue())
-					Expect(<-dialSuccess).Should(BeTrue())
-				})
+			It("if the server comes online should eventually connect successfully", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				var dialRetry, dialSuccess chan bool = make(chan bool), make(chan bool)
+				run(ctx, 0, 500*time.Millisecond, true, dialRetry, dialSuccess)
+				Expect(<-dialRetry).Should(BeTrue())
+				Expect(<-dialSuccess).Should(BeTrue())
 			})
 		})
 	})

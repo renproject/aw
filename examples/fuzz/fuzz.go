@@ -3,10 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/renproject/aw/dht"
 	"log"
 	"math/rand"
 	"time"
+
+	"github.com/renproject/aw/dht"
 
 	"github.com/renproject/aw/channel"
 	"github.com/renproject/aw/handshake"
@@ -26,17 +27,13 @@ func main() {
 	}
 
 	// Number of peers.
-	n := 2
+	n := 200
 
 	// Init options for all peers.
 	opts := make([]peer.Options, n)
 	for i := range opts {
 		i := i
-		opts[i] = peer.DefaultOptions().WithLogger(logger).WithCallbacks(peer.Callbacks{
-			DidReceiveMessage: func(from id.Signatory, msg wire.Msg) {
-				fmt.Printf("%4v: received \"%v\" from %4v\n", opts[i].PrivKey.Signatory(), string(msg.Data), from)
-			},
-		})
+		opts[i] = peer.DefaultOptions().WithLogger(logger)
 	}
 
 	// Init and run peers.
@@ -46,22 +43,12 @@ func main() {
 	transports := make([]*transport.Transport, n)
 	for i := range peers {
 		self := opts[i].PrivKey.Signatory()
-		r := rand.New(rand.NewSource(time.Now().UnixNano() + int64(i)))
-		h := handshake.ECIES(opts[i].PrivKey, r)
+		h := handshake.Filter(func(id.Signatory) error { return nil }, handshake.ECIES(opts[i].PrivKey))
 		contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
 		clients[i] = channel.NewClient(
-			channel.DefaultClientOptions().
+			channel.DefaultOptions().
 				WithLogger(logger),
-			self,
-			func(msg wire.Msg) bool {
-				if msg.Type == wire.MsgTypeSync {
-					var contentID dht.ContentID
-					copy(contentID[:], msg.Data)
-					_, ok := contentResolver.Content(contentID)
-					return ok
-				}
-				return true
-			})
+			self)
 		tables[i] = dht.NewInMemTable(self)
 		transports[i] = transport.New(
 			transport.DefaultOptions().
@@ -73,11 +60,19 @@ func main() {
 			clients[i],
 			h,
 			tables[i])
-		peers[i] = peer.New(opts[i], transports[i], contentResolver)
+		peers[i] = peer.New(
+			opts[i],
+			transports[i],
+			contentResolver)
+		peers[i].Receive(context.Background(), func(from id.Signatory, msg wire.Msg) error {
+			fmt.Printf("%4v: received \"%v\" from %4v\n", opts[i].PrivKey.Signatory(), string(msg.Data), from)
+			return nil
+		})
 		go func(i int) {
 			for {
 				// Randomly crash peers.
 				func() {
+					r := rand.New(rand.NewSource(time.Now().UnixNano() + int64(i)))
 					d := time.Minute * time.Duration(1000+r.Int()%9000)
 					ctx, cancel := context.WithTimeout(context.Background(), d)
 					defer cancel()
@@ -92,7 +87,7 @@ func main() {
 		for i := range peers {
 			j := (i + 1) % len(peers)
 			fmt.Printf("peer[%v] sending to peer[%v]\n", i, j)
-			peers[i].Table().AddPeer(peers[j].ID(), fmt.Sprintf("localhost:%v", 3333+int64(j)))
+			tables[i].AddPeer(peers[j].ID(), wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("localhost:%v", 3333+int64(j)), uint64(time.Now().UnixNano())))
 			func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				defer cancel()

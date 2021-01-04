@@ -13,6 +13,7 @@ import (
 	"github.com/renproject/id"
 
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 )
 
 // An Attacher is able to attach a network connection to itself.
@@ -21,60 +22,7 @@ type Attacher interface {
 }
 
 // Default options.
-var (
-	DefaultDrainTimeout      = 30 * time.Second
-	DefaultDrainInBackground = true
-	DefaultMaxMessageSize    = 4 * 1024 * 1024 // 4MB
-	DefaultBufferSize        = 4 * 1204 * 1024 // 4MB
-)
-
-// Options for parameterizing the behaviour of a Channel.
-type Options struct {
-	Logger            *zap.Logger
-	DrainTimeout      time.Duration
-	DrainInBackground bool
-	MaxMessageSize    int
-	BufferSize        int
-}
-
-// DefaultOptions returns Options with sane defaults.
-func DefaultOptions() Options {
-	logger, err := zap.NewDevelopment()
-	if err != nil {
-		panic(err)
-	}
-	return Options{
-		Logger:            logger,
-		DrainTimeout:      DefaultDrainTimeout,
-		DrainInBackground: DefaultDrainInBackground,
-		MaxMessageSize:    DefaultMaxMessageSize,
-		BufferSize:        DefaultBufferSize,
-	}
-}
-
-// WithLogger sets the Logger used for logging all errors, warnings, information,
-// debug traces, and so on.
-func (opts Options) WithLogger(logger *zap.Logger) Options {
-	opts.Logger = logger
-	return opts
-}
-
-// WithDrainTimeout sets the timeout used by the Channel when draining replaced
-// connections. If a Channel does not see a message on a draining connection
-// before the timeout, then the draining connection is dropped and closed, and
-// all future messages sent to the connection will be lost.
-func (opts Options) WithDrainTimeout(timeout time.Duration) Options {
-	opts.DrainTimeout = timeout
-	return opts
-}
-
-// WithDrainInBackground enables/disable background draining of replaced
-// connections. Setting this to true can improve performance, but it also break
-// the deliver order of messages.
-func (opts Options) WithDrainInBackground(enable bool) Options {
-	opts.DrainInBackground = enable
-	return opts
-}
+var ()
 
 // reader represents the read-half of a network connection. It also contains a
 // quit channel that is closed when the reader is no longer being used by the
@@ -153,7 +101,7 @@ type Channel struct {
 	readers chan reader
 	writers chan writer
 
-	shouldReadNextMsg func(msg wire.Msg) bool
+	rateLimiter *rate.Limiter
 }
 
 // New returns an abstract Channel connection to a remote peer. It will have no
@@ -167,10 +115,7 @@ type Channel struct {
 // outbound messaging channel, but there is no functional attached network
 // connection, or when messages are being received on an attached network
 // connection, but the inbound message channel is not being drained.
-func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-chan wire.Msg, shouldReadNextMsg func(msg wire.Msg) bool) *Channel {
-	if shouldReadNextMsg == nil {
-		shouldReadNextMsg = func(msg wire.Msg) bool {return true}
-	}
+func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-chan wire.Msg) *Channel {
 	return &Channel{
 		opts:   opts,
 		remote: remote,
@@ -181,7 +126,7 @@ func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-
 		readers: make(chan reader, 1),
 		writers: make(chan writer, 1),
 
-		shouldReadNextMsg: shouldReadNextMsg,
+		rateLimiter: rate.NewLimiter(opts.RateLimit, opts.MaxMessageSize),
 	}
 }
 
@@ -239,13 +184,13 @@ func (ch *Channel) Attach(ctx context.Context, remote id.Signatory, conn net.Con
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case ch.readers <- reader{Conn: conn, Reader: bufio.NewReaderSize(conn, ch.opts.BufferSize), Decoder: dec, q: rq}:
+	case ch.readers <- reader{Conn: conn, Reader: bufio.NewReaderSize(conn, ch.opts.MaxMessageSize), Decoder: dec, q: rq}:
 	}
 	// Signal that a new writer should be used.
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case ch.writers <- writer{Conn: conn, Writer: bufio.NewWriterSize(conn, ch.opts.BufferSize), Encoder: enc, q: wq}:
+	case ch.writers <- writer{Conn: conn, Writer: bufio.NewWriterSize(conn, ch.opts.MaxMessageSize), Encoder: enc, q: wq}:
 	}
 
 	// Wait for the reader to be closed.
@@ -302,6 +247,17 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 				rOk = false
 				continue
 			}
+
+			// Check that the underlying connection is not exceeding its rate
+			// limit.
+			if !ch.rateLimiter.AllowN(time.Now(), n) {
+				ch.opts.Logger.Error("rate limit exceeded", zap.String("remote", ch.remote.String()), zap.String("addr", r.Conn.RemoteAddr().String()))
+				close(r.q)
+				r = reader{}
+				rOk = false
+				continue
+			}
+
 			// Unmarshal the message from binary. If this is successfully, then
 			// we mark the message as available (and will attempt to write it to
 			// the inbound message channel).
@@ -312,14 +268,13 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 
 			mOk = true
 
-			if !ch.shouldReadNextMsg(m) {
-				ch.opts.Logger.Error("invalid message sequence")
-				if r.q != nil {
-					close(r.q)
-				}
-				return fmt.Errorf("invalid message sequence")
-			}
-
+			// An aggressive filtering strategy would involve pre-filtering
+			// synchronisation messages before reading the synchronisation data.
+			// However, in practice, this does not provide much of an advantage
+			// because we can (a) restrict how much synchronisation data we are
+			// willing to read upfront and count it against bandwidth
+			// rate-limiting, and (b) filtering that happens in the client
+			// results in bad channels being killed quickly anyway.
 			if m.Type == wire.MsgTypeSync {
 				n, err := r.Decoder(r.Reader, syncData)
 				if err != nil {

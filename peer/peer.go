@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"go.uber.org/zap"
+	"time"
 
 	"github.com/renproject/aw/channel"
 	"github.com/renproject/aw/dht"
@@ -14,9 +14,9 @@ import (
 )
 
 var (
-	// GlobalSubnet is a reserved subnet identifier that is used to reference
-	// the entire peer-to-peer network.
-	GlobalSubnet = id.Hash{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+	DefaultSubnet  = id.Hash{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+	DefaultAlpha   = 5
+	DefaultTimeout = time.Second
 )
 
 var (
@@ -24,33 +24,24 @@ var (
 )
 
 type Peer struct {
-	opts            Options
-	transport       *transport.Transport
-	contentResolver dht.ContentResolver
+	opts      Options
+	transport *transport.Transport
+	syncer    *Syncer
+	gossiper  *Gossiper
 }
 
 func New(opts Options, transport *transport.Transport, contentResolver dht.ContentResolver) *Peer {
+	filter := channel.NewSyncFilter()
 	return &Peer{
 		opts:      opts,
 		transport: transport,
-		contentResolver: contentResolver,
+		syncer:    NewSyncer(opts.SyncerOptions, filter, transport),
+		gossiper:  NewGossiper(opts.GossiperOptions, filter, transport, contentResolver),
 	}
 }
 
 func (p *Peer) ID() id.Signatory {
 	return p.opts.PrivKey.Signatory()
-}
-
-func (p *Peer) Table() dht.Table {
-	return p.transport.Table()
-}
-
-func (p *Peer) ContentResolver() dht.ContentResolver {
-	return p.contentResolver
-}
-
-func (p *Peer) Logger() *zap.Logger {
-	return p.opts.Logger
 }
 
 func (p *Peer) Link(remote id.Signatory) {
@@ -61,35 +52,35 @@ func (p *Peer) Unlink(remote id.Signatory) {
 	p.transport.Unlink(remote)
 }
 
-// Ping initiates a round of peer discovery in the network. The peer will
-// attempt to gossip its identity throughout the network, and discover the
-// identity of other remote peers in the network. It will continue doing so
-// until the context is done.
 func (p *Peer) Ping(ctx context.Context) error {
-	panic("unimplemented")
+	return fmt.Errorf("unimplemented")
 }
 
 func (p *Peer) Send(ctx context.Context, to id.Signatory, msg wire.Msg) error {
-	toAddr, ok := p.transport.Table().PeerAddress(to)
-	if !ok {
-		return fmt.Errorf("%v not found", to)
-	}
-	return p.transport.Send(ctx, to, toAddr, msg)
+	return p.transport.Send(ctx, to, msg)
 }
 
-// Run the peer until the context is done. If running encounters an error, or
-// panics, it will automatically recover and continue until the context is done.
+func (p *Peer) Sync(ctx context.Context, contentID []byte, hint *id.Signatory) ([]byte, error) {
+	return p.syncer.Sync(ctx, contentID, hint)
+}
+
+func (p *Peer) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash) {
+	p.gossiper.Gossip(ctx, contentID, subnet)
+}
+
 func (p *Peer) Run(ctx context.Context) {
-	receiver := make(chan channel.Msg)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-			case msg := <-receiver:
-				p.opts.Callbacks.DidReceiveMessage(msg.From, msg.Msg)
-			}
+	p.transport.Receive(ctx, func(from id.Signatory, msg wire.Msg) error {
+		if err := p.syncer.DidReceiveMessage(from, msg); err != nil {
+			return err
 		}
-	}()
-	p.transport.Receive(ctx, receiver)
+		if err := p.gossiper.DidReceiveMessage(from, msg); err != nil {
+			return err
+		}
+		return nil
+	})
 	p.transport.Run(ctx)
+}
+
+func (p *Peer) Receive(ctx context.Context, f func(id.Signatory, wire.Msg) error) {
+	p.transport.Receive(ctx, f)
 }

@@ -2,139 +2,179 @@ package peer
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"sync"
 
+	"github.com/renproject/aw/channel"
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/transport"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
-
 	"go.uber.org/zap"
 )
 
-type Gossip func(ctx context.Context, subnet id.Hash, contentID []byte) error
+type Gossiper struct {
+	opts GossiperOptions
 
-// Gossiper returns a new set of callback functions and a gossip function that can be used to spread information throughout a network.
-func Gossiper(logger *zap.Logger, t *transport.Transport, contentResolver dht.ContentResolver, addressTable dht.Table, alpha int, next Callbacks) (Callbacks, Gossip) {
+	filter    *channel.SyncFilter
+	transport *transport.Transport
+	resolver  dht.ContentResolver
 
-	gossip := func(ctx context.Context, subnet id.Hash, contentID []byte) error {
-		msg := wire.Msg{Version: wire.MsgVersion1, To: subnet, Type: wire.MsgTypePush, Data: contentID}
+	subnetsMu *sync.Mutex
+	subnets   map[string]id.Hash
+}
 
-		var chainedError error = nil
-		var receivers []id.Signatory
-		if subnet.Equal(&GlobalSubnet) {
-			receivers = addressTable.Addresses(alpha)
-		} else {
-			receivers = addressTable.Subnet(subnet)
-		}
-		
-		for _, sig := range receivers {
-			addr, ok := addressTable.PeerAddress(sig)
-			if !ok {
-				logger.Error("gossip", zap.String("table", "peer not found"))
-				continue
-			}
-			if err := t.Send(ctx, sig, addr, msg); err != nil {
-				if chainedError == nil {
-					chainedError = fmt.Errorf("%v, gossiping to %v: %v", chainedError, sig, err)
-				} else {
-					chainedError = fmt.Errorf("gossiping to %v: %v", sig, err)
-				}
-			}
-		}
-		return chainedError
+func NewGossiper(opts GossiperOptions, filter *channel.SyncFilter, transport *transport.Transport, resolver dht.ContentResolver) *Gossiper {
+	return &Gossiper{
+		opts: opts,
+
+		filter:    filter,
+		transport: transport,
+		resolver:  resolver,
+
+		subnetsMu: new(sync.Mutex),
+		subnets:   make(map[string]id.Hash, 1024),
+	}
+}
+
+func (g *Gossiper) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash) {
+	if subnet == nil {
+		subnet = &DefaultSubnet
 	}
 
-	didReceivePush := func(from id.Signatory, msg wire.Msg) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		addr, ok := addressTable.PeerAddress(from)
-		if !ok {
-			logger.Error("gossip", zap.Error(ErrPeerNotFound))
-			return
-		}
-
-		if _, ok := contentResolver.Content(msg.Data); !ok {
-			response := wire.Msg{
-				Version: wire.MsgVersion1,
-				Type: 	 wire.MsgTypePull,
-				To:      id.Hash(from),
-				Data:    msg.Data,
-			}
-
-			contentResolver.Insert(msg.Data, nil)
-			if err := t.Send(ctx, from, addr, response); err != nil {
-				contentResolver.Delete(msg.Data)
-				logger.Error("gossip", zap.NamedError("pull", err))
-				return
-			}
+	recipients := []id.Signatory{}
+	if subnet.Equal(&DefaultSubnet) {
+		recipients = g.transport.Table().Peers(g.opts.Alpha)
+	} else {
+		if recipients = g.transport.Table().Subnet(*subnet); len(recipients) > g.opts.Alpha {
+			recipients = recipients[:g.opts.Alpha]
 		}
 	}
 
-	didReceivePull := func(from id.Signatory, msg wire.Msg) {
-		if data, ok := contentResolver.Content(msg.Data); ok {
-			response := wire.Msg{
-				Version: wire.MsgVersion1,
-				To : id.Hash(from),
-				Type: wire.MsgTypeSync,
-				Data: msg.Data,
-				SyncData: data,
-			}
-
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			addr, ok := addressTable.PeerAddress(from)
-			if !ok {
-				logger.Error("gossip", zap.String("table", "peer not found"))
-				return
-			}
-			if err := t.Send(ctx, from, addr, response); err != nil {
-				logger.Error("gossip", zap.NamedError("sending sync", err))
-			}
-			return
-		}
-
-		logger.Error("gossip", zap.String("pull request", "data not found"))
-	}
-
-	didReceiveSync := func(from id.Signatory, msg wire.Msg) {
-		contentID := make(dht.ContentID, len(msg.Data))
-		copy(contentID, msg.Data)
-		content, ok := contentResolver.Content(contentID)
-		if !ok {
-			logger.Error("gossip", zap.String("receiving sync", "unknown id in sync message"))
-			return
-		}
-		if content != nil {
-			// TODO : Add debugging message for logger
-			return
-		}
-		contentResolver.Insert(contentID, msg.SyncData)
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		if err := gossip(ctx, GlobalSubnet, contentID); err != nil {
-			logger.Error("Gossiping synced message" , zap.Error(err))
+	msg := wire.Msg{Version: wire.MsgVersion1, To: *subnet, Type: wire.MsgTypePush, Data: contentID}
+	for _, recipient := range recipients {
+		if err := g.transport.Send(ctx, recipient, msg); err != nil {
+			g.opts.Logger.Error("pushing gossip", zap.String("peer", recipient.String()), zap.Error(err))
 		}
 	}
+}
 
-	return Callbacks{
-			DidReceiveMessage: func(from id.Signatory, msg wire.Msg) {
-				switch msg.Type {
-				case wire.MsgTypePush:
-					didReceivePush(from, msg)
-				case wire.MsgTypePull:
-					didReceivePull(from, msg)
-				case wire.MsgTypeSync:
-					didReceiveSync(from, msg)
-				case wire.MsgTypeSend:
-				}
+func (g *Gossiper) DidReceiveMessage(from id.Signatory, msg wire.Msg) error {
+	switch msg.Type {
+	case wire.MsgTypePush:
+		g.didReceivePush(from, msg)
+	case wire.MsgTypePull:
+		g.didReceivePull(from, msg)
+	case wire.MsgTypeSync:
+		if g.filter.Filter(from, msg) {
+			return fmt.Errorf("denied message from %v", from)
+		}
+		g.didReceiveSync(from, msg)
+	}
+	return nil
+}
 
-				if next.DidReceiveMessage != nil {
-					next.DidReceiveMessage(from, msg)
-				}
-			},
-		},
-		gossip
+func (g *Gossiper) didReceivePush(from id.Signatory, msg wire.Msg) {
+	if len(msg.Data) == 0 {
+		return
+	}
+	if _, ok := g.resolver.Content(msg.Data); ok {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), g.opts.Timeout)
+
+	// Later, we will probably receive a synchronisation message for the content
+	// associated with this push. We store the subnet now, so that we know how
+	// to propagate the content later.
+	g.subnetsMu.Lock()
+	g.subnets[string(msg.Data)] = msg.To
+	g.subnetsMu.Unlock()
+
+	// We are expecting a synchronisation message, because we are about to send
+	// out a pull message. So, we need to allow the content in the filter.
+	g.filter.Allow(msg.Data)
+
+	// Cleanup after the synchronisation timeout has passed. This prevents
+	// memory leaking in the filter and in the subnets map. It means that until
+	// the timeout passes, we will be accepting synchronisation messages for
+	// this content ID.
+	go func() {
+		<-ctx.Done()
+		cancel()
+
+		g.subnetsMu.Lock()
+		delete(g.subnets, string(msg.Data))
+		g.subnetsMu.Unlock()
+
+		g.filter.Deny(msg.Data)
+	}()
+
+	if err := g.transport.Send(ctx, from, wire.Msg{
+		Version: wire.MsgVersion1,
+		Type:    wire.MsgTypePull,
+		To:      id.Hash(from),
+		Data:    msg.Data,
+	}); err != nil {
+		g.resolver.Delete(msg.Data)
+		g.opts.Logger.Error("pull", zap.String("peer", from.String()), zap.String("id", base64.RawURLEncoding.EncodeToString(msg.Data)), zap.Error(err))
+		return
+	}
+}
+
+func (g *Gossiper) didReceivePull(from id.Signatory, msg wire.Msg) {
+	if len(msg.Data) == 0 {
+		return
+	}
+
+	content, ok := g.resolver.Content(msg.Data)
+	if !ok {
+		g.opts.Logger.Debug("content not found", zap.String("peer", from.String()), zap.String("id", base64.RawURLEncoding.EncodeToString(msg.Data)))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), g.opts.Timeout)
+	defer cancel()
+
+	if err := g.transport.Send(ctx, from, wire.Msg{
+		Version:  wire.MsgVersion1,
+		To:       id.Hash(from),
+		Type:     wire.MsgTypeSync,
+		Data:     msg.Data,
+		SyncData: content,
+	}); err != nil {
+		g.opts.Logger.Error("sync", zap.String("peer", from.String()), zap.String("id", base64.RawURLEncoding.EncodeToString(msg.Data)), zap.Error(err))
+	}
+	return
+}
+
+func (g *Gossiper) didReceiveSync(from id.Signatory, msg wire.Msg) {
+	_, alreadySeenContent := g.resolver.Content(msg.Data)
+	if alreadySeenContent {
+		return
+	}
+	if len(msg.Data) == 0 || len(msg.SyncData) == 0 {
+		return
+	}
+
+	// We are relying on the correctness of the channel filtering to ensure that
+	// no synchronisation messages reach the gossiper unless the gossiper (or
+	// the synchroniser) have allowed them.
+	g.resolver.Insert(msg.Data, msg.SyncData)
+
+	g.subnetsMu.Lock()
+	subnet, ok := g.subnets[string(msg.Data)]
+	g.subnetsMu.Unlock()
+
+	if !ok {
+		// The gossip has taken too long, and the subnet was removed from the
+		// map to preseve memory. Gossiping cannot continue.
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), g.opts.Timeout)
+	defer cancel()
+
+	g.Gossip(ctx, msg.Data, &subnet)
 }

@@ -4,26 +4,24 @@ import (
 	"sync"
 )
 
-type ContentID []byte
-
 // A ContentResolver interface allows for third-party content resolution. This
 // can be used to persist content to the disk.
 type ContentResolver interface {
 	// Insert content with the given hash and type.
-	Insert(ContentID, []byte)
+	Insert([]byte, []byte)
 
 	// Delete content with the given hash and type.
-	Delete(ContentID)
+	Delete([]byte)
 
 	// Content returns the content associated with a hash. If there is no
 	// associated content, it returns false. Otherwise, it returns true.
-	Content(ContentID) ([]byte, bool)
+	Content([]byte) ([]byte, bool)
 }
 
 var (
 	// DefaultDoubleCacheContentResolverCapacity defines the default in-memory
 	// cache capacity (in bytes) for the double-cache content resolver.
-	DefaultDoubleCacheContentResolverCapacity = 128 * 1024 * 1024 // 128 MB
+	DefaultDoubleCacheContentResolverCapacity = 16 * 1024 * 1024 // 16 MB
 )
 
 // DoubleCacheContentResolverOptions for parameterising the behaviour of the
@@ -82,7 +80,7 @@ func NewDoubleCacheContentResolver(opts DoubleCacheContentResolverOptions, next 
 // full, it will be rotated to the back, the current back cache will be dropped,
 // and a new front cache will be created. This method will also insert the
 // content to the next content resovler (if one exists).
-func (r *DoubleCacheContentResolver) Insert(id ContentID, content []byte) {
+func (r *DoubleCacheContentResolver) Insert(id, content []byte) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 
@@ -114,7 +112,7 @@ func (r *DoubleCacheContentResolver) Insert(id ContentID, content []byte) {
 
 // Delete content from the double-cache content resolver. This method will also
 // delete the content from the next content resolver (if one exists).
-func (r *DoubleCacheContentResolver) Delete(id ContentID) {
+func (r *DoubleCacheContentResolver) Delete(id []byte) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 
@@ -134,7 +132,7 @@ func (r *DoubleCacheContentResolver) Delete(id ContentID) {
 // Content returns the content associated with the given hash. If the content is
 // not found in the double-cache content resolver, the next content resolver
 // will be checked (if one exists).
-func (r *DoubleCacheContentResolver) Content(id ContentID) ([]byte, bool) {
+func (r *DoubleCacheContentResolver) Content(id []byte) ([]byte, bool) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 
@@ -157,14 +155,14 @@ func (r *DoubleCacheContentResolver) Content(id ContentID) ([]byte, bool) {
 // all logic to callback functions. This is useful when defining an
 // implementation inline.
 type CallbackContentResolver struct {
-	InsertCallback  func(ContentID, []byte)
-	DeleteCallback  func(ContentID)
-	ContentCallback func(ContentID) ([]byte, bool)
+	InsertCallback  func([]byte, []byte)
+	DeleteCallback  func([]byte)
+	ContentCallback func([]byte) ([]byte, bool)
 }
 
 // Insert will delegate the implementation to the InsertCallback. If the
 // callback is nil, then this method will do nothing.
-func (r CallbackContentResolver) Insert(id ContentID, content []byte) {
+func (r CallbackContentResolver) Insert(id, content []byte) {
 	if r.InsertCallback != nil {
 		r.InsertCallback(id, content)
 	}
@@ -172,7 +170,7 @@ func (r CallbackContentResolver) Insert(id ContentID, content []byte) {
 
 // Delete will delegate the implementation to the DeleteCallback. If the
 // callback is nil, then this method will do nothing.
-func (r CallbackContentResolver) Delete(id ContentID) {
+func (r CallbackContentResolver) Delete(id []byte) {
 	if r.DeleteCallback != nil {
 		r.DeleteCallback(id)
 	}
@@ -180,7 +178,7 @@ func (r CallbackContentResolver) Delete(id ContentID) {
 
 // Content will delegate the implementation to the ContentCallback. If the
 // callback is nil, then this method will return false.
-func (r CallbackContentResolver) Content(id ContentID) ([]byte, bool) {
+func (r CallbackContentResolver) Content(id []byte) ([]byte, bool) {
 	if r.ContentCallback != nil {
 		return r.ContentCallback(id)
 	}
