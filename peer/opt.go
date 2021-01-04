@@ -82,6 +82,7 @@ func DefaultDiscoveryOptions() DiscoveryOptions {
 type Options struct {
 	SyncerOptions
 	GossiperOptions
+	DiscoveryOptions
 
 	Logger  *zap.Logger
 	PrivKey *id.PrivKey
@@ -96,6 +97,7 @@ func DefaultOptions() Options {
 	return Options{
 		SyncerOptions:   DefaultSyncerOptions(),
 		GossiperOptions: DefaultGossiperOptions(),
+		DiscoveryOptions: DefaultDiscoveryOptions(),
 
 		Logger:  logger,
 		PrivKey: privKey,

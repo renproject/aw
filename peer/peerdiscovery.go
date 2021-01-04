@@ -90,14 +90,13 @@ func (dc *DiscoveryClient) DiscoverPeers(ctx context.Context) {
 	}()
 }
 
-func (dc *DiscoveryClient) DidReceiveMessage(from id.Signatory, msg wire.Msg) error {
+func (dc *DiscoveryClient) DidReceiveMessage(from id.Signatory, msg wire.Msg) {
 	switch msg.Type {
 	case wire.MsgTypePing:
 		dc.didReceivePing(from, msg)
 	case wire.MsgTypePingAck:
 		dc.didReceivePingAck(from, msg)
 	}
-	return nil
 }
 
 func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) {
