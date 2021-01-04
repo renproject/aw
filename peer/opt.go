@@ -59,6 +59,26 @@ func DefaultGossiperOptions() GossiperOptions {
 	}
 }
 
+type DiscoveryOptions struct {
+	Logger  *zap.Logger
+	Alpha   int
+	MaxExpectedPeers int
+	PingTimePeriod time.Duration
+}
+
+func DefaultDiscoveryOptions() DiscoveryOptions {
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		panic(err)
+	}
+	return DiscoveryOptions{
+		Logger:  logger,
+		Alpha:   DefaultAlpha,
+		MaxExpectedPeers: DefaultAlpha,
+		PingTimePeriod: DefaultTimeout,
+	}
+}
+
 type Options struct {
 	SyncerOptions
 	GossiperOptions
