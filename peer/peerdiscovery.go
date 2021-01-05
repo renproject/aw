@@ -68,13 +68,15 @@ func (dc *DiscoveryClient) DiscoverPeers(ctx context.Context) {
 	}
 
 	go func() {
-		var expNumPeerBuf [8]byte
+		var pingData [16]byte
 		for {
-			binary.LittleEndian.PutUint64(expNumPeerBuf[:], uint64(maxExpectedPeers))
+			binary.LittleEndian.PutUint64(pingData[:8], uint64(maxExpectedPeers))
+			binary.LittleEndian.PutUint64(pingData[8:], uint64(dc.transport.Port()))
+
 			msg := wire.Msg{
 				Version: wire.MsgVersion1,
 				Type:    wire.MsgTypePing,
-				Data:    expNumPeerBuf[:],
+				Data:    pingData[:],
 			}
 
 			for _, sig := range dc.transport.Table().Peers(dc.opts.Alpha) {
@@ -105,11 +107,15 @@ func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) {
 
 	var addressBuf [1024]byte
 	addressByteSlice := addressBuf[:0]
-	expNumPeer := int(binary.LittleEndian.Uint64(msg.Data[:]))
+	expNumPeer := int(binary.LittleEndian.Uint64(msg.Data[:8]))
+	port := uint16(binary.LittleEndian.Uint64(msg.Data[8:]))
+	ipAddr, _ := dc.transport.Table().IP(from)
+	dc.transport.Table().AddPeer(
+		from,
+		wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", ipAddr, port), uint64(time.Now().UnixNano())),
+		)
 
 	peers := dc.transport.Table().Peers(expNumPeer)
-	peers = append(peers, dc.transport.Self())
-
 	for _, sig := range peers {
 		var addrAndSig [128]byte
 		addrAndSigSlice := addrAndSig[:]
