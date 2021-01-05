@@ -26,6 +26,9 @@ type Table interface {
 	// PeerAddress returns the network address associated with the given peer.
 	PeerAddress(id.Signatory) (wire.Address, bool)
 
+	RegisterIP(id.Signatory, string)
+	IP(id.Signatory) (string, bool)
+
 	// Peers returns the n closest peers to the local peer, using XORing as the
 	// measure of distance between two peers.
 	Peers(int) []id.Signatory
@@ -54,6 +57,9 @@ type InMemTable struct {
 	addrsBySignatoryMu *sync.Mutex
 	addrsBySignatory   map[id.Signatory]wire.Address
 
+	ipBySignatoryMu *sync.Mutex
+	ipBySignatory map[id.Signatory]string
+
 	subnetsByHashMu *sync.Mutex
 	subnetsByHash   map[id.Hash][]id.Signatory
 }
@@ -67,6 +73,9 @@ func NewInMemTable(self id.Signatory) *InMemTable {
 
 		addrsBySignatoryMu: new(sync.Mutex),
 		addrsBySignatory:   map[id.Signatory]wire.Address{},
+
+		ipBySignatoryMu: new(sync.Mutex),
+		ipBySignatory:   map[id.Signatory]string{},
 
 		subnetsByHashMu: new(sync.Mutex),
 		subnetsByHash:   map[id.Hash][]id.Signatory{},
@@ -84,7 +93,7 @@ func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr wire.Address) {
 	defer table.sortedMu.Unlock()
 	defer table.addrsBySignatoryMu.Unlock()
 
-	if peerID.Equal(&table.self) {
+	if _, ok := table.addrsBySignatory[peerID]; ok && peerID.Equal(&table.self) {
 		return
 	}
 
@@ -129,6 +138,20 @@ func (table *InMemTable) PeerAddress(peerID id.Signatory) (wire.Address, bool) {
 
 	addr, ok := table.addrsBySignatory[peerID]
 	return addr, ok
+}
+
+func  (table *InMemTable) RegisterIP(peerID id.Signatory, ipAddress string) {
+	table.ipBySignatoryMu.Lock()
+	defer table.ipBySignatoryMu.Unlock()
+
+	table.ipBySignatory[peerID] = ipAddress
+}
+func (table *InMemTable) IP(peerID id.Signatory) (string, bool) {
+	table.ipBySignatoryMu.Lock()
+	defer table.ipBySignatoryMu.Unlock()
+
+	ip, ok := table.ipBySignatory[peerID]
+	return ip, ok
 }
 
 // Peers returns the n closest peer IDs.
