@@ -38,6 +38,7 @@ func New(opts Options, transport *transport.Transport, contentResolver dht.Conte
 		transport: transport,
 		syncer:    NewSyncer(opts.SyncerOptions, filter, transport),
 		gossiper:  NewGossiper(opts.GossiperOptions, filter, transport, contentResolver),
+		discoveryClient: NewDiscoveryClient(opts.DiscoveryOptions, transport, contentResolver),
 	}
 }
 
@@ -67,6 +68,10 @@ func (p *Peer) Sync(ctx context.Context, contentID []byte, hint *id.Signatory) (
 
 func (p *Peer) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash) {
 	p.gossiper.Gossip(ctx, contentID, subnet)
+}
+
+func (p *Peer) PeerDiscovery(ctx context.Context) {
+	p.discoveryClient.DiscoverPeers(ctx)
 }
 
 func (p *Peer) Run(ctx context.Context) {
