@@ -69,16 +69,15 @@ func (dc *DiscoveryClient) DiscoverPeers(ctx context.Context) {
 
 	go func() {
 		var pingData [16]byte
+		binary.LittleEndian.PutUint64(pingData[:8], uint64(maxExpectedPeers))
+		binary.LittleEndian.PutUint64(pingData[8:], uint64(dc.transport.Port()))
+
+		msg := wire.Msg{
+			Version: wire.MsgVersion1,
+			Type:    wire.MsgTypePing,
+			Data:    pingData[:],
+		}
 		for {
-			binary.LittleEndian.PutUint64(pingData[:8], uint64(maxExpectedPeers))
-			binary.LittleEndian.PutUint64(pingData[8:], uint64(dc.transport.Port()))
-
-			msg := wire.Msg{
-				Version: wire.MsgVersion1,
-				Type:    wire.MsgTypePing,
-				Data:    pingData[:],
-			}
-
 			for _, sig := range dc.transport.Table().Peers(dc.opts.Alpha) {
 				msg.To = id.Hash(sig)
 				err := dc.transport.Send(ctx, sig, msg)
