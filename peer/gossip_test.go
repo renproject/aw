@@ -12,9 +12,9 @@ import (
 	"github.com/renproject/aw/transport"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
+	"go.uber.org/zap"
 
 	. "github.com/onsi/ginkgo"
-	"go.uber.org/zap"
 )
 
 func setup(numPeers int) ([]peer.Options, []*peer.Peer, []dht.Table, []dht.ContentResolver, []*channel.Client, []*transport.Transport) {
@@ -58,8 +58,8 @@ func setup(numPeers int) ([]peer.Options, []*peer.Peer, []dht.Table, []dht.Conte
 			tables[i])
 		peers[i] = peer.New(
 			opts[i],
-			transports[i],
-			contentResolvers[i])
+			transports[i])
+		peers[i].Resolve(context.Background(), contentResolvers[i])
 	}
 	return opts, peers, tables, contentResolvers, clients, transports
 }
@@ -87,7 +87,7 @@ var _ = Describe("Gossip", func() {
 				})
 			}
 			for i := range peers {
-				ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				go peers[i].Run(ctx)
 				tables[i].AddPeer(opts[(i+1)%n].PrivKey.Signatory(),
@@ -100,12 +100,12 @@ var _ = Describe("Gossip", func() {
 			for i := range peers {
 				msgHello := fmt.Sprintf("Hi from %v", peers[i].ID().String())
 				contentID := id.NewHash([]byte(msgHello))
-				contentResolvers[i].Insert(contentID[:], []byte(msgHello))
-				ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
+				contentResolvers[i].InsertContent(contentID[:], []byte(msgHello))
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				peers[i].Gossip(ctx, contentID[:], &peer.DefaultSubnet)
 			}
-			<-time.After(5*time.Second)
+			<-time.After(5 * time.Second)
 		})
 	})
 })
