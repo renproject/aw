@@ -44,6 +44,18 @@ func (p *Peer) ID() id.Signatory {
 	return p.opts.PrivKey.Signatory()
 }
 
+func (p *Peer) Syncer() *Syncer {
+	return p.syncer
+}
+
+func (p *Peer) Gossiper() *Gossiper {
+	return p.gossiper
+}
+
+func (p *Peer) Transport() *transport.Transport {
+	return p.transport
+}
+
 func (p *Peer) Link(remote id.Signatory) {
 	p.transport.Link(remote)
 }
