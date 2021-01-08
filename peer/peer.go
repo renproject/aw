@@ -31,19 +31,31 @@ type Peer struct {
 	discoveryClient *DiscoveryClient
 }
 
-func New(opts Options, transport *transport.Transport, contentResolver dht.ContentResolver) *Peer {
+func New(opts Options, transport *transport.Transport) *Peer {
 	filter := channel.NewSyncFilter()
 	return &Peer{
 		opts:      opts,
 		transport: transport,
 		syncer:    NewSyncer(opts.SyncerOptions, filter, transport),
-		gossiper:  NewGossiper(opts.GossiperOptions, filter, transport, contentResolver),
+		gossiper:  NewGossiper(opts.GossiperOptions, filter, transport),
 		discoveryClient: NewDiscoveryClient(opts.DiscoveryOptions, transport, contentResolver),
 	}
 }
 
 func (p *Peer) ID() id.Signatory {
 	return p.opts.PrivKey.Signatory()
+}
+
+func (p *Peer) Syncer() *Syncer {
+	return p.syncer
+}
+
+func (p *Peer) Gossiper() *Gossiper {
+	return p.gossiper
+}
+
+func (p *Peer) Transport() *transport.Transport {
+	return p.transport
 }
 
 func (p *Peer) Link(remote id.Signatory) {
@@ -93,4 +105,8 @@ func (p *Peer) Run(ctx context.Context) {
 
 func (p *Peer) Receive(ctx context.Context, f func(id.Signatory, wire.Msg) error) {
 	p.transport.Receive(ctx, f)
+}
+
+func (p *Peer) Resolve(ctx context.Context, contentResolver dht.ContentResolver) {
+	p.gossiper.Resolve(contentResolver)
 }

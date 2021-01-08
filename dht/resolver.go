@@ -4,18 +4,15 @@ import (
 	"sync"
 )
 
-// A ContentResolver interface allows for third-party content resolution. This
-// can be used to persist content to the disk.
+// The ContentResolver interface is used to insert and query content.
 type ContentResolver interface {
-	// Insert content with the given hash and type.
-	Insert([]byte, []byte)
+	// Insert content with a specific content ID. Usually, the content ID will
+	// stores information about the type and the hash of the content.
+	InsertContent(contentID, content []byte)
 
-	// Delete content with the given hash and type.
-	Delete([]byte)
-
-	// Content returns the content associated with a hash. If there is no
-	// associated content, it returns false. Otherwise, it returns true.
-	Content([]byte) ([]byte, bool)
+	// QueryContent returns the content associated with a content ID. If there
+	// is no associated content, it returns false. Otherwise, it returns true.
+	QueryContent(contentID []byte) (content []byte, contentOk bool)
 }
 
 var (
@@ -76,18 +73,18 @@ func NewDoubleCacheContentResolver(opts DoubleCacheContentResolverOptions, next 
 	}
 }
 
-// Insert content into the double-cache content resolver. If the front cache is
+// InsertContent into the double-cache content resolver. If the front cache is
 // full, it will be rotated to the back, the current back cache will be dropped,
 // and a new front cache will be created. This method will also insert the
 // content to the next content resovler (if one exists).
-func (r *DoubleCacheContentResolver) Insert(id, content []byte) {
+func (r *DoubleCacheContentResolver) InsertContent(id, content []byte) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 
 	// We cannot cache something that is greater than the maximum capacity.
 	if len(content) > r.opts.Capacity {
 		if r.next != nil {
-			r.next.Insert(id, content)
+			r.next.InsertContent(id, content)
 		}
 		return
 	}
@@ -106,33 +103,14 @@ func (r *DoubleCacheContentResolver) Insert(id, content []byte) {
 	r.cacheFront[string(id)] = content
 
 	if r.next != nil {
-		r.next.Insert(id, content)
+		r.next.InsertContent(id, content)
 	}
 }
 
-// Delete content from the double-cache content resolver. This method will also
-// delete the content from the next content resolver (if one exists).
-func (r *DoubleCacheContentResolver) Delete(id []byte) {
-	r.cacheMu.Lock()
-	defer r.cacheMu.Unlock()
-
-	// Delete the content from both caches and the next resolver (if it
-	// exists).
-	if content, ok := r.cacheFront[string(id)]; ok {
-		r.cacheFrontSize -= len(content)
-		delete(r.cacheFront, string(id))
-	}
-	delete(r.cacheBack, string(id))
-
-	if r.next != nil {
-		r.next.Delete(id)
-	}
-}
-
-// Content returns the content associated with the given hash. If the content is
-// not found in the double-cache content resolver, the next content resolver
-// will be checked (if one exists).
-func (r *DoubleCacheContentResolver) Content(id []byte) ([]byte, bool) {
+// QueryContent returns the content associated with the given content ID. If the
+// content is not found in the double-cache content resolver, the next content
+// resolver will be checked (if one exists).
+func (r *DoubleCacheContentResolver) QueryContent(id []byte) ([]byte, bool) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 
@@ -146,7 +124,7 @@ func (r *DoubleCacheContentResolver) Content(id []byte) ([]byte, bool) {
 
 	// If the content has not been found, check the next resolver.
 	if r.next != nil {
-		return r.next.Content(id)
+		return r.next.QueryContent(id)
 	}
 	return nil, false
 }
@@ -155,32 +133,23 @@ func (r *DoubleCacheContentResolver) Content(id []byte) ([]byte, bool) {
 // all logic to callback functions. This is useful when defining an
 // implementation inline.
 type CallbackContentResolver struct {
-	InsertCallback  func([]byte, []byte)
-	DeleteCallback  func([]byte)
-	ContentCallback func([]byte) ([]byte, bool)
+	InsertContentCallback func([]byte, []byte)
+	QueryContentCallback  func([]byte) ([]byte, bool)
 }
 
-// Insert will delegate the implementation to the InsertCallback. If the
-// callback is nil, then this method will do nothing.
-func (r CallbackContentResolver) Insert(id, content []byte) {
-	if r.InsertCallback != nil {
-		r.InsertCallback(id, content)
+// InsertContent will delegate the implementation to the InsertContentCallback.
+// If the callback is nil, then this method will do nothing.
+func (r CallbackContentResolver) InsertContent(id, content []byte) {
+	if r.InsertContentCallback != nil {
+		r.InsertContentCallback(id, content)
 	}
 }
 
-// Delete will delegate the implementation to the DeleteCallback. If the
-// callback is nil, then this method will do nothing.
-func (r CallbackContentResolver) Delete(id []byte) {
-	if r.DeleteCallback != nil {
-		r.DeleteCallback(id)
-	}
-}
-
-// Content will delegate the implementation to the ContentCallback. If the
-// callback is nil, then this method will return false.
-func (r CallbackContentResolver) Content(id []byte) ([]byte, bool) {
-	if r.ContentCallback != nil {
-		return r.ContentCallback(id)
+// QueryContent will delegate the implementation to the QueryContentCallback. If
+// the callback is nil, then this method will return false.
+func (r CallbackContentResolver) QueryContent(id []byte) ([]byte, bool) {
+	if r.QueryContentCallback != nil {
+		return r.QueryContentCallback(id)
 	}
 	return nil, false
 }

@@ -19,23 +19,34 @@ type Gossiper struct {
 
 	filter    *channel.SyncFilter
 	transport *transport.Transport
-	resolver  dht.ContentResolver
 
 	subnetsMu *sync.Mutex
 	subnets   map[string]id.Hash
+
+	resolverMu *sync.RWMutex
+	resolver   dht.ContentResolver
 }
 
-func NewGossiper(opts GossiperOptions, filter *channel.SyncFilter, transport *transport.Transport, resolver dht.ContentResolver) *Gossiper {
+func NewGossiper(opts GossiperOptions, filter *channel.SyncFilter, transport *transport.Transport) *Gossiper {
 	return &Gossiper{
 		opts: opts,
 
 		filter:    filter,
 		transport: transport,
-		resolver:  resolver,
 
 		subnetsMu: new(sync.Mutex),
 		subnets:   make(map[string]id.Hash, 1024),
+
+		resolverMu: new(sync.RWMutex),
+		resolver:   nil,
 	}
+}
+
+func (g *Gossiper) Resolve(resolver dht.ContentResolver) {
+	g.resolverMu.Lock()
+	defer g.resolverMu.Unlock()
+
+	g.resolver = resolver
 }
 
 func (g *Gossiper) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash) {
@@ -79,9 +90,19 @@ func (g *Gossiper) didReceivePush(from id.Signatory, msg wire.Msg) {
 	if len(msg.Data) == 0 {
 		return
 	}
-	if _, ok := g.resolver.Content(msg.Data); ok {
+
+	// Check whether the content is already known. This can cause performance
+	// bottle-necks if the content resolver is slow.
+	g.resolverMu.RLock()
+	if g.resolver == nil {
+		g.resolverMu.RUnlock()
 		return
 	}
+	if _, ok := g.resolver.QueryContent(msg.Data); ok {
+		g.resolverMu.RUnlock()
+		return
+	}
+	g.resolverMu.RUnlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), g.opts.Timeout)
 
@@ -117,7 +138,6 @@ func (g *Gossiper) didReceivePush(from id.Signatory, msg wire.Msg) {
 		To:      id.Hash(from),
 		Data:    msg.Data,
 	}); err != nil {
-		g.resolver.Delete(msg.Data)
 		g.opts.Logger.Error("pull", zap.String("peer", from.String()), zap.String("id", base64.RawURLEncoding.EncodeToString(msg.Data)), zap.Error(err))
 		return
 	}
@@ -128,8 +148,18 @@ func (g *Gossiper) didReceivePull(from id.Signatory, msg wire.Msg) {
 		return
 	}
 
-	content, ok := g.resolver.Content(msg.Data)
-	if !ok {
+	var content []byte
+	var contentOk bool
+	func() {
+		g.resolverMu.RLock()
+		defer g.resolverMu.RUnlock()
+
+		if g.resolver == nil {
+			return
+		}
+		content, contentOk = g.resolver.QueryContent(msg.Data)
+	}()
+	if !contentOk {
 		g.opts.Logger.Debug("content not found", zap.String("peer", from.String()), zap.String("id", base64.RawURLEncoding.EncodeToString(msg.Data)))
 		return
 	}
@@ -150,18 +180,27 @@ func (g *Gossiper) didReceivePull(from id.Signatory, msg wire.Msg) {
 }
 
 func (g *Gossiper) didReceiveSync(from id.Signatory, msg wire.Msg) {
-	_, alreadySeenContent := g.resolver.Content(msg.Data)
+	g.resolverMu.RLock()
+	if g.resolver == nil {
+		g.resolverMu.RUnlock()
+		return
+	}
+
+	_, alreadySeenContent := g.resolver.QueryContent(msg.Data)
 	if alreadySeenContent {
+		g.resolverMu.RUnlock()
 		return
 	}
 	if len(msg.Data) == 0 || len(msg.SyncData) == 0 {
+		g.resolverMu.RUnlock()
 		return
 	}
 
 	// We are relying on the correctness of the channel filtering to ensure that
 	// no synchronisation messages reach the gossiper unless the gossiper (or
 	// the synchroniser) have allowed them.
-	g.resolver.Insert(msg.Data, msg.SyncData)
+	g.resolver.InsertContent(msg.Data, msg.SyncData)
+	g.resolverMu.RUnlock()
 
 	g.subnetsMu.Lock()
 	subnet, ok := g.subnets[string(msg.Data)]

@@ -62,12 +62,12 @@ func main() {
 			tables[i])
 		peers[i] = peer.New(
 			opts[i],
-			transports[i],
-			contentResolver)
+			transports[i])
 		peers[i].Receive(context.Background(), func(from id.Signatory, msg wire.Msg) error {
 			fmt.Printf("%4v: received \"%v\" from %4v\n", opts[i].PrivKey.Signatory(), string(msg.Data), from)
 			return nil
 		})
+		peers[i].Resolve(context.Background(), contentResolver)
 		go func(i int) {
 			for {
 				// Randomly crash peers.

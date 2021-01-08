@@ -1,1 +1,4 @@
 package chatroom
+
+func main() {
+}

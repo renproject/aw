@@ -32,7 +32,7 @@ var _ = Describe("Peer", func() {
 
 			helloMsg := "Hi from peer 0"
 			contentID := id.NewHash([]byte(helloMsg))
-			contentResolvers[0].Insert(contentID[:], []byte(helloMsg))
+			contentResolvers[0].InsertContent(contentID[:], []byte(helloMsg))
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
