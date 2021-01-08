@@ -283,7 +283,6 @@ func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAd
 
 	for {
 		dialCtx, cancel := context.WithTimeout(context.Background(), t.opts.ClientTimeout)
-		defer cancel()
 
 		t.opts.Logger.Debug("dialing", zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()))
 
@@ -338,10 +337,14 @@ func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAd
 			case <-retryCtx.Done():
 			case <-dialCtx.Done():
 				if !t.IsConnected(remote) {
+					// Cancel current dial context if restarting loop
+					cancel()
 					continue
 				}
 			}
 		}
+		// Cancel last dial context before exiting
+		cancel()
 		return
 	}
 }
