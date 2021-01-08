@@ -38,7 +38,7 @@ func New(opts Options, transport *transport.Transport) *Peer {
 		transport: transport,
 		syncer:    NewSyncer(opts.SyncerOptions, filter, transport),
 		gossiper:  NewGossiper(opts.GossiperOptions, filter, transport),
-		discoveryClient: NewDiscoveryClient(opts.DiscoveryOptions, transport, contentResolver),
+		discoveryClient: NewDiscoveryClient(opts.DiscoveryOptions, transport),
 	}
 }
 

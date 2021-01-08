@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/transport"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
@@ -46,15 +45,13 @@ type DiscoveryClient struct {
 	opts DiscoveryOptions
 
 	transport *transport.Transport
-	resolver dht.ContentResolver
 }
 
-func NewDiscoveryClient(opts DiscoveryOptions, transport *transport.Transport, resolver dht.ContentResolver) *DiscoveryClient {
+func NewDiscoveryClient(opts DiscoveryOptions, transport *transport.Transport) *DiscoveryClient {
 	return &DiscoveryClient{
 		opts: opts,
 
 		transport: transport,
-		resolver:  resolver,
 	}
 }
 
