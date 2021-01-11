@@ -141,8 +141,20 @@ func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) {
 
 func (dc *DiscoveryClient) didReceivePingAck(from id.Signatory, msg wire.Msg) {
 	var sigAndAddr SignatoryAndAddress
+	var sigAndAddrArray [50]SignatoryAndAddress
+	sigAndAddrSlice := sigAndAddrArray[:0]
+
+	if cap(sigAndAddrArray) > dc.opts.MaxExpectedPeers {
+		sigAndAddrSlice = make([]SignatoryAndAddress, 0, dc.opts.MaxExpectedPeers)
+	}
+
 	dataLeft := msg.Data
+	count := 0
 	for len(dataLeft) > 0 {
+		count++
+		if count > dc.opts.MaxExpectedPeers {
+			return
+		}
 		tail, _, err := sigAndAddr.Unmarshal(dataLeft, len(dataLeft))
 		dataLeft = tail
 		if err != nil {
@@ -150,7 +162,12 @@ func (dc *DiscoveryClient) didReceivePingAck(from id.Signatory, msg wire.Msg) {
 			break
 		}
 
-		dc.transport.Table().AddPeer(sigAndAddr.Signatory, sigAndAddr.Address)
+		sigAndAddrSlice = append(sigAndAddrSlice, sigAndAddr)
 		sigAndAddr = SignatoryAndAddress{}
 	}
+
+	for _, x := range sigAndAddrSlice {
+		dc.transport.Table().AddPeer(x.Signatory, x.Address)
+	}
+
 }
