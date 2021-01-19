@@ -56,17 +56,8 @@ func NewDiscoveryClient(opts DiscoveryOptions, transport *transport.Transport) *
 }
 
 func (dc *DiscoveryClient) DiscoverPeers(ctx context.Context) {
-	var maxExpectedPeers int
-	if dc.opts.MaxExpectedPeers <= 0  {
-		dc.opts.Logger.Debug("pinging", zap.String("max expected peers cannot be less than 1", "setting to default - 5"))
-		maxExpectedPeers = 5
-	} else {
-		maxExpectedPeers = dc.opts.MaxExpectedPeers
-	}
-
-	var pingData [10]byte
-	binary.LittleEndian.PutUint64(pingData[:8], uint64(maxExpectedPeers))
-	binary.LittleEndian.PutUint16(pingData[8:], dc.transport.Port())
+	var pingData [2]byte
+	binary.LittleEndian.PutUint16(pingData[:], dc.transport.Port())
 
 	msg := wire.Msg{
 		Version: wire.MsgVersion1,
@@ -112,15 +103,14 @@ func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) error
 
 	var addressBuf [1024]byte
 	addressByteSlice := addressBuf[:0]
-	expNumPeer := int(binary.LittleEndian.Uint64(msg.Data[:8]))
-	port := uint16(binary.LittleEndian.Uint64(msg.Data[8:]))
+	port := binary.LittleEndian.Uint16(msg.Data)
 	ipAddr, _ := dc.transport.Table().IP(from)
 	dc.transport.Table().AddPeer(
 		from,
 		wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", ipAddr, port), uint64(time.Now().UnixNano())),
 		)
 
-	peers := dc.transport.Table().Peers(expNumPeer)
+	peers := dc.transport.Table().Peers(dc.opts.MaxExpectedPeers)
 	for _, sig := range peers {
 		var addrAndSig [128]byte
 		addrAndSigSlice := addrAndSig[:]
