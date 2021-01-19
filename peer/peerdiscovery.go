@@ -92,16 +92,21 @@ func (dc *DiscoveryClient) DiscoverPeers(ctx context.Context) {
 	}
 }
 
-func (dc *DiscoveryClient) DidReceiveMessage(from id.Signatory, msg wire.Msg) {
+func (dc *DiscoveryClient) DidReceiveMessage(from id.Signatory, msg wire.Msg) error {
 	switch msg.Type {
 	case wire.MsgTypePing:
-		dc.didReceivePing(from, msg)
+		if err := dc.didReceivePing(from, msg); err != nil {
+			return err
+		}
 	case wire.MsgTypePingAck:
-		dc.didReceivePingAck(from, msg)
+		if err := dc.didReceivePingAck(from, msg); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) {
+func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -141,9 +146,10 @@ func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) {
 	if err != nil {
 		dc.opts.Logger.Debug("sending pingAck", zap.Error(err))
 	}
+	return nil
 }
 
-func (dc *DiscoveryClient) didReceivePingAck(from id.Signatory, msg wire.Msg) {
+func (dc *DiscoveryClient) didReceivePingAck(from id.Signatory, msg wire.Msg) error {
 	var sigAndAddr SignatoryAndAddress
 	var sigAndAddrArray [50]SignatoryAndAddress
 	sigAndAddrSlice := sigAndAddrArray[:0]
@@ -157,7 +163,7 @@ func (dc *DiscoveryClient) didReceivePingAck(from id.Signatory, msg wire.Msg) {
 	for len(dataLeft) > 0 {
 		count++
 		if count > dc.opts.MaxExpectedPeers {
-			return
+			return nil
 		}
 		tail, _, err := sigAndAddr.Unmarshal(dataLeft, len(dataLeft))
 		dataLeft = tail
@@ -173,5 +179,5 @@ func (dc *DiscoveryClient) didReceivePingAck(from id.Signatory, msg wire.Msg) {
 	for _, x := range sigAndAddrSlice {
 		dc.transport.Table().AddPeer(x.Signatory, x.Address)
 	}
-
+	return nil
 }
