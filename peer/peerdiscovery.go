@@ -64,28 +64,32 @@ func (dc *DiscoveryClient) DiscoverPeers(ctx context.Context) {
 		maxExpectedPeers = dc.opts.MaxExpectedPeers
 	}
 
-	go func() {
-		var pingData [16]byte
-		binary.LittleEndian.PutUint64(pingData[:8], uint64(maxExpectedPeers))
-		binary.LittleEndian.PutUint64(pingData[8:], uint64(dc.transport.Port()))
+	var pingData [10]byte
+	binary.LittleEndian.PutUint64(pingData[:8], uint64(maxExpectedPeers))
+	binary.LittleEndian.PutUint16(pingData[8:], dc.transport.Port())
 
-		msg := wire.Msg{
-			Version: wire.MsgVersion1,
-			Type:    wire.MsgTypePing,
-			Data:    pingData[:],
-		}
-		for {
-			for _, sig := range dc.transport.Table().Peers(dc.opts.Alpha) {
-				msg.To = id.Hash(sig)
-				err := dc.transport.Send(ctx, sig, msg)
-				if err != nil {
-					dc.opts.Logger.Debug("pinging", zap.Error(err))
-					dc.transport.Table().DeletePeer(sig)
-				}
+	msg := wire.Msg{
+		Version: wire.MsgVersion1,
+		Type:    wire.MsgTypePing,
+		Data:    pingData[:],
+	}
+
+	ticker := time.NewTicker(dc.opts.PingTimePeriod)
+	for {
+		for _, sig := range dc.transport.Table().Peers(dc.opts.Alpha) {
+			msg.To = id.Hash(sig)
+			err := dc.transport.Send(ctx, sig, msg)
+			if err != nil {
+				dc.opts.Logger.Debug("pinging", zap.Error(err))
+				dc.transport.Table().DeletePeer(sig)
 			}
-			<-time.After(dc.opts.PingTimePeriod)
 		}
-	}()
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 func (dc *DiscoveryClient) DidReceiveMessage(from id.Signatory, msg wire.Msg) {
