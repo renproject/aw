@@ -28,6 +28,10 @@ func Listen(ctx context.Context, address string, handle func(net.Conn), handleEr
 		}
 	}()
 
+	if handle == nil {
+		return fmt.Errorf("nil handle function")
+	}
+
 	if handleErr == nil {
 		handleErr = func(err error) {}
 	}
@@ -87,12 +91,12 @@ func Listen(ctx context.Context, address string, handle func(net.Conn), handleEr
 func Dial(ctx context.Context, address string, handle func(net.Conn), handleErr func(error), timeout func(int) time.Duration) error {
 	dialer := new(net.Dialer)
 
-	if handleErr == nil {
-		handleErr = func(error) {}
+	if handle == nil {
+		return fmt.Errorf("nil handle function")
 	}
 
-	if handle == nil {
-		handle = func(net.Conn) {}
+	if handleErr == nil {
+		handleErr = func(error) {}
 	}
 
 	if timeout == nil {
