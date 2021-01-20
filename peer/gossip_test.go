@@ -50,11 +50,11 @@ var _ = Describe("Gossip", func() {
 				msgHello := fmt.Sprintf("Hi from %v", peers[i].ID().String())
 				contentID := id.NewHash([]byte(msgHello))
 				contentResolvers[i].InsertContent(contentID[:], []byte(msgHello))
-				ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				peers[i].Gossip(ctx, contentID[:], &peer.DefaultSubnet)
 			}
-			<-time.After(4 * time.Second)
+			<-time.After(5 * time.Second)
 			for i := range peers {
 				for j := range peers {
 					msgHello := fmt.Sprintf("Hi from %v", peers[j].ID().String())
