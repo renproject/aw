@@ -104,7 +104,10 @@ func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) error
 	var addressBuf [1024]byte
 	addressByteSlice := addressBuf[:0]
 	port := binary.LittleEndian.Uint16(msg.Data)
-	ipAddr, _ := dc.transport.Table().IP(from)
+	ipAddr, ipAddrOk := dc.transport.Table().IP(from)
+	if !ipAddrOk {
+		return fmt.Errorf("ip address for remote peer not found")
+	}
 	dc.transport.Table().AddPeer(
 		from,
 		wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", ipAddr, port), uint64(time.Now().UnixNano())),
