@@ -93,7 +93,7 @@ func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr wire.Address) {
 	defer table.sortedMu.Unlock()
 	defer table.addrsBySignatoryMu.Unlock()
 
-	if _, ok := table.addrsBySignatory[peerID]; ok && peerID.Equal(&table.self) {
+	if _, ok := table.addrsBySignatory[peerID]; ok {
 		return
 	}
 
