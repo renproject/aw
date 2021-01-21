@@ -117,8 +117,8 @@ var _ = Describe("Client", func() {
 			defer remote.Unbind(localPrivKey.Signatory())
 			Expect(remote.IsBound(localPrivKey.Signatory())).To(BeTrue())
 
-			listen(ctx, remote, remotePrivKey.Signatory(), localPrivKey.Signatory(), 4444)
-			dial(ctx, local, localPrivKey.Signatory(), remotePrivKey.Signatory(), 4444, time.Minute)
+			listen(ctx, remote, remotePrivKey.Signatory(), localPrivKey.Signatory(), 5555)
+			dial(ctx, local, localPrivKey.Signatory(), remotePrivKey.Signatory(), 5555, time.Minute)
 
 			go func() {
 				remote := remotePrivKey.Signatory()
