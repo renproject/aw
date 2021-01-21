@@ -55,7 +55,7 @@ func NewDiscoveryClient(opts DiscoveryOptions, transport *transport.Transport) *
 	}
 }
 
-func (dc *DiscoveryClient) DiscoverPeers(ctx context.Context) {
+func (dc *DiscoveryClient) PeerDiscovery(ctx context.Context) {
 	var pingData [2]byte
 	binary.LittleEndian.PutUint16(pingData[:], dc.transport.Port())
 
@@ -72,7 +72,6 @@ func (dc *DiscoveryClient) DiscoverPeers(ctx context.Context) {
 			err := dc.transport.Send(ctx, sig, msg)
 			if err != nil {
 				dc.opts.Logger.Debug("pinging", zap.Error(err))
-				dc.transport.Table().DeletePeer(sig)
 			}
 		}
 		select {
@@ -120,7 +119,6 @@ func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) error
 		addr, ok := dc.transport.Table().PeerAddress(sig)
 		if !ok {
 			dc.opts.Logger.Debug("sending pingAck", zap.String("peer", "does not exist in table"))
-			dc.transport.Table().DeletePeer(sig)
 		}
 		sigAndAddr := SignatoryAndAddress{Signatory: sig, Address: addr}
 		tail, _, err := sigAndAddr.Marshal(addrAndSigSlice, len(addrAndSigSlice))
@@ -144,7 +142,7 @@ func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) error
 
 func (dc *DiscoveryClient) didReceivePingAck(from id.Signatory, msg wire.Msg) error {
 	var sigAndAddr SignatoryAndAddress
-	var sigAndAddrArray [50]SignatoryAndAddress
+	var sigAndAddrArray [20]SignatoryAndAddress
 	sigAndAddrSlice := sigAndAddrArray[:0]
 
 	if cap(sigAndAddrArray) > dc.opts.MaxExpectedPeers {

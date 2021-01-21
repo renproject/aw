@@ -83,19 +83,18 @@ func (p *Peer) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash) {
 }
 
 func (p *Peer) PeerDiscovery(ctx context.Context) {
-	p.discoveryClient.DiscoverPeers(ctx)
+	p.discoveryClient.PeerDiscovery(ctx)
 }
 
 func (p *Peer) Run(ctx context.Context) {
 	p.transport.Receive(ctx, func(from id.Signatory, msg wire.Msg) error {
-		if msg.Type == wire.MsgTypePing || msg.Type == wire.MsgTypePingAck {
-			p.discoveryClient.DidReceiveMessage(from, msg)
-			return nil
-		}
 		if err := p.syncer.DidReceiveMessage(from, msg); err != nil {
 			return err
 		}
 		if err := p.gossiper.DidReceiveMessage(from, msg); err != nil {
+			return err
+		}
+		if err := p.discoveryClient.DidReceiveMessage(from, msg); err != nil {
 			return err
 		}
 		return nil
