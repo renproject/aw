@@ -58,6 +58,21 @@ func DefaultGossiperOptions() GossiperOptions {
 	}
 }
 
+func (opts GossiperOptions) WithLogger(logger *zap.Logger) GossiperOptions {
+	opts.Logger = logger
+	return opts
+}
+
+func (opts GossiperOptions) WithAlpha(alpha int) GossiperOptions {
+	opts.Alpha = alpha
+	return opts
+}
+
+func (opts GossiperOptions) WithTimeout(timeout time.Duration) GossiperOptions {
+	opts.Timeout = timeout
+	return opts
+}
+
 type Options struct {
 	SyncerOptions
 	GossiperOptions
@@ -79,6 +94,16 @@ func DefaultOptions() Options {
 		Logger:  logger,
 		PrivKey: privKey,
 	}
+}
+
+func (opts Options) WithSyncerOptions(syncerOptions SyncerOptions) Options {
+	opts.SyncerOptions = syncerOptions
+	return opts
+}
+
+func (opts Options) WithGossiperOptions(gossiperOptions GossiperOptions) Options {
+	opts.GossiperOptions = gossiperOptions
+	return opts
 }
 
 func (opts Options) WithLogger(logger *zap.Logger) Options {
