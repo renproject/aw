@@ -107,6 +107,13 @@ func (syncer *Syncer) Sync(ctx context.Context, contentID []byte, hint *id.Signa
 	}
 
 	for _, peer := range peers {
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
 		content, err := func() ([]byte, error) {
 			innerCtx, innerCancel := context.WithTimeout(ctx, syncer.opts.Timeout)
 			defer innerCancel()
@@ -121,8 +128,8 @@ func (syncer *Syncer) Sync(ctx context.Context, contentID []byte, hint *id.Signa
 			}
 
 			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
+			case <-innerCtx.Done():
+				return nil, innerCtx.Err()
 			case content := <-pending.wait():
 				return content, nil
 			}
