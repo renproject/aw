@@ -21,7 +21,7 @@ var _ = Describe("Peer", func() {
 			opts, peers, tables, contentResolvers, _, transports := setup(n)
 
 			for i := range opts {
-				opts[i].SyncerOptions = opts[i].SyncerOptions.WithTimeout(5*time.Second)
+				opts[i].SyncerOptions = opts[i].SyncerOptions.WithTimeout(2*time.Second)
 				peers[i] = peer.New(
 					opts[i],
 					transports[i])
