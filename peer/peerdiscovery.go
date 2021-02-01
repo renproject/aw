@@ -55,7 +55,7 @@ func NewDiscoveryClient(opts DiscoveryOptions, transport *transport.Transport) *
 	}
 }
 
-func (dc *DiscoveryClient) PeerDiscovery(ctx context.Context) {
+func (dc *DiscoveryClient) DiscoverPeers(ctx context.Context) {
 	var pingData [2]byte
 	binary.LittleEndian.PutUint16(pingData[:], dc.transport.Port())
 

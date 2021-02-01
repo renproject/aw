@@ -83,7 +83,7 @@ func (p *Peer) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash) {
 }
 
 func (p *Peer) DiscoverPeers(ctx context.Context) {
-	p.discoveryClient.PeerDiscovery(ctx)
+	p.discoveryClient.DiscoverPeers(ctx)
 }
 
 func (p *Peer) Run(ctx context.Context) {
