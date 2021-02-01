@@ -34,7 +34,7 @@ var _ = Describe("Peer", func() {
 			for i := range peers {
 				ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
 				defer cancel()
-				go peers[i].PeerDiscovery(ctx)
+				go peers[i].DiscoverPeers(ctx)
 			}
 			<-time.After(3 * time.Second)
 

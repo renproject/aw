@@ -82,7 +82,7 @@ func (p *Peer) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash) {
 	p.gossiper.Gossip(ctx, contentID, subnet)
 }
 
-func (p *Peer) PeerDiscovery(ctx context.Context) {
+func (p *Peer) DiscoverPeers(ctx context.Context) {
 	p.discoveryClient.PeerDiscovery(ctx)
 }
 
