@@ -66,6 +66,7 @@ func (dc *DiscoveryClient) DiscoverPeers(ctx context.Context) {
 	}
 
 	ticker := time.NewTicker(dc.opts.PingTimePeriod)
+	defer ticker.Stop()
 	for {
 		for _, sig := range dc.transport.Table().Peers(dc.opts.Alpha) {
 			msg.To = id.Hash(sig)
