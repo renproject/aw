@@ -24,20 +24,20 @@ var (
 )
 
 type Peer struct {
-	opts      Options
-	transport *transport.Transport
-	syncer    *Syncer
-	gossiper  *Gossiper
+	opts            Options
+	transport       *transport.Transport
+	syncer          *Syncer
+	gossiper        *Gossiper
 	discoveryClient *DiscoveryClient
 }
 
 func New(opts Options, transport *transport.Transport) *Peer {
 	filter := channel.NewSyncFilter()
 	return &Peer{
-		opts:      opts,
-		transport: transport,
-		syncer:    NewSyncer(opts.SyncerOptions, filter, transport),
-		gossiper:  NewGossiper(opts.GossiperOptions, filter, transport),
+		opts:            opts,
+		transport:       transport,
+		syncer:          NewSyncer(opts.SyncerOptions, filter, transport),
+		gossiper:        NewGossiper(opts.GossiperOptions, filter, transport),
 		discoveryClient: NewDiscoveryClient(opts.DiscoveryOptions, transport),
 	}
 }

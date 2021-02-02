@@ -73,9 +73,12 @@ func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) error
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	if dataLen := len(msg.Data); dataLen != 2 {
+		return fmt.Errorf("malformed port received in ping message. expected: 2 bytes, received: %v bytes", dataLen)
+	}
+	port := binary.LittleEndian.Uint16(msg.Data)
 	var addressBuf [1024]byte
 	addressByteSlice := addressBuf[:0]
-	port := binary.LittleEndian.Uint16(msg.Data)
 	ipAddr, ipAddrOk := dc.transport.Table().IP(from)
 	if !ipAddrOk {
 		return fmt.Errorf("ip address for remote peer not found")
@@ -83,7 +86,8 @@ func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) error
 	dc.transport.Table().AddPeer(
 		from,
 		wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", ipAddr, port), uint64(time.Now().UnixNano())),
-		)
+	)
+	dc.transport.Table().DeleteIP(from)
 
 	peers := dc.transport.Table().Peers(dc.opts.MaxExpectedPeers)
 	for _, sig := range peers {

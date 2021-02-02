@@ -74,10 +74,10 @@ func (opts GossiperOptions) WithTimeout(timeout time.Duration) GossiperOptions {
 }
 
 type DiscoveryOptions struct {
-	Logger  *zap.Logger
-	Alpha   int
+	Logger           *zap.Logger
+	Alpha            int
 	MaxExpectedPeers int
-	PingTimePeriod time.Duration
+	PingTimePeriod   time.Duration
 }
 
 func DefaultDiscoveryOptions() DiscoveryOptions {
@@ -86,10 +86,10 @@ func DefaultDiscoveryOptions() DiscoveryOptions {
 		panic(err)
 	}
 	return DiscoveryOptions{
-		Logger:  logger,
-		Alpha:   DefaultAlpha,
+		Logger:           logger,
+		Alpha:            DefaultAlpha,
 		MaxExpectedPeers: DefaultAlpha,
-		PingTimePeriod: DefaultTimeout,
+		PingTimePeriod:   DefaultTimeout,
 	}
 }
 
@@ -109,8 +109,8 @@ func DefaultOptions() Options {
 	}
 	privKey := id.NewPrivKey()
 	return Options{
-		SyncerOptions:   DefaultSyncerOptions(),
-		GossiperOptions: DefaultGossiperOptions(),
+		SyncerOptions:    DefaultSyncerOptions(),
+		GossiperOptions:  DefaultGossiperOptions(),
 		DiscoveryOptions: DefaultDiscoveryOptions(),
 
 		Logger:  logger,
