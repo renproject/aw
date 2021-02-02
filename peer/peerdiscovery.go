@@ -45,6 +45,9 @@ func (dc *DiscoveryClient) DiscoverPeers(ctx context.Context) {
 			err := dc.transport.Send(ctx, sig, msg)
 			if err != nil {
 				dc.opts.Logger.Debug("pinging", zap.Error(err))
+				if err == context.Canceled || err == context.DeadlineExceeded {
+					break
+				}
 			}
 		}
 		select {
