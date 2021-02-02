@@ -13,34 +13,6 @@ import (
 	"go.uber.org/zap"
 )
 
-type SignatoryAndAddress struct {
-	Signatory id.Signatory
-	Address   wire.Address
-}
-
-func (sigAndAddr SignatoryAndAddress) Marshal(buf []byte, rem int) ([]byte, int, error) {
-	buf, rem, err := sigAndAddr.Signatory.Marshal(buf, rem)
-	if err != nil {
-		return buf, rem, fmt.Errorf("marshal signatory: %v", err)
-	}
-	buf, rem, err = sigAndAddr.Address.Marshal(buf, rem)
-	if err != nil {
-		return buf, rem, fmt.Errorf("marshal address: %v", err)
-	}
-	return buf, rem, err
-}
-func (sigAndAddr *SignatoryAndAddress) Unmarshal(buf []byte, rem int) ([]byte, int, error) {
-	buf, rem, err := (&sigAndAddr.Signatory).Unmarshal(buf, rem)
-	if err != nil {
-		return buf, rem, fmt.Errorf("unmarshal signatory: %v", err)
-	}
-	buf, rem, err = sigAndAddr.Address.Unmarshal(buf, rem)
-	if err != nil {
-		return buf, rem, fmt.Errorf("unmarshal address: %v", err)
-	}
-	return buf, rem, err
-}
-
 type DiscoveryClient struct {
 	opts DiscoveryOptions
 
@@ -121,7 +93,7 @@ func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) error
 		if !ok {
 			dc.opts.Logger.Debug("sending pingAck", zap.String("peer", "does not exist in table"))
 		}
-		sigAndAddr := SignatoryAndAddress{Signatory: sig, Address: addr}
+		sigAndAddr := wire.SignatoryAndAddress{Signatory: sig, Address: addr}
 		tail, _, err := sigAndAddr.Marshal(addrAndSigSlice, len(addrAndSigSlice))
 		if err != nil {
 			dc.opts.Logger.Debug("sending pingAck", zap.Error(err))
@@ -142,12 +114,12 @@ func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) error
 }
 
 func (dc *DiscoveryClient) didReceivePingAck(from id.Signatory, msg wire.Msg) error {
-	var sigAndAddr SignatoryAndAddress
-	var sigAndAddrArray [20]SignatoryAndAddress
+	var sigAndAddr wire.SignatoryAndAddress
+	var sigAndAddrArray [20]wire.SignatoryAndAddress
 	sigAndAddrSlice := sigAndAddrArray[:0]
 
 	if cap(sigAndAddrArray) > dc.opts.MaxExpectedPeers {
-		sigAndAddrSlice = make([]SignatoryAndAddress, 0, dc.opts.MaxExpectedPeers)
+		sigAndAddrSlice = make([]wire.SignatoryAndAddress, 0, dc.opts.MaxExpectedPeers)
 	}
 
 	dataLeft := msg.Data
@@ -165,7 +137,7 @@ func (dc *DiscoveryClient) didReceivePingAck(from id.Signatory, msg wire.Msg) er
 		}
 
 		sigAndAddrSlice = append(sigAndAddrSlice, sigAndAddr)
-		sigAndAddr = SignatoryAndAddress{}
+		sigAndAddr = wire.SignatoryAndAddress{}
 	}
 
 	for _, x := range sigAndAddrSlice {
