@@ -15,11 +15,11 @@ const (
 
 // Enumerate all valid MsgType values.
 const (
-	MsgTypePush = uint16(1)
-	MsgTypePull = uint16(2)
-	MsgTypeSync = uint16(3)
-	MsgTypeSend = uint16(4)
-	MsgTypePing = uint16(5)
+	MsgTypePush    = uint16(1)
+	MsgTypePull    = uint16(2)
+	MsgTypeSync    = uint16(3)
+	MsgTypeSend    = uint16(4)
+	MsgTypePing    = uint16(5)
 	MsgTypePingAck = uint16(6)
 )
 
