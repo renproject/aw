@@ -23,7 +23,6 @@ type DiscoveryClient struct {
 func NewDiscoveryClient(opts DiscoveryOptions, transport *transport.Transport) *DiscoveryClient {
 	return &DiscoveryClient{
 		opts: opts,
-
 		transport: transport,
 	}
 }
@@ -40,15 +39,26 @@ func (dc *DiscoveryClient) DiscoverPeers(ctx context.Context) {
 
 	ticker := time.NewTicker(dc.opts.PingTimePeriod)
 	defer ticker.Stop()
+
+	alpha := dc.opts.Alpha
+	sendDuration := dc.opts.PingTimePeriod/time.Duration(alpha)
+	outer:
 	for {
-		for _, sig := range dc.transport.Table().Peers(dc.opts.Alpha) {
+		for _, sig := range dc.transport.Table().Peers(alpha) {
+			innerCtx, cancel := context.WithTimeout(ctx, sendDuration)
 			msg.To = id.Hash(sig)
-			err := dc.transport.Send(ctx, sig, msg)
+			err := dc.transport.Send(innerCtx, sig, msg)
+			cancel()
 			if err != nil {
 				dc.opts.Logger.Debug("pinging", zap.Error(err))
 				if err == context.Canceled || err == context.DeadlineExceeded {
 					break
 				}
+			}
+			select {
+			case <-ticker.C:
+				continue outer
+			default:
 			}
 		}
 		select {
