@@ -43,7 +43,7 @@ func (dc *DiscoveryClient) DiscoverPeers(ctx context.Context) {
 
 	alpha := dc.opts.Alpha
 	sendDuration := dc.opts.PingTimePeriod / time.Duration(alpha)
-outer:
+Outer:
 	for {
 		for _, sig := range dc.transport.Table().Peers(alpha) {
 			err := func() error {
@@ -60,7 +60,7 @@ outer:
 			}
 			select {
 			case <-ticker.C:
-				continue outer
+				continue Outer
 			default:
 			}
 		}
