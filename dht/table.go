@@ -105,7 +105,7 @@ func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr wire.Address) {
 	// Insert into the map to allow for address lookup using the signatory.
 	table.addrsBySignatory[peerID] = peerAddr
 
-	// Insert into the sorted address list based on its XOR distance from our
+	// Insert into the sorted signatories list based on its XOR distance from our
 	// own address.
 	if !ok {
 		i := sort.Search(len(table.sorted), func(i int) bool {
