@@ -12,7 +12,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Peer", func() {
+var _ = Describe("Peer Discovery", func() {
 	Context("when trying to discover other peers using the peer discovery client", func() {
 		It("should successfully find all peers", func() {
 			n := 5
@@ -30,13 +30,13 @@ var _ = Describe("Peer", func() {
 						fmt.Sprintf("%v:%v", "localhost", uint16(3333+((i+1)%n))), uint64(time.Now().UnixNano())))
 			}
 
-			<-time.After(1 * time.Second)
+			time.Sleep(time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 			for i := range peers {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
 				go peers[i].DiscoverPeers(ctx)
 			}
-			<-time.After(4 * time.Second)
+			<-ctx.Done()
 
 			for i := range peers {
 				Expect(tables[i].NumPeers()).To(Equal(n))
