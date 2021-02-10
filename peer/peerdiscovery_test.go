@@ -31,12 +31,12 @@ var _ = Describe("Peer", func() {
 			}
 
 			<-time.After(1 * time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 			for i := range peers {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
 				go peers[i].DiscoverPeers(ctx)
 			}
-			<-time.After(4 * time.Second)
+			<-ctx.Done()
 
 			for i := range peers {
 				Expect(tables[i].NumPeers()).To(Equal(n))
