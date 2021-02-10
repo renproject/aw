@@ -83,6 +83,9 @@ func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) error
 	port := binary.LittleEndian.Uint16(msg.Data)
 	ipAddr, ipAddrOk := dc.transport.Table().IP(from)
 	if !ipAddrOk {
+		if _, ok := dc.transport.Table().PeerAddress(from); ok {
+			return nil
+		}
 		return fmt.Errorf("ip address for remote peer not found")
 	}
 	dc.transport.Table().AddPeer(
