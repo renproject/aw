@@ -12,7 +12,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Peer", func() {
+var _ = Describe("Peer Discovery", func() {
 	Context("when trying to discover other peers using the peer discovery client", func() {
 		It("should successfully find all peers", func() {
 			n := 5
