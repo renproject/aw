@@ -48,4 +48,3 @@ var _ = Describe("Length Prefix Codec", func() {
 		})
 	})
 })
-

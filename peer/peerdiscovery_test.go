@@ -19,10 +19,10 @@ var _ = Describe("Peer", func() {
 			opts, peers, tables, _, _, transports := setup(n)
 
 			for i := range peers {
-				peers[i].Receive(context.Background(), func(from id.Signatory, msg wire.Msg) error {return nil})
+				peers[i].Receive(context.Background(), func(from id.Signatory, msg wire.Msg) error { return nil })
 			}
 			for i := range peers {
-				ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				go peers[i].Run(ctx)
 				tables[i].AddPeer(opts[(i+1)%n].PrivKey.Signatory(),
@@ -32,16 +32,27 @@ var _ = Describe("Peer", func() {
 
 			<-time.After(1 * time.Second)
 			for i := range peers {
-				ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				peers[i].PeerDiscovery(ctx)
+				go peers[i].DiscoverPeers(ctx)
 			}
-			<-time.After(5 * time.Second)
+			<-time.After(4 * time.Second)
 
 			for i := range peers {
+				Expect(tables[i].NumPeers()).To(Equal(n))
 				for j := range peers {
 					if i != j {
+						self := transports[j].Self()
 						addr, ok := tables[i].PeerAddress(transports[j].Self())
+						if !ok {
+							fmt.Printf("Sig not found: %v\n", self)
+							for _, k := range tables[i].Peers(10) {
+								sig := id.Signatory{}
+								copy(sig[:], k[:])
+								x, _ := tables[i].PeerAddress(sig)
+								fmt.Printf("Sig in table: %v, Addr: %v\n", sig, x)
+							}
+						}
 						Expect(ok).To(BeTrue())
 						Expect(addr.Value).To(Or(
 							Equal(fmt.Sprintf("127.0.0.1:%v", uint16(3333+j))),

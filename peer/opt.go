@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/renproject/id"
-
 	"go.uber.org/zap"
 )
 
@@ -59,11 +58,26 @@ func DefaultGossiperOptions() GossiperOptions {
 	}
 }
 
+func (opts GossiperOptions) WithLogger(logger *zap.Logger) GossiperOptions {
+	opts.Logger = logger
+	return opts
+}
+
+func (opts GossiperOptions) WithAlpha(alpha int) GossiperOptions {
+	opts.Alpha = alpha
+	return opts
+}
+
+func (opts GossiperOptions) WithTimeout(timeout time.Duration) GossiperOptions {
+	opts.Timeout = timeout
+	return opts
+}
+
 type DiscoveryOptions struct {
-	Logger  *zap.Logger
-	Alpha   int
+	Logger           *zap.Logger
+	Alpha            int
 	MaxExpectedPeers int
-	PingTimePeriod time.Duration
+	PingTimePeriod   time.Duration
 }
 
 func DefaultDiscoveryOptions() DiscoveryOptions {
@@ -72,10 +86,10 @@ func DefaultDiscoveryOptions() DiscoveryOptions {
 		panic(err)
 	}
 	return DiscoveryOptions{
-		Logger:  logger,
-		Alpha:   DefaultAlpha,
+		Logger:           logger,
+		Alpha:            DefaultAlpha,
 		MaxExpectedPeers: DefaultAlpha,
-		PingTimePeriod: DefaultTimeout,
+		PingTimePeriod:   DefaultTimeout,
 	}
 }
 
@@ -95,13 +109,23 @@ func DefaultOptions() Options {
 	}
 	privKey := id.NewPrivKey()
 	return Options{
-		SyncerOptions:   DefaultSyncerOptions(),
-		GossiperOptions: DefaultGossiperOptions(),
+		SyncerOptions:    DefaultSyncerOptions(),
+		GossiperOptions:  DefaultGossiperOptions(),
 		DiscoveryOptions: DefaultDiscoveryOptions(),
 
 		Logger:  logger,
 		PrivKey: privKey,
 	}
+}
+
+func (opts Options) WithSyncerOptions(syncerOptions SyncerOptions) Options {
+	opts.SyncerOptions = syncerOptions
+	return opts
+}
+
+func (opts Options) WithGossiperOptions(gossiperOptions GossiperOptions) Options {
+	opts.GossiperOptions = gossiperOptions
+	return opts
 }
 
 func (opts Options) WithLogger(logger *zap.Logger) Options {

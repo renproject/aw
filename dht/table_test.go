@@ -162,7 +162,7 @@ var _ = Describe("DHT", func() {
 			}
 			runtime := b.Time("runtime", func() {
 				for i := 0; i < len(signatories); i++ {
-					addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:" + strconv.Itoa(i), uint64(time.Now().UnixNano()))
+					addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:"+strconv.Itoa(i), uint64(time.Now().UnixNano()))
 					table.AddPeer(signatories[i], addr)
 				}
 			})
@@ -175,7 +175,7 @@ var _ = Describe("DHT", func() {
 			for i := 0; i < 10000; i++ {
 				privKey := id.NewPrivKey()
 				sig := privKey.Signatory()
-				addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:" + strconv.Itoa(i), uint64(time.Now().UnixNano()))
+				addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:"+strconv.Itoa(i), uint64(time.Now().UnixNano()))
 				table.AddPeer(sig, addr)
 				signatories = append(signatories, sig)
 			}

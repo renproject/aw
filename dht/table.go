@@ -26,7 +26,11 @@ type Table interface {
 	// PeerAddress returns the network address associated with the given peer.
 	PeerAddress(id.Signatory) (wire.Address, bool)
 
-	RegisterIP(id.Signatory, string)
+	// AddPeer to the table with an associate network address.
+	AddIP(id.Signatory, string)
+	// DeleteIP from the table.
+	DeleteIP(id.Signatory)
+	// IP returns the network ip address associated with the given peer.
 	IP(id.Signatory) (string, bool)
 
 	// Peers returns the n closest peers to the local peer, using XORing as the
@@ -58,7 +62,7 @@ type InMemTable struct {
 	addrsBySignatory   map[id.Signatory]wire.Address
 
 	ipBySignatoryMu *sync.Mutex
-	ipBySignatory map[id.Signatory]string
+	ipBySignatory   map[id.Signatory]string
 
 	subnetsByHashMu *sync.Mutex
 	subnetsByHash   map[id.Hash][]id.Signatory
@@ -93,7 +97,8 @@ func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr wire.Address) {
 	defer table.sortedMu.Unlock()
 	defer table.addrsBySignatoryMu.Unlock()
 
-	if _, ok := table.addrsBySignatory[peerID]; ok && peerID.Equal(&table.self) {
+	_, ok := table.addrsBySignatory[peerID]
+	if ok && table.self.Equal(&peerID) {
 		return
 	}
 
@@ -102,12 +107,14 @@ func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr wire.Address) {
 
 	// Insert into the sorted address list based on its XOR distance from our
 	// own address.
-	i := sort.Search(len(table.sorted), func(i int) bool {
-		return table.isCloser(peerID, table.sorted[i])
-	})
-	table.sorted = append(table.sorted, id.Signatory{})
-	copy(table.sorted[i+1:], table.sorted[i:])
-	table.sorted[i] = peerID
+	if !ok {
+		i := sort.Search(len(table.sorted), func(i int) bool {
+			return table.isCloser(peerID, table.sorted[i])
+		})
+		table.sorted = append(table.sorted, id.Signatory{})
+		copy(table.sorted[i+1:], table.sorted[i:])
+		table.sorted[i] = peerID
+	}
 }
 
 func (table *InMemTable) DeletePeer(peerID id.Signatory) {
@@ -140,12 +147,20 @@ func (table *InMemTable) PeerAddress(peerID id.Signatory) (wire.Address, bool) {
 	return addr, ok
 }
 
-func  (table *InMemTable) RegisterIP(peerID id.Signatory, ipAddress string) {
+func (table *InMemTable) AddIP(peerID id.Signatory, ipAddress string) {
 	table.ipBySignatoryMu.Lock()
 	defer table.ipBySignatoryMu.Unlock()
 
 	table.ipBySignatory[peerID] = ipAddress
 }
+
+func (table *InMemTable) DeleteIP(peerID id.Signatory) {
+	table.ipBySignatoryMu.Lock()
+	defer table.ipBySignatoryMu.Unlock()
+
+	delete(table.ipBySignatory, peerID)
+}
+
 func (table *InMemTable) IP(peerID id.Signatory) (string, bool) {
 	table.ipBySignatoryMu.Lock()
 	defer table.ipBySignatoryMu.Unlock()
