@@ -1,6 +1,7 @@
 package dht_test
 
 import (
+	"fmt"
 	"github.com/renproject/aw/wire"
 	"math/rand"
 	"strconv"
@@ -186,6 +187,52 @@ var _ = Describe("DHT", func() {
 			})
 			Ω(runtime.Seconds())
 		}, 10)
+	})
+
+	Describe("IP Addresses", func() {
+		Context("when adding an ip address", func() {
+			It("should be able to query it", func() {
+				table, _ := initDHT()
+
+				r := rand.New(rand.NewSource(time.Now().UnixNano()))
+				f := func(seed int64) bool {
+					privKey := id.NewPrivKey()
+					sig := privKey.Signatory()
+					ipAddr := fmt.Sprintf("%d.%d.%d.%d:%d",
+						r.Intn(256) , r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(65536))
+					table.AddIP(sig, ipAddr)
+
+					signatory := id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
+					newIPAddr, ok := table.IP(signatory)
+					Expect(ok).To(BeTrue())
+					Expect(newIPAddr).To(Equal(ipAddr))
+					return true
+				}
+				Expect(quick.Check(f, nil)).To(Succeed())
+			})
+		})
+
+		Context("when deleting an ip address", func() {
+			It("should not be able to query it", func() {
+				table, _ := initDHT()
+
+				r := rand.New(rand.NewSource(time.Now().UnixNano()))
+				f := func(seed int64) bool {
+					privKey := id.NewPrivKey()
+					ipAddr := fmt.Sprintf("%d.%d.%d.%d:%d",
+						r.Intn(256) , r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(65536))
+
+					signatory := id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
+					table.DeleteIP(signatory)
+					table.AddIP(signatory, ipAddr)
+					table.DeleteIP(signatory)
+
+					_, ok := table.IP(signatory)
+					return !ok
+				}
+				Expect(quick.Check(f, nil)).To(Succeed())
+			})
+		})
 	})
 
 	Describe("Subnets", func() {
