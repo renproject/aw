@@ -46,10 +46,12 @@ func (dc *DiscoveryClient) DiscoverPeers(ctx context.Context) {
 outer:
 	for {
 		for _, sig := range dc.transport.Table().Peers(alpha) {
-			innerCtx, cancel := context.WithTimeout(ctx, sendDuration)
-			msg.To = id.Hash(sig)
-			err := dc.transport.Send(innerCtx, sig, msg)
-			cancel()
+			err := func() error {
+				innerCtx, innerCancel := context.WithTimeout(ctx, sendDuration)
+				defer innerCancel()
+				msg.To = id.Hash(sig)
+				return dc.transport.Send(innerCtx, sig, msg)
+			}()
 			if err != nil {
 				dc.opts.Logger.Debug("pinging", zap.Error(err))
 				if err == context.Canceled || err == context.DeadlineExceeded {
