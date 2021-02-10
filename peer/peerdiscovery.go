@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"github.com/renproject/surge"
 	"time"
+
+	"github.com/renproject/surge"
 
 	"github.com/renproject/aw/transport"
 	"github.com/renproject/aw/wire"
@@ -22,7 +23,7 @@ type DiscoveryClient struct {
 
 func NewDiscoveryClient(opts DiscoveryOptions, transport *transport.Transport) *DiscoveryClient {
 	return &DiscoveryClient{
-		opts: opts,
+		opts:      opts,
 		transport: transport,
 	}
 }
@@ -41,8 +42,8 @@ func (dc *DiscoveryClient) DiscoverPeers(ctx context.Context) {
 	defer ticker.Stop()
 
 	alpha := dc.opts.Alpha
-	sendDuration := dc.opts.PingTimePeriod/time.Duration(alpha)
-	outer:
+	sendDuration := dc.opts.PingTimePeriod / time.Duration(alpha)
+outer:
 	for {
 		for _, sig := range dc.transport.Table().Peers(alpha) {
 			innerCtx, cancel := context.WithTimeout(ctx, sendDuration)
@@ -107,37 +108,35 @@ func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) error
 	peers := dc.transport.Table().Peers(dc.opts.MaxExpectedPeers)
 	addrAndSig := make([]wire.SignatoryAndAddress, 0, len(peers))
 	for _, sig := range peers {
-		addr, ok := dc.transport.Table().PeerAddress(sig)
-		if !ok {
-			dc.opts.Logger.Debug("sending pingAck", zap.String("peer", "does not exist in table"))
+		addr, addrOk := dc.transport.Table().PeerAddress(sig)
+		if !addrOk {
+			dc.opts.Logger.Debug("acking ping", zap.String("peer", "does not exist in table"))
 		}
 		sigAndAddr := wire.SignatoryAndAddress{Signatory: sig, Address: addr}
 		addrAndSig = append(addrAndSig, sigAndAddr)
 	}
-	var addrAndSigBytes [2048]byte
-	_, rem, err := surge.Marshal(&addrAndSig, addrAndSigBytes[:], len(addrAndSigBytes))
+
+	addrAndSigBytes, err := surge.ToBinary(addrAndSig)
 	if err != nil {
-		dc.opts.Logger.Debug("sending pingAck ", zap.Error(err))
+		return fmt.Errorf("bad ping ack: %v", err)
 	}
 	response := wire.Msg{
 		Version: wire.MsgVersion1,
 		Type:    wire.MsgTypePingAck,
 		To:      id.Hash(from),
-		Data:    addrAndSigBytes[:len(addrAndSigBytes)-rem],
+		Data:    addrAndSigBytes,
 	}
-
 	if err := dc.transport.Send(ctx, from, response); err != nil {
-		dc.opts.Logger.Debug("sending pingAck", zap.Error(err))
+		dc.opts.Logger.Debug("acking ping", zap.Error(err))
 	}
 	return nil
 }
 
 func (dc *DiscoveryClient) didReceivePingAck(from id.Signatory, msg wire.Msg) error {
 	slice := []wire.SignatoryAndAddress{}
-	_, _, err := surge.Unmarshal(&slice, msg.Data, surge.MaxBytes)
+	err := surge.FromBinary(&slice, msg.Data)
 	if err != nil {
-		dc.opts.Logger.Debug("receiving pingAck ", zap.Error(err))
-		return fmt.Errorf("unmarshal error")
+		return fmt.Errorf("bad ping ack: %v", err)
 	}
 
 	for _, x := range slice {

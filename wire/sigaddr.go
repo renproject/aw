@@ -2,12 +2,17 @@ package wire
 
 import (
 	"fmt"
+
 	"github.com/renproject/id"
 )
 
 type SignatoryAndAddress struct {
 	Signatory id.Signatory
 	Address   Address
+}
+
+func (sigAndAddr SignatoryAndAddress) SizeHint() int {
+	return sigAndAddr.Signatory.SizeHint() + sigAndAddr.Address.SizeHint()
 }
 
 func (sigAndAddr SignatoryAndAddress) Marshal(buf []byte, rem int) ([]byte, int, error) {
@@ -21,6 +26,7 @@ func (sigAndAddr SignatoryAndAddress) Marshal(buf []byte, rem int) ([]byte, int,
 	}
 	return buf, rem, err
 }
+
 func (sigAndAddr *SignatoryAndAddress) Unmarshal(buf []byte, rem int) ([]byte, int, error) {
 	buf, rem, err := (&sigAndAddr.Signatory).Unmarshal(buf, rem)
 	if err != nil {
