@@ -199,7 +199,7 @@ var _ = Describe("DHT", func() {
 					privKey := id.NewPrivKey()
 					sig := privKey.Signatory()
 					ipAddr := fmt.Sprintf("%d.%d.%d.%d:%d",
-						r.Intn(256) , r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(65536))
+						r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(65536))
 					table.AddIP(sig, ipAddr)
 
 					signatory := id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
@@ -220,7 +220,7 @@ var _ = Describe("DHT", func() {
 				f := func(seed int64) bool {
 					privKey := id.NewPrivKey()
 					ipAddr := fmt.Sprintf("%d.%d.%d.%d:%d",
-						r.Intn(256) , r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(65536))
+						r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(65536))
 
 					signatory := id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
 					table.DeleteIP(signatory)
