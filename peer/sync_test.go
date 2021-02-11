@@ -13,7 +13,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Peer", func() {
+var _ = Describe("Sync", func() {
 	Context("when trying to sync valid content id on demand with nil hint", func() {
 		It("should successfully receive corresponding message", func() {
 

@@ -19,9 +19,6 @@ var _ = Describe("Peer Discovery", func() {
 			opts, peers, tables, _, _, transports := setup(n)
 
 			for i := range peers {
-				peers[i].Receive(context.Background(), func(from id.Signatory, msg wire.Msg) error { return nil })
-			}
-			for i := range peers {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				go peers[i].Run(ctx)

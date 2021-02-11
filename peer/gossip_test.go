@@ -22,20 +22,6 @@ var _ = Describe("Gossip", func() {
 			opts, peers, tables, contentResolvers, _, _ := setup(n)
 
 			for i := range peers {
-				self := peers[i].ID()
-				peers[i].Receive(context.Background(), func(from id.Signatory, msg wire.Msg) error {
-					switch msg.Type {
-					case wire.MsgTypePush:
-						fmt.Printf("%v received Push from %v\n", self.String(), from.String())
-					case wire.MsgTypePull:
-						fmt.Printf("%v received Pull from %v\n", self.String(), from.String())
-					case wire.MsgTypeSync:
-						fmt.Printf("%v received Sync from %v saying : %v\n", self.String(), from.String(), string(msg.SyncData))
-					}
-					return nil
-				})
-			}
-			for i := range peers {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				go peers[i].Run(ctx)
