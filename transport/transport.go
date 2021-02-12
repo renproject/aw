@@ -67,6 +67,11 @@ func (opts Options) WithLogger(logger *zap.Logger) Options {
 	return opts
 }
 
+func (opts Options) WithHost(host string) Options {
+	opts.Host = host
+	return opts
+}
+
 func (opts Options) WithPort(port uint16) Options {
 	opts.Port = port
 	return opts
