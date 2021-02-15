@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/renproject/surge"
-
 	"github.com/renproject/aw/transport"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
+	"github.com/renproject/surge"
 
 	"go.uber.org/zap"
 )
@@ -112,7 +111,8 @@ func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) error
 	for _, sig := range peers {
 		addr, addrOk := dc.transport.Table().PeerAddress(sig)
 		if !addrOk {
-			dc.opts.Logger.Debug("acking ping", zap.String("peer", "does not exist in table"))
+			dc.opts.Logger.DPanic("acking ping", zap.String("peer", "does not exist in table"))
+			continue
 		}
 		sigAndAddr := wire.SignatoryAndAddress{Signatory: sig, Address: addr}
 		addrAndSig = append(addrAndSig, sigAndAddr)
