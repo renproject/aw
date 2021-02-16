@@ -65,9 +65,11 @@ func (g *Gossiper) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash
 
 	msg := wire.Msg{Version: wire.MsgVersion1, To: *subnet, Type: wire.MsgTypePush, Data: contentID}
 	for _, recipient := range recipients {
-		if err := g.transport.Send(ctx, recipient, msg); err != nil {
+		innerContext, cancel := context.WithTimeout(ctx, g.opts.Timeout)
+		if err := g.transport.Send(innerContext, recipient, msg); err != nil {
 			g.opts.Logger.Error("pushing gossip", zap.String("peer", recipient.String()), zap.Error(err))
 		}
+		cancel()
 	}
 }
 
