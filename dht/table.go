@@ -1,8 +1,10 @@
 package dht
 
 import (
+	"math/rand"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
@@ -32,6 +34,7 @@ type Table interface {
 	// NumPeers returns the total number of peers with associated network
 	// addresses in the table.
 	NumPeers() int
+	RandomPeers(int) []id.Signatory
 
 	// AddSubnet to the table. This returns a subnet hash that can be used to
 	// read/delete the subnet. It is the merkle root hash of the peers in the
@@ -56,6 +59,8 @@ type InMemTable struct {
 
 	subnetsByHashMu *sync.Mutex
 	subnetsByHash   map[id.Hash][]id.Signatory
+
+	randObj *rand.Rand
 }
 
 func NewInMemTable(self id.Signatory) *InMemTable {
@@ -70,6 +75,8 @@ func NewInMemTable(self id.Signatory) *InMemTable {
 
 		subnetsByHashMu: new(sync.Mutex),
 		subnetsByHash:   map[id.Hash][]id.Signatory{},
+
+		randObj: rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -146,6 +153,51 @@ func (table *InMemTable) Peers(n int) []id.Signatory {
 	sigs := make([]id.Signatory, min(n, len(table.sorted)))
 	copy(sigs, table.sorted)
 	return sigs
+}
+
+// RandomPeers returns n random peer IDs
+func (table *InMemTable) RandomPeers(n int) []id.Signatory {
+	m := len(table.sorted)
+
+	if n <= 0 {
+		// For values of n that are less than, or equal to, zero, return an
+		// empty list. We could panic instead, but this is a reasonable and
+		// unsurprising alternative.
+		return []id.Signatory{}
+	}
+	if n >= m {
+		sigs := make([]id.Signatory, m)
+		copy(sigs, table.sorted)
+		return sigs
+	}
+
+	// Use the first n elements of a permutation of the entire list of peer IDs
+	// This is used only if the sorted array (array of length m) is sufficiently
+	// small or the number of random elements to be selected (n) i sufficiently
+	// large in comparison to m
+	if m <= 10000 || n >= m / 50.0 {
+		shuffled := make([]id.Signatory, n)
+		indexPerm := rand.Perm(m)
+		for i := 0; i < n; i++ {
+			shuffled[i] = table.sorted[indexPerm[i]]
+		}
+		return shuffled
+	}
+
+	// Otherwise, use Floyd's sampling algorithm to select n random elements
+	set := make(map[int]struct{}, n)
+	randomSelection := make([]id.Signatory, n, 0)
+	for i := m - n; i < m; i++ {
+		index := table.randObj.Intn(i)
+		if _, ok := set[index]; !ok {
+			set[index] = struct{}{}
+			randomSelection = append(randomSelection, table.sorted[index])
+			continue
+		}
+		set[i] = struct{}{}
+		randomSelection = append(randomSelection, table.sorted[i])
+	}
+	return randomSelection
 }
 
 func (table *InMemTable) NumPeers() int {
