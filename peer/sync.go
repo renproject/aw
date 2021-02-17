@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/renproject/aw/channel"
 	"github.com/renproject/aw/transport"
@@ -81,19 +82,22 @@ func (syncer *Syncer) Sync(ctx context.Context, contentID []byte, hint *id.Signa
 	}
 	syncer.pendingMu.Unlock()
 
+	// Allow synchronisation messages for the content ID. This is required in
+	// order for channel to not filter inbound content (of unknown size). At the
+	// end of the method, we Deny the content ID again, un-doing the Allow and
+	// blocking content again.
+	syncer.filter.Allow(contentID)
+	defer func() {
+		time.Sleep(syncer.opts.WiggleTimeout)
+		syncer.filter.Deny(contentID)
+	}()
+
 	// Ensure that pending content is removed.
 	defer func() {
 		syncer.pendingMu.Lock()
 		delete(syncer.pending, string(contentID))
 		syncer.pendingMu.Unlock()
 	}()
-
-	// Allow synchronisation messages for the content ID. This is required in
-	// order for channel to not filter inbound content (of unknown size). At the
-	// end of the method, we Deny the content ID again, un-doing the Allow and
-	// blocking content again.
-	syncer.filter.Allow(contentID)
-	defer syncer.filter.Deny(contentID)
 
 	if ok {
 		select {
