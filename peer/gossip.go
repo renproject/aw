@@ -79,7 +79,7 @@ func (g *Gossiper) DidReceiveMessage(from id.Signatory, msg wire.Msg) error {
 		g.didReceivePull(from, msg)
 	case wire.MsgTypeSync:
 		if g.filter.Filter(from, msg) {
-			return fmt.Errorf("denied message from %v", from)
+			return fmt.Errorf("denied gossip message from %v", from)
 		}
 		g.didReceiveSync(from, msg)
 	}

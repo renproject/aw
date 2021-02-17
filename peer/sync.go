@@ -154,7 +154,7 @@ func (syncer *Syncer) Sync(ctx context.Context, contentID []byte, hint *id.Signa
 func (syncer *Syncer) DidReceiveMessage(from id.Signatory, msg wire.Msg) error {
 	if msg.Type == wire.MsgTypeSync {
 		if syncer.filter.Filter(from, msg) {
-			return fmt.Errorf("denied message from %v", from)
+			return fmt.Errorf("denied sync response from %v", from)
 		}
 		syncer.pendingMu.Lock()
 		pending, ok := syncer.pending[string(msg.Data)]
