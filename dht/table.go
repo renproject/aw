@@ -31,10 +31,12 @@ type Table interface {
 	// Peers returns the n closest peers to the local peer, using XORing as the
 	// measure of distance between two peers.
 	Peers(int) []id.Signatory
+	// RandomPeers returns n random peer IDs, using either partial permutation
+	// or Floyd's sampling algorithm.
+	RandomPeers(int) []id.Signatory
 	// NumPeers returns the total number of peers with associated network
 	// addresses in the table.
 	NumPeers() int
-	RandomPeers(int) []id.Signatory
 
 	// AddSubnet to the table. This returns a subnet hash that can be used to
 	// read/delete the subnet. It is the merkle root hash of the peers in the
