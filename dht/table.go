@@ -188,7 +188,7 @@ func (table *InMemTable) RandomPeers(n int) []id.Signatory {
 
 	// Otherwise, use Floyd's sampling algorithm to select n random elements
 	set := make(map[int]struct{}, n)
-	randomSelection := make([]id.Signatory, n, 0)
+	randomSelection := make([]id.Signatory, 0, n)
 	for i := m - n; i < m; i++ {
 		index := table.randObj.Intn(i)
 		if _, ok := set[index]; !ok {
