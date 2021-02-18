@@ -88,8 +88,10 @@ func (syncer *Syncer) Sync(ctx context.Context, contentID []byte, hint *id.Signa
 	// blocking content again.
 	syncer.filter.Allow(contentID)
 	defer func() {
-		time.Sleep(syncer.opts.WiggleTimeout)
-		syncer.filter.Deny(contentID)
+		go func() {
+			time.Sleep(syncer.opts.WiggleTimeout)
+			syncer.filter.Deny(contentID)
+		}()
 	}()
 
 	// Ensure that pending content is removed.
