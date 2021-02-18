@@ -159,6 +159,26 @@ var _ = Describe("DHT", func() {
 			})
 		})
 
+		Context("when querying n random peers where n is larger than the number of peers present in table", func() {
+			It("should return the number of peers in table", func() {
+				table, _ := initDHT()
+				numAddrs := rand.Intn(100)
+
+				// Insert `numAddrs` random addresses into the store.
+				for i := 0; i < numAddrs; i++ {
+					privKey := id.NewPrivKey()
+					sig := privKey.Signatory()
+					addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
+
+					table.AddPeer(sig, addr)
+				}
+
+				randomAddr := table.RandomPeers(numAddrs + rand.Intn(100))
+				Expect(len(randomAddr)).To(Equal(numAddrs))
+
+			})
+		})
+
 		Context("when querying the number of addresses", func() {
 			It("should return the correct amount", func() {
 				table, _ := initDHT()
