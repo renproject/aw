@@ -55,4 +55,62 @@ var _ = Describe("Peer", func() {
 			Ω(msg).To(Equal([]byte(helloMsg)))
 		})
 	})
+
+	Context("when getting a successful sync response on sending multiple parallel sync requests", func() {
+		It("should not drop connections for additional sync responses", func() {
+
+			n := 5
+			opts, peers, tables, contentResolvers, _, transports := setup(n)
+
+			for i := range opts {
+				opts[i].SyncerOptions = opts[i].SyncerOptions.WithWiggleTimeout(2 * time.Second)
+				peers[i] = peer.New(
+					opts[i],
+					transports[i])
+				peers[i].Resolve(context.Background(), contentResolvers[i])
+			}
+
+			for i := range peers {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				go peers[i].Run(ctx)
+
+				for j := range peers {
+					if i != j {
+						tables[i].AddPeer(opts[j].PrivKey.Signatory(),
+							wire.NewUnsignedAddress(wire.TCP,
+								fmt.Sprintf("%v:%v", "localhost", uint16(3333+j)), uint64(time.Now().UnixNano())))
+					}
+					helloMsg := fmt.Sprintf("Hello from peer %d", j)
+					contentID := id.NewHash([]byte(helloMsg))
+					contentResolvers[i].InsertContent(contentID[:], []byte(helloMsg))
+				}
+			}
+
+			for i := range peers {
+				for j := range peers {
+					helloMsg := fmt.Sprintf("Hello from peer %d", j)
+					contentID := id.NewHash([]byte(helloMsg))
+
+					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					defer cancel()
+					msg, err := peers[i].Sync(ctx, contentID[:], nil)
+
+					for {
+						if err == nil {
+							break
+						}
+						select {
+						case <-ctx.Done():
+							break
+						default:
+							msg, err = peers[i].Sync(ctx, contentID[:], nil)
+						}
+					}
+
+					Ω(msg).To(Equal([]byte(helloMsg)))
+				}
+			}
+		})
+	})
 })
