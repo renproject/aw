@@ -8,9 +8,9 @@ import (
 )
 
 type SyncerOptions struct {
-	Logger  *zap.Logger
-	Alpha   int
-	Timeout time.Duration
+	Logger        *zap.Logger
+	Alpha         int
+	WiggleTimeout time.Duration
 }
 
 func DefaultSyncerOptions() SyncerOptions {
@@ -19,9 +19,9 @@ func DefaultSyncerOptions() SyncerOptions {
 		panic(err)
 	}
 	return SyncerOptions{
-		Logger:  logger,
-		Alpha:   DefaultAlpha,
-		Timeout: DefaultTimeout,
+		Logger:        logger,
+		Alpha:         DefaultAlpha,
+		WiggleTimeout: DefaultTimeout,
 	}
 }
 
@@ -35,8 +35,8 @@ func (opts SyncerOptions) WithAlpha(alpha int) SyncerOptions {
 	return opts
 }
 
-func (opts SyncerOptions) WithTimeout(timeout time.Duration) SyncerOptions {
-	opts.Timeout = timeout
+func (opts SyncerOptions) WithWiggleTimeout(timeout time.Duration) SyncerOptions {
+	opts.WiggleTimeout = timeout
 	return opts
 }
 
