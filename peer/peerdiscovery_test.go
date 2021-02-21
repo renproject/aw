@@ -2,7 +2,9 @@ package peer_test
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"go.uber.org/zap"
 	"time"
 
 	"github.com/renproject/aw/dht"
@@ -127,6 +129,68 @@ var _ = Describe("Peer Discovery", func() {
 
 			cancelPeerDiscoveryContext := testPeerDiscovery(n, peers, tables, transports)
 			defer cancelPeerDiscoveryContext()
+		})
+	})
+
+	Context("when sending malformed pings to peer", func() {
+		It("peer should not panic", func() {
+
+			n := 2
+			opts, peers, tables, _, _, transports := setup(n)
+
+			cancelPeerContext := createRingTopology(n, opts, peers, tables, transports)
+			defer cancelPeerContext()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 3 * time.Second)
+			defer cancel()
+			func(ctx context.Context) {
+				var pingData [4]byte
+				binary.LittleEndian.PutUint32(pingData[:], uint32(transports[0].Port()))
+
+				msg := wire.Msg{
+					Version: wire.MsgVersion1,
+					Type:    wire.MsgTypePing,
+				}
+
+				count := 0
+				ticker := time.NewTicker(time.Second)
+				defer ticker.Stop()
+
+				sendDuration := time.Second
+			Outer:
+				for {
+					if count % 2 == 1 {
+						msg.Data = pingData[:]
+					} else {
+						msg.Data = nil
+					}
+					for _, sig := range transports[0].Table().Peers(2) {
+						err := func() error {
+							innerCtx, innerCancel := context.WithTimeout(ctx, sendDuration)
+							defer innerCancel()
+							msg.To = id.Hash(sig)
+							return transports[0].Send(innerCtx, sig, msg)
+						}()
+						if err != nil {
+							opts[0].Logger.Debug("pinging", zap.Error(err))
+							if err == context.Canceled || err == context.DeadlineExceeded {
+								break
+							}
+						}
+						select {
+						case <-ticker.C:
+							continue Outer
+						default:
+						}
+					}
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						count++
+					}
+				}
+			}(ctx)
 		})
 	})
 })
