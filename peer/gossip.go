@@ -3,7 +3,6 @@ package peer
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
 	"sync"
 
 	"github.com/renproject/aw/channel"
@@ -78,8 +77,9 @@ func (g *Gossiper) DidReceiveMessage(from id.Signatory, msg wire.Msg) error {
 	case wire.MsgTypePull:
 		g.didReceivePull(from, msg)
 	case wire.MsgTypeSync:
+		//TODO: Fix Channel to gracefully handle the error returned if a message is filtered
 		if g.filter.Filter(from, msg) {
-			return fmt.Errorf("denied gossip message from %v", from)
+			return nil
 		}
 		g.didReceiveSync(from, msg)
 	}
