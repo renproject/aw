@@ -44,6 +44,7 @@ type GossiperOptions struct {
 	Logger  *zap.Logger
 	Alpha   int
 	Timeout time.Duration
+	WiggleTimeout time.Duration
 }
 
 func DefaultGossiperOptions() GossiperOptions {
@@ -55,6 +56,7 @@ func DefaultGossiperOptions() GossiperOptions {
 		Logger:  logger,
 		Alpha:   DefaultAlpha,
 		Timeout: DefaultTimeout,
+		WiggleTimeout: DefaultTimeout,
 	}
 }
 

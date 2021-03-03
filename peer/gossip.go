@@ -49,7 +49,7 @@ func (g *Gossiper) Resolve(resolver dht.ContentResolver) {
 	g.resolver = resolver
 }
 
-func (g *Gossiper) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash) {
+func (g *Gossiper) Gossip(contentID []byte, subnet *id.Hash) {
 	if subnet == nil {
 		subnet = &DefaultSubnet
 	}
@@ -64,10 +64,14 @@ func (g *Gossiper) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash
 	}
 
 	msg := wire.Msg{Version: wire.MsgVersion1, To: *subnet, Type: wire.MsgTypePush, Data: contentID}
+	ctx, cancel := context.WithTimeout(context.Background(), g.opts.Timeout)
+	defer cancel()
 	for _, recipient := range recipients {
-		if err := g.transport.Send(ctx, recipient, msg); err != nil {
-			g.opts.Logger.Error("pushing gossip", zap.String("peer", recipient.String()), zap.Error(err))
-		}
+		go func(sendContext context.Context, to id.Signatory) {
+			if err := g.transport.Send(sendContext, to, msg); err != nil {
+				g.opts.Logger.Error("pushing gossip", zap.String("peer", to.String()), zap.Error(err))
+			}
+		}(ctx, recipient)
 	}
 }
 
@@ -105,6 +109,7 @@ func (g *Gossiper) didReceivePush(from id.Signatory, msg wire.Msg) {
 	g.resolverMu.RUnlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), g.opts.Timeout)
+	defer cancel()
 
 	// Later, we will probably receive a synchronisation message for the content
 	// associated with this push. We store the subnet now, so that we know how
@@ -117,21 +122,6 @@ func (g *Gossiper) didReceivePush(from id.Signatory, msg wire.Msg) {
 	// out a pull message. So, we need to allow the content in the filter.
 	g.filter.Allow(msg.Data)
 
-	// Cleanup after the synchronisation timeout has passed. This prevents
-	// memory leaking in the filter and in the subnets map. It means that until
-	// the timeout passes, we will be accepting synchronisation messages for
-	// this content ID.
-	go func() {
-		<-ctx.Done()
-		cancel()
-
-		g.subnetsMu.Lock()
-		delete(g.subnets, string(msg.Data))
-		g.subnetsMu.Unlock()
-
-		g.filter.Deny(msg.Data)
-	}()
-
 	if err := g.transport.Send(ctx, from, wire.Msg{
 		Version: wire.MsgVersion1,
 		Type:    wire.MsgTypePull,
@@ -141,6 +131,22 @@ func (g *Gossiper) didReceivePush(from id.Signatory, msg wire.Msg) {
 		g.opts.Logger.Error("pull", zap.String("peer", from.String()), zap.String("id", base64.RawURLEncoding.EncodeToString(msg.Data)), zap.Error(err))
 		return
 	}
+
+	wiggleContext, wiggleCancel := context.WithTimeout(context.Background(), g.opts.WiggleTimeout)
+	// Cleanup after the synchronisation timeout has passed. This prevents
+	// memory leaking in the filter and in the subnets map. It means that until
+	// the timeout passes, we will be accepting synchronisation messages for
+	// this content ID.
+	go func() {
+		<-wiggleContext.Done()
+		wiggleCancel()
+
+		g.subnetsMu.Lock()
+		delete(g.subnets, string(msg.Data))
+		g.subnetsMu.Unlock()
+
+		g.filter.Deny(msg.Data)
+	}()
 }
 
 func (g *Gossiper) didReceivePull(from id.Signatory, msg wire.Msg) {
@@ -176,7 +182,6 @@ func (g *Gossiper) didReceivePull(from id.Signatory, msg wire.Msg) {
 	}); err != nil {
 		g.opts.Logger.Error("sync", zap.String("peer", from.String()), zap.String("id", base64.RawURLEncoding.EncodeToString(msg.Data)), zap.Error(err))
 	}
-	return
 }
 
 func (g *Gossiper) didReceiveSync(from id.Signatory, msg wire.Msg) {
@@ -212,8 +217,5 @@ func (g *Gossiper) didReceiveSync(from id.Signatory, msg wire.Msg) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), g.opts.Timeout)
-	defer cancel()
-
-	g.Gossip(ctx, msg.Data, &subnet)
+	g.Gossip(msg.Data, &subnet)
 }
