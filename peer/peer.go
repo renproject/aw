@@ -76,8 +76,8 @@ func (p *Peer) Sync(ctx context.Context, contentID []byte, hint *id.Signatory) (
 	return p.syncer.Sync(ctx, contentID, hint)
 }
 
-func (p *Peer) Gossip(contentID []byte, subnet *id.Hash) {
-	p.gossiper.Gossip(contentID, subnet)
+func (p *Peer) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash) {
+	p.gossiper.Gossip(ctx, contentID, subnet)
 }
 
 func (p *Peer) Run(ctx context.Context) {
