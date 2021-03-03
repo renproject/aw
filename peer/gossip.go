@@ -49,7 +49,7 @@ func (g *Gossiper) Resolve(resolver dht.ContentResolver) {
 	g.resolver = resolver
 }
 
-func (g *Gossiper) Gossip(contentID []byte, subnet *id.Hash) {
+func (g *Gossiper) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash) {
 	if subnet == nil {
 		subnet = &DefaultSubnet
 	}
@@ -64,8 +64,6 @@ func (g *Gossiper) Gossip(contentID []byte, subnet *id.Hash) {
 	}
 
 	msg := wire.Msg{Version: wire.MsgVersion1, To: *subnet, Type: wire.MsgTypePush, Data: contentID}
-	ctx, cancel := context.WithTimeout(context.Background(), g.opts.Timeout)
-	defer cancel()
 	for _, recipient := range recipients {
 		go func(sendContext context.Context, to id.Signatory) {
 			if err := g.transport.Send(sendContext, to, msg); err != nil {
@@ -217,5 +215,7 @@ func (g *Gossiper) didReceiveSync(from id.Signatory, msg wire.Msg) {
 		return
 	}
 
-	g.Gossip(msg.Data, &subnet)
+	ctx, cancel := context.WithTimeout(context.Background(), g.opts.Timeout)
+	defer cancel()
+	g.Gossip(ctx, msg.Data, &subnet)
 }
