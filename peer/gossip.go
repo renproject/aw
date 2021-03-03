@@ -77,7 +77,7 @@ func (g *Gossiper) DidReceiveMessage(from id.Signatory, msg wire.Msg) error {
 	case wire.MsgTypePull:
 		g.didReceivePull(from, msg)
 	case wire.MsgTypeSync:
-		//TODO: Fix Channel to gracefully handle the error returned if a message is filtered
+		// TODO: Fix Channel to gracefully handle the error returned if a message is filtered
 		if g.filter.Filter(from, msg) {
 			return nil
 		}
