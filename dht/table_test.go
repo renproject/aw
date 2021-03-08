@@ -134,6 +134,78 @@ var _ = Describe("DHT", func() {
 			})
 		})
 
+		Context("when querying random peers", func() {
+			It("should return the correct amount", func() {
+				table, _ := initDHT()
+
+				f := func(seed int64) bool {
+					numAddrs := rand.Intn(11000)
+
+					// Insert `numAddrs` random addresses into the store.
+					for i := 0; i < numAddrs; i++ {
+						privKey := id.NewPrivKey()
+						sig := privKey.Signatory()
+						addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
+
+						table.AddPeer(sig, addr)
+					}
+
+					numRandomAddrs := rand.Intn(numAddrs)
+					randomAddr := table.RandomPeers(numRandomAddrs)
+					Expect(len(randomAddr)).To(Equal(numRandomAddrs))
+					return true
+				}
+
+				Expect(quick.Check(f, &quick.Config{MaxCount: 10})).To(Succeed())
+			})
+
+			Context("where the requested number is larger than the number of peers present in table", func() {
+				It("should return the number of peers in table", func() {
+					table, _ := initDHT()
+					numAddrs := rand.Intn(100)
+
+					// Insert `numAddrs` random addresses into the store.
+					for i := 0; i < numAddrs; i++ {
+						privKey := id.NewPrivKey()
+						sig := privKey.Signatory()
+						addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
+
+						table.AddPeer(sig, addr)
+					}
+
+					randomAddr := table.RandomPeers(numAddrs + rand.Intn(100))
+					Expect(len(randomAddr)).To(Equal(numAddrs))
+
+				})
+			})
+
+			It("should return a unique subset each time", func() {
+				table, _ := initDHT()
+				numAddrs := rand.Intn(100)
+				numRandAddrs := rand.Intn(numAddrs)
+
+				// Insert `numAddrs` random addresses into the store.
+				for i := 0; i < numAddrs; i++ {
+					privKey := id.NewPrivKey()
+					sig := privKey.Signatory()
+					addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
+
+					table.AddPeer(sig, addr)
+				}
+
+				lists := make([][]id.Signatory, 10)
+				for i := range lists {
+					lists[i] = table.RandomPeers(numRandAddrs)
+				}
+
+				for i := 0; i < 10; i++ {
+					for j := i+1; j < 10; j++ {
+						Expect(lists[i]).To(Not(Equal(lists[j])))
+					}
+				}
+			})
+		})
+
 		Context("when querying the number of addresses", func() {
 			It("should return the correct amount", func() {
 				table, _ := initDHT()

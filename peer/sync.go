@@ -2,9 +2,9 @@ package peer
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/renproject/aw/channel"
 	"github.com/renproject/aw/transport"
@@ -94,7 +94,19 @@ func (syncer *Syncer) Sync(ctx context.Context, contentID []byte, hint *id.Signa
 	// end of the method, we Deny the content ID again, un-doing the Allow and
 	// blocking content again.
 	syncer.filter.Allow(contentID)
-	defer syncer.filter.Deny(contentID)
+	defer func() {
+		go func() {
+			time.Sleep(syncer.opts.WiggleTimeout)
+			syncer.filter.Deny(contentID)
+		}()
+	}()
+
+	// Ensure that pending content is removed.
+	defer func() {
+		syncer.pendingMu.Lock()
+		delete(syncer.pending, string(contentID))
+		syncer.pendingMu.Unlock()
+	}()
 
 	if ok {
 		select {
@@ -108,53 +120,43 @@ func (syncer *Syncer) Sync(ctx context.Context, contentID []byte, hint *id.Signa
 	// Get addresses close to our address. We will iterate over these addresses
 	// in order and attempt to synchronise content by sending them pull
 	// messages.
-	peers := syncer.transport.Table().Peers(syncer.opts.Alpha)
+	peers := syncer.transport.Table().RandomPeers(syncer.opts.Alpha)
 	if hint != nil {
 		peers = append([]id.Signatory{*hint}, peers...)
 	}
 
-	for _, peer := range peers {
-
+	for i := range peers {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
 		}
-
-		content, err := func() ([]byte, error) {
-			innerCtx, innerCancel := context.WithTimeout(ctx, syncer.opts.Timeout)
-			defer innerCancel()
-
-			err := syncer.transport.Send(innerCtx, peer, wire.Msg{
+		p := peers[i]
+		go func() {
+			err := syncer.transport.Send(ctx, p, wire.Msg{
 				Version: wire.MsgVersion1,
 				Type:    wire.MsgTypePull,
 				Data:    contentID,
 			})
 			if err != nil {
-				return nil, fmt.Errorf("pulling: %v", err)
-			}
-
-			select {
-			case <-innerCtx.Done():
-				return nil, innerCtx.Err()
-			case content := <-pending.wait():
-				return content, nil
+				syncer.opts.Logger.Debug("sync", zap.String("peer", p.String()), zap.Error(fmt.Errorf("pulling: %v", err)))
 			}
 		}()
-		if err != nil {
-			syncer.opts.Logger.Debug("sync", zap.String("peer", peer.String()), zap.Error(err))
-			continue
-		}
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case content := <-pending.wait():
 		return content, nil
 	}
-
-	return nil, fmt.Errorf("content not found: %v", base64.RawURLEncoding.EncodeToString(contentID))
 }
 
 func (syncer *Syncer) DidReceiveMessage(from id.Signatory, msg wire.Msg) error {
 	if msg.Type == wire.MsgTypeSync {
+		// TODO: Fix Channel to not drop connection on first filtered message,
+		// since it could be a valid message that is simply late (comes after the grace period)
 		if syncer.filter.Filter(from, msg) {
-			return fmt.Errorf("denied message from %v", from)
+			return nil
 		}
 		syncer.pendingMu.Lock()
 		pending, ok := syncer.pending[string(msg.Data)]
