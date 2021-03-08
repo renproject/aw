@@ -82,13 +82,6 @@ func (syncer *Syncer) Sync(ctx context.Context, contentID []byte, hint *id.Signa
 	}
 	syncer.pendingMu.Unlock()
 
-	// Ensure that pending content is removed.
-	defer func() {
-		syncer.pendingMu.Lock()
-		delete(syncer.pending, string(contentID))
-		syncer.pendingMu.Unlock()
-	}()
-
 	// Allow synchronisation messages for the content ID. This is required in
 	// order for channel to not filter inbound content (of unknown size). At the
 	// end of the method, we Deny the content ID again, un-doing the Allow and
