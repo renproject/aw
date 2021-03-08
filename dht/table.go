@@ -197,7 +197,9 @@ func (table *InMemTable) Peers(n int) []id.Signatory {
 
 // RandomPeers returns n random peer IDs
 func (table *InMemTable) RandomPeers(n int) []id.Signatory {
+	table.sortedMu.Lock()
 	m := len(table.sorted)
+	table.sortedMu.Unlock()
 
 	if n <= 0 {
 		// For values of n that are less than, or equal to, zero, return an
@@ -207,6 +209,8 @@ func (table *InMemTable) RandomPeers(n int) []id.Signatory {
 	}
 	if n >= m {
 		sigs := make([]id.Signatory, m)
+		table.sortedMu.Lock()
+		defer table.sortedMu.Unlock()
 		copy(sigs, table.sorted)
 		return sigs
 	}
@@ -218,6 +222,8 @@ func (table *InMemTable) RandomPeers(n int) []id.Signatory {
 	if m <= 10000 || n >= m / 50.0 {
 		shuffled := make([]id.Signatory, n)
 		indexPerm := rand.Perm(m)
+		table.sortedMu.Lock()
+		defer table.sortedMu.Unlock()
 		for i := 0; i < n; i++ {
 			shuffled[i] = table.sorted[indexPerm[i]]
 		}
@@ -227,6 +233,8 @@ func (table *InMemTable) RandomPeers(n int) []id.Signatory {
 	// Otherwise, use Floyd's sampling algorithm to select n random elements
 	set := make(map[int]struct{}, n)
 	randomSelection := make([]id.Signatory, 0, n)
+	table.sortedMu.Lock()
+	defer table.sortedMu.Unlock()
 	for i := m - n; i < m; i++ {
 		index := table.randObj.Intn(i)
 		if _, ok := set[index]; !ok {
