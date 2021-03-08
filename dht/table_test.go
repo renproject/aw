@@ -1,6 +1,7 @@
 package dht_test
 
 import (
+	"fmt"
 	"github.com/renproject/aw/wire"
 	"math/rand"
 	"strconv"
@@ -224,6 +225,39 @@ var _ = Describe("DHT", func() {
 			})
 		})
 
+		Context("when re-inserting an address", func() {
+			It("the sorted list of signatories should remain unchanged", func() {
+
+				r := rand.New(rand.NewSource(time.Now().UnixNano()))
+				f := func(seed int64) bool {
+					table, _ := initDHT()
+					numPeers := r.Intn(100) + 1
+					for i := 0; i < numPeers; i++ {
+						privKey := id.NewPrivKey()
+						sig := privKey.Signatory()
+						ipAddr := fmt.Sprintf("%d.%d.%d.%d:%d",
+							r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(65536))
+						addr := wire.NewUnsignedAddress(wire.TCP, ipAddr, uint64(time.Now().UnixNano()))
+						table.AddPeer(sig, addr)
+					}
+
+					peers := table.Peers(numPeers + 10)
+					Expect(len(peers)).To(Equal(numPeers))
+					randomSig := peers[r.Intn(numPeers)]
+					newIPAddr := fmt.Sprintf("%d.%d.%d.%d:%d",
+						r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(65536))
+					newAddr := wire.NewUnsignedAddress(wire.TCP, newIPAddr, uint64(time.Now().UnixNano()))
+					table.AddPeer(randomSig, newAddr)
+
+					newPeers := table.Peers(numPeers + 1)
+					Expect(len(newPeers)).To(Equal(numPeers))
+					Expect(peers).To(Equal(newPeers))
+					return true
+				}
+				Expect(quick.Check(f, nil)).To(Succeed())
+			})
+		})
+
 		Measure("Adding 10000 addresses to distributed hash table", func(b Benchmarker) {
 			table, _ := initDHT()
 			signatories := make([]id.Signatory, 0)
@@ -258,6 +292,52 @@ var _ = Describe("DHT", func() {
 			})
 			Ω(runtime.Seconds())
 		}, 10)
+	})
+
+	Describe("IP Addresses", func() {
+		Context("when adding an ip address", func() {
+			It("should be able to query it", func() {
+				table, _ := initDHT()
+
+				r := rand.New(rand.NewSource(time.Now().UnixNano()))
+				f := func(seed int64) bool {
+					privKey := id.NewPrivKey()
+					sig := privKey.Signatory()
+					ipAddr := fmt.Sprintf("%d.%d.%d.%d:%d",
+						r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(65536))
+					table.AddIP(sig, ipAddr)
+
+					signatory := id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
+					newIPAddr, ok := table.IP(signatory)
+					Expect(ok).To(BeTrue())
+					Expect(newIPAddr).To(Equal(ipAddr))
+					return true
+				}
+				Expect(quick.Check(f, nil)).To(Succeed())
+			})
+		})
+
+		Context("when deleting an ip address", func() {
+			It("should not be able to query it", func() {
+				table, _ := initDHT()
+
+				r := rand.New(rand.NewSource(time.Now().UnixNano()))
+				f := func(seed int64) bool {
+					privKey := id.NewPrivKey()
+					ipAddr := fmt.Sprintf("%d.%d.%d.%d:%d",
+						r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(65536))
+
+					signatory := id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
+					table.DeleteIP(signatory)
+					table.AddIP(signatory, ipAddr)
+					table.DeleteIP(signatory)
+
+					_, ok := table.IP(signatory)
+					return !ok
+				}
+				Expect(quick.Check(f, nil)).To(Succeed())
+			})
+		})
 	})
 
 	Describe("Subnets", func() {

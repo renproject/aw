@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/renproject/aw/tcp"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
+
 	"go.uber.org/zap"
 )
 
@@ -131,6 +133,18 @@ func (t *Transport) Table() dht.Table {
 	return t.table
 }
 
+func (t *Transport) Self() id.Signatory {
+	return t.self
+}
+
+func (t *Transport) Host() string {
+	return t.opts.Host
+}
+
+func (t *Transport) Port() uint16 {
+	return t.opts.Port
+}
+
 func (t *Transport) Send(ctx context.Context, remote id.Signatory, msg wire.Msg) error {
 	remoteAddr, ok := t.table.PeerAddress(remote)
 	if !ok {
@@ -214,6 +228,8 @@ func (t *Transport) run(ctx context.Context) {
 		}
 	}()
 
+	t.table.AddPeer(t.self, wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", t.opts.Host, t.opts.Port), uint64(time.Now().UnixNano())))
+
 	// Listen for incoming connection attempts.
 	t.opts.Logger.Info("listening", zap.String("host", t.opts.Host), zap.Uint16("port", t.opts.Port))
 	err := tcp.Listen(
@@ -229,6 +245,8 @@ func (t *Transport) run(ctx context.Context) {
 
 			enc = codec.LengthPrefixEncoder(codec.PlainEncoder, enc)
 			dec = codec.LengthPrefixDecoder(codec.PlainDecoder, dec)
+
+			t.table.AddIP(remote, addr[:strings.IndexByte(addr, ':')])
 
 			t.connect(remote)
 			defer t.disconnect(remote)

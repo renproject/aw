@@ -28,6 +28,13 @@ type Table interface {
 	// PeerAddress returns the network address associated with the given peer.
 	PeerAddress(id.Signatory) (wire.Address, bool)
 
+	// AddPeer to the table with an associate network address.
+	AddIP(id.Signatory, string)
+	// DeleteIP from the table.
+	DeleteIP(id.Signatory)
+	// IP returns the network ip address associated with the given peer.
+	IP(id.Signatory) (string, bool)
+
 	// Peers returns the n closest peers to the local peer, using XORing as the
 	// measure of distance between two peers.
 	Peers(int) []id.Signatory
@@ -59,6 +66,9 @@ type InMemTable struct {
 	addrsBySignatoryMu *sync.Mutex
 	addrsBySignatory   map[id.Signatory]wire.Address
 
+	ipBySignatoryMu *sync.Mutex
+	ipBySignatory   map[id.Signatory]string
+
 	subnetsByHashMu *sync.Mutex
 	subnetsByHash   map[id.Hash][]id.Signatory
 
@@ -74,6 +84,9 @@ func NewInMemTable(self id.Signatory) *InMemTable {
 
 		addrsBySignatoryMu: new(sync.Mutex),
 		addrsBySignatory:   map[id.Signatory]wire.Address{},
+
+		ipBySignatoryMu: new(sync.Mutex),
+		ipBySignatory:   map[id.Signatory]string{},
 
 		subnetsByHashMu: new(sync.Mutex),
 		subnetsByHash:   map[id.Hash][]id.Signatory{},
@@ -93,21 +106,24 @@ func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr wire.Address) {
 	defer table.sortedMu.Unlock()
 	defer table.addrsBySignatoryMu.Unlock()
 
-	if peerID.Equal(&table.self) {
+	_, ok := table.addrsBySignatory[peerID]
+	if ok && table.self.Equal(&peerID) {
 		return
 	}
 
 	// Insert into the map to allow for address lookup using the signatory.
 	table.addrsBySignatory[peerID] = peerAddr
 
-	// Insert into the sorted address list based on its XOR distance from our
+	// Insert into the sorted signatories list based on its XOR distance from our
 	// own address.
-	i := sort.Search(len(table.sorted), func(i int) bool {
-		return table.isCloser(peerID, table.sorted[i])
-	})
-	table.sorted = append(table.sorted, id.Signatory{})
-	copy(table.sorted[i+1:], table.sorted[i:])
-	table.sorted[i] = peerID
+	if !ok {
+		i := sort.Search(len(table.sorted), func(i int) bool {
+			return table.isCloser(peerID, table.sorted[i])
+		})
+		table.sorted = append(table.sorted, id.Signatory{})
+		copy(table.sorted[i+1:], table.sorted[i:])
+		table.sorted[i] = peerID
+	}
 }
 
 func (table *InMemTable) DeletePeer(peerID id.Signatory) {
@@ -138,6 +154,28 @@ func (table *InMemTable) PeerAddress(peerID id.Signatory) (wire.Address, bool) {
 
 	addr, ok := table.addrsBySignatory[peerID]
 	return addr, ok
+}
+
+func (table *InMemTable) AddIP(peerID id.Signatory, ipAddress string) {
+	table.ipBySignatoryMu.Lock()
+	defer table.ipBySignatoryMu.Unlock()
+
+	table.ipBySignatory[peerID] = ipAddress
+}
+
+func (table *InMemTable) DeleteIP(peerID id.Signatory) {
+	table.ipBySignatoryMu.Lock()
+	defer table.ipBySignatoryMu.Unlock()
+
+	delete(table.ipBySignatory, peerID)
+}
+
+func (table *InMemTable) IP(peerID id.Signatory) (string, bool) {
+	table.ipBySignatoryMu.Lock()
+	defer table.ipBySignatoryMu.Unlock()
+
+	ip, ok := table.ipBySignatory[peerID]
+	return ip, ok
 }
 
 // Peers returns the n closest peer IDs.
