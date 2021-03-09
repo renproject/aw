@@ -135,8 +135,13 @@ var _ = Describe("Sync", func() {
 			defer cancel()
 			go peers[0].Run(ctx)
 			go func(ctx context.Context) {
+				once := false
 				transports[1].Receive(ctx, func(from id.Signatory, msg wire.Msg) error {
-					time.Sleep(2 * time.Second)
+					if !once {
+						once = true
+						return nil
+					}
+
 					if err := peers[1].Syncer().DidReceiveMessage(from, msg); err != nil {
 						return err
 					}
