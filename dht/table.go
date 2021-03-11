@@ -106,10 +106,11 @@ func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr wire.Address) {
 	defer table.sortedMu.Unlock()
 	defer table.addrsBySignatoryMu.Unlock()
 
-	_, ok := table.addrsBySignatory[peerID]
-	if ok && table.self.Equal(&peerID) {
+	if table.self.Equal(&peerID) {
 		return
 	}
+
+	_, ok := table.addrsBySignatory[peerID]
 
 	// Insert into the map to allow for address lookup using the signatory.
 	table.addrsBySignatory[peerID] = peerAddr
