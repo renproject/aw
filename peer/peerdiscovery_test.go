@@ -27,7 +27,7 @@ func testPeerDiscovery(n int, peers []*peer.Peer, tables []dht.Table, transports
 	<-ctx.Done()
 
 	for i := range peers {
-		Expect(tables[i].NumPeers()).To(Equal(n))
+		Expect(tables[i].NumPeers()).To(Equal(n-1))
 		for j := range peers {
 			if i != j {
 				self := transports[j].Self()
