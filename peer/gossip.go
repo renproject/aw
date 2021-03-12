@@ -41,12 +41,14 @@ func NewGossiper(opts GossiperOptions, filter *channel.SyncFilter, transport *tr
 	}
 }
 
+// Resolve accepts a resolver and associates it with the gossiper
 func (g *Gossiper) Resolve(resolver dht.ContentResolver) {
 	g.resolverMu.Lock()
 	defer g.resolverMu.Unlock()
 
 	g.resolver = resolver
 }
+
 
 func (g *Gossiper) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash) {
 	if subnet == nil {
@@ -72,6 +74,8 @@ func (g *Gossiper) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash
 	}
 }
 
+// DidReceiveMessage accepts a signatory (sender's ID) and a message. It is a
+// callback method that is used to check the type of message and invoke relevant methods.
 func (g *Gossiper) DidReceiveMessage(from id.Signatory, msg wire.Msg) error {
 	switch msg.Type {
 	case wire.MsgTypePush:
@@ -88,6 +92,10 @@ func (g *Gossiper) DidReceiveMessage(from id.Signatory, msg wire.Msg) error {
 	return nil
 }
 
+// didReceivePush accepts a signatory (sender's ID) and a message. It is a
+// callback method that is used to a an initial gossiped message. If the content is
+// is relevant, it sends a pull request back to the sender and waits for a sync message
+// within a certain time period.
 func (g *Gossiper) didReceivePush(from id.Signatory, msg wire.Msg) {
 	if len(msg.Data) == 0 {
 		return
@@ -145,6 +153,10 @@ func (g *Gossiper) didReceivePush(from id.Signatory, msg wire.Msg) {
 	}
 }
 
+// didReceivePull accepts a signatory (sender's ID) and a message. It is a
+// callback method that is used to respond to a pull request. If the content is
+// is present in associated ContentResolver, it sends a sync request peer that sent the pull request
+// with the relevant information (content).
 func (g *Gossiper) didReceivePull(from id.Signatory, msg wire.Msg) {
 	if len(msg.Data) == 0 {
 		return
@@ -181,6 +193,10 @@ func (g *Gossiper) didReceivePull(from id.Signatory, msg wire.Msg) {
 	return
 }
 
+// didReceiveSync accepts a signatory (sender's ID) and a message. It is a
+// callback method that is used to accept a sync message. A sync message is only accepted
+// if the filter is open for the particular contentID. If accepted, the content is inserted
+// into the associated ContentResolver
 func (g *Gossiper) didReceiveSync(from id.Signatory, msg wire.Msg) {
 	g.resolverMu.RLock()
 	if g.resolver == nil {

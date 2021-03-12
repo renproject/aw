@@ -12,22 +12,29 @@ import (
 	"github.com/renproject/id"
 )
 
+// gcmNone is the nonce used by the gcm encoder to encrypt/decrypt data
+// It is represented as a struct with a 32 bit uint and a 64 bit uint,
+// together representing the top 32 bits and bottom 64 bits of a 96 bit
+// unsigned integer.
+// The struct also contains a boolean countDown that represents whether
+// the nonce counts up from 0 or counts down from 7.9228163e+28
 type gcmNonce struct {
-	// top and bottom together represent the top 32 bits and bottom 64 bits of a 96 bit unsigned integer
+	//
 	top       uint32
 	bottom    uint64
 	countDown bool
 }
 
+// next is a method on gcmNonce that counts up or down depending on the countDown flag
 func (nonce gcmNonce) next() {
 	if nonce.countDown {
 		nonce.pred()
 	} else {
 		nonce.succ()
 	}
-
 }
 
+// succ is a method in gcmNonce that represents a successor function
 func (nonce gcmNonce) succ() {
 	nonce.bottom++
 	// If bottom overflows, increment top by 1
@@ -36,6 +43,7 @@ func (nonce gcmNonce) succ() {
 	}
 }
 
+// pred is a method on gcmNonce that represents a predecessor function
 func (nonce gcmNonce) pred() {
 	nonce.bottom--
 	// If bottom underflows, decrement top by 1

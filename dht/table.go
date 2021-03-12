@@ -115,7 +115,7 @@ func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr wire.Address) {
 	table.addrsBySignatory[peerID] = peerAddr
 
 	// Insert into the sorted signatories list based on its XOR distance from our
-	// own address.
+	// own address. Signatory is added only if it's not present in the sorted list
 	if !ok {
 		i := sort.Search(len(table.sorted), func(i int) bool {
 			return table.isCloser(peerID, table.sorted[i])
@@ -207,6 +207,9 @@ func (table *InMemTable) RandomPeers(n int) []id.Signatory {
 		// unsurprising alternative.
 		return []id.Signatory{}
 	}
+
+	// If sorted list of signatories is smaller than required number `n`,
+	// return a copy of the list as is
 	if n >= m {
 		sigs := make([]id.Signatory, m)
 		table.sortedMu.Lock()
