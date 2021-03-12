@@ -20,8 +20,7 @@ var _ = Describe("Channels", func() {
 	run := func(ctx context.Context, remote id.Signatory) (*channel.Channel, <-chan wire.Msg, chan<- wire.Msg) {
 		inbound, outbound := make(chan wire.Msg), make(chan wire.Msg)
 		ch := channel.New(
-			channel.DefaultOptions().
-				WithDrainTimeout(3000*time.Millisecond),
+			channel.DefaultOptions().WithDrainTimeout(1500*time.Millisecond),
 			remote,
 			inbound,
 			outbound)
@@ -64,7 +63,6 @@ var _ = Describe("Channels", func() {
 			max := uint64(0)
 			received := make(map[uint64]int, n)
 			for iter := uint64(0); iter < n; iter++ {
-				time.Sleep(time.Millisecond)
 				select {
 				case msg := <-inbound:
 					data := binary.BigEndian.Uint64(msg.Data)
@@ -75,7 +73,7 @@ var _ = Describe("Channels", func() {
 					if inOrder {
 						Expect(data).To(Equal(iter))
 					}
-					if rand.Int()%1000 == 0 {
+					if rand.Int()%100 == 0 {
 						log.Printf("stream %v/%v", len(received), max+1)
 					}
 				case <-timeout:
@@ -169,7 +167,7 @@ var _ = Describe("Channels", func() {
 
 	Context("when a connection is replaced while sending messages", func() {
 		Context("when draining connections in the background", func() {
-			FIt("should send and receive all messages out of order", func() {
+			It("should send and receive all messages out of order", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
@@ -181,7 +179,7 @@ var _ = Describe("Channels", func() {
 				// Number of messages that we will test. This number is higher than
 				// in other tests, because we need sending/receiving to take long
 				// enough that replacements will happen.
-				n := uint64(3000)
+				n := uint64(10000)
 				// Send and receive messages in both direction; from local to
 				// remote, and from remote to local.
 				q1 := sink(localOutbound, n)

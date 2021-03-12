@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/renproject/aw/codec"
@@ -216,10 +217,15 @@ func (ch Channel) Remote() id.Signatory {
 
 func (ch *Channel) readLoop(ctx context.Context) error {
 	read := func(r reader, drain <-chan struct{}) {
+		draining := uint64(0)
+
 		// If the drain channel is written to, this signals that this reader is
 		// now expired and we should begin draining it.
 		go func() {
 			<-drain
+
+			atomic.StoreUint64(&draining, 1)
+
 			// Set the read deadline here, instead of per-message, so that the
 			// remote peer cannot easily "slow loris" the local peer by
 			// periodically sending messages into the draining connection.
@@ -229,13 +235,14 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 			}
 		}()
 
-		for {
-			buf := make([]byte, ch.opts.MaxMessageSize)
-			bufSyncData := make([]byte, ch.opts.MaxMessageSize)
+		buf := make([]byte, ch.opts.MaxMessageSize)
+		bufSyncData := make([]byte, ch.opts.MaxMessageSize)
 
+		for {
 			n, err := r.Decoder(r.Reader, buf[:])
 			if err != nil {
-				ch.opts.Logger.Error("decode", zap.Error(err))
+				draining := atomic.LoadUint64(&draining)
+				ch.opts.Logger.Error("decode", zap.Uint64("draining", draining), zap.Error(err))
 				close(r.q)
 				return
 			}
