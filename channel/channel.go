@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/renproject/aw/codec"
@@ -102,6 +103,9 @@ type Channel struct {
 	writers chan writer
 
 	rateLimiter *rate.Limiter
+
+	currReaderMu *sync.Mutex
+	currReader   reader
 }
 
 // New returns an abstract Channel connection to a remote peer. It will have no
@@ -127,6 +131,9 @@ func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-
 		writers: make(chan writer, 1),
 
 		rateLimiter: rate.NewLimiter(opts.RateLimit, opts.MaxMessageSize),
+
+		currReaderMu: new(sync.Mutex),
+		currReader:   reader{},
 	}
 }
 
@@ -180,6 +187,13 @@ func (ch *Channel) Attach(ctx context.Context, remote id.Signatory, conn net.Con
 	rq := make(chan struct{})
 	wq := make(chan struct{})
 
+	// Close the current reader, if one exists. This will force it to error.
+	ch.currReaderMu.Lock()
+	if ch.currReader.Conn != nil {
+		ch.currReader.Conn.Close()
+	}
+	ch.currReaderMu.Unlock()
+
 	// Signal that a new reader should be used.
 	select {
 	case <-ctx.Done():
@@ -231,6 +245,10 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 			case <-ctx.Done():
 				return ctx.Err()
 			case r, rOk = <-ch.readers:
+				ch.currReaderMu.Lock()
+				ch.currReader = r
+				ch.currReaderMu.Unlock()
+
 				ch.opts.Logger.Debug("replaced reader", zap.String("remote", ch.remote.String()), zap.String("addr", r.Conn.RemoteAddr().String()))
 			}
 		}
