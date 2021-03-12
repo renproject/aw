@@ -169,7 +169,7 @@ var _ = Describe("Channels", func() {
 
 	Context("when a connection is replaced while sending messages", func() {
 		Context("when draining connections in the background", func() {
-			It("should send and receive all messages out of order", func() {
+			FIt("should send and receive all messages out of order", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
@@ -181,7 +181,7 @@ var _ = Describe("Channels", func() {
 				// Number of messages that we will test. This number is higher than
 				// in other tests, because we need sending/receiving to take long
 				// enough that replacements will happen.
-				n := uint64(10000)
+				n := uint64(3000)
 				// Send and receive messages in both direction; from local to
 				// remote, and from remote to local.
 				q1 := sink(localOutbound, n)
