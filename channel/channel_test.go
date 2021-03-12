@@ -181,7 +181,7 @@ var _ = Describe("Channels", func() {
 				// Number of messages that we will test. This number is higher than
 				// in other tests, because we need sending/receiving to take long
 				// enough that replacements will happen.
-				n := uint64(3000)
+				n := uint64(10000)
 				// Send and receive messages in both direction; from local to
 				// remote, and from remote to local.
 				q1 := sink(localOutbound, n)
