@@ -40,19 +40,21 @@ var _ = Describe("Client", func() {
 			defer time.Sleep(time.Millisecond) // Wait for the receiver to be shutdown.
 			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
+			receiver := make(chan wire.Msg)
 			client.Receive(ctx, func(signatory id.Signatory, msg wire.Msg) error {
+				receiver <- msg
 				return nil
 			})
-			//for iter := uint64(0); iter < n; iter++ {
-			//	time.Sleep(time.Millisecond)
-			//	select {
-			//	case <-ctx.Done():
-			//		Expect(ctx.Err()).ToNot(HaveOccurred())
-			//	case msg := <-receiver:
-			//		data := binary.BigEndian.Uint64(msg.Data)
-			//		Expect(data).To(Equal(iter))
-			//	}
-			//}
+			for iter := uint64(0); iter < n; iter++ {
+				time.Sleep(time.Millisecond)
+				select {
+				case <-ctx.Done():
+					Expect(ctx.Err()).ToNot(HaveOccurred())
+				case msg := <-receiver:
+					data := binary.BigEndian.Uint64(msg.Data)
+					Expect(data).To(Equal(iter))
+				}
+			}
 		}()
 		return quit
 	}

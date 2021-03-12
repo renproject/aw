@@ -449,11 +449,6 @@ func (ch *Channel) drainReader(ctx context.Context, r reader, m wire.Msg, mOk bo
 			}
 		}
 	}
-	if ch.opts.DrainInBackground {
-		ch.opts.Logger.Debug("drain: background", zap.String("addr", r.Conn.RemoteAddr().String()))
-		go f()
-		return
-	}
-	ch.opts.Logger.Debug("drain: foreground", zap.String("addr", r.Conn.RemoteAddr().String()))
-	f()
+	ch.opts.Logger.Debug("drain: background", zap.String("addr", r.Conn.RemoteAddr().String()))
+	go f()
 }
