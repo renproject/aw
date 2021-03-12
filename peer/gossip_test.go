@@ -56,7 +56,7 @@ var _ = Describe("Gossip", func() {
 			}
 		})
 
-		FIt("should not send to itself", func() {
+		It("should not send to itself", func() {
 			// Custom logger that writes the error logs to a file
 			highPriority := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
 				return lvl >= zapcore.ErrorLevel
