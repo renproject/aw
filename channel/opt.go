@@ -9,7 +9,6 @@ import (
 
 var (
 	DefaultDrainTimeout       = 30 * time.Second
-	DefaultDrainInBackground  = true
 	DefaultMaxMessageSize     = 4 * 1024 * 1024         // 4MB
 	DefaultRateLimit          = rate.Limit(1024 * 1024) // 1MB per second
 	DefaultInboundBufferSize  = 0
@@ -20,7 +19,6 @@ var (
 type Options struct {
 	Logger             *zap.Logger
 	DrainTimeout       time.Duration
-	DrainInBackground  bool
 	MaxMessageSize     int
 	RateLimit          rate.Limit
 	InboundBufferSize  int
@@ -36,7 +34,6 @@ func DefaultOptions() Options {
 	return Options{
 		Logger:             logger,
 		DrainTimeout:       DefaultDrainTimeout,
-		DrainInBackground:  DefaultDrainInBackground,
 		MaxMessageSize:     DefaultMaxMessageSize,
 		RateLimit:          DefaultRateLimit,
 		InboundBufferSize:  DefaultInboundBufferSize,
@@ -57,14 +54,6 @@ func (opts Options) WithLogger(logger *zap.Logger) Options {
 // all future messages sent to the connection will be lost.
 func (opts Options) WithDrainTimeout(timeout time.Duration) Options {
 	opts.DrainTimeout = timeout
-	return opts
-}
-
-// WithDrainInBackground enables/disable background draining of replaced
-// connections. Setting this to true can improve performance, but it also break
-// the deliver order of messages.
-func (opts Options) WithDrainInBackground(enable bool) Options {
-	opts.DrainInBackground = enable
 	return opts
 }
 

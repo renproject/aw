@@ -17,12 +17,10 @@ import (
 
 var _ = Describe("Channels", func() {
 
-	run := func(ctx context.Context, remote id.Signatory, drainInBg bool) (*channel.Channel, <-chan wire.Msg, chan<- wire.Msg) {
+	run := func(ctx context.Context, remote id.Signatory) (*channel.Channel, <-chan wire.Msg, chan<- wire.Msg) {
 		inbound, outbound := make(chan wire.Msg), make(chan wire.Msg)
 		ch := channel.New(
-			channel.DefaultOptions().
-				WithDrainInBackground(drainInBg).
-				WithDrainTimeout(3000*time.Millisecond),
+			channel.DefaultOptions().WithDrainTimeout(1500*time.Millisecond),
 			remote,
 			inbound,
 			outbound)
@@ -65,7 +63,6 @@ var _ = Describe("Channels", func() {
 			max := uint64(0)
 			received := make(map[uint64]int, n)
 			for iter := uint64(0); iter < n; iter++ {
-				time.Sleep(time.Millisecond)
 				select {
 				case msg := <-inbound:
 					data := binary.BigEndian.Uint64(msg.Data)
@@ -101,8 +98,8 @@ var _ = Describe("Channels", func() {
 
 			localPrivKey := id.NewPrivKey()
 			remotePrivKey := id.NewPrivKey()
-			localCh, localInbound, localOutbound := run(ctx, remotePrivKey.Signatory(), true)
-			remoteCh, remoteInbound, remoteOutbound := run(ctx, localPrivKey.Signatory(), true)
+			localCh, localInbound, localOutbound := run(ctx, remotePrivKey.Signatory())
+			remoteCh, remoteInbound, remoteOutbound := run(ctx, localPrivKey.Signatory())
 
 			// Remote channel will listen for incoming connections.
 			listen(ctx, remoteCh, remotePrivKey.Signatory(), localPrivKey.Signatory(), 3333)
@@ -138,8 +135,8 @@ var _ = Describe("Channels", func() {
 
 			localPrivKey := id.NewPrivKey()
 			remotePrivKey := id.NewPrivKey()
-			localCh, localInbound, localOutbound := run(ctx, remotePrivKey.Signatory(), true)
-			remoteCh, remoteInbound, remoteOutbound := run(ctx, localPrivKey.Signatory(), true)
+			localCh, localInbound, localOutbound := run(ctx, remotePrivKey.Signatory())
+			remoteCh, remoteInbound, remoteOutbound := run(ctx, localPrivKey.Signatory())
 
 			// Number of messages that we will test.
 			n := uint64(1000)
@@ -176,13 +173,13 @@ var _ = Describe("Channels", func() {
 
 				localPrivKey := id.NewPrivKey()
 				remotePrivKey := id.NewPrivKey()
-				localCh, localInbound, localOutbound := run(ctx, remotePrivKey.Signatory(), true)
-				remoteCh, remoteInbound, remoteOutbound := run(ctx, localPrivKey.Signatory(), true)
+				localCh, localInbound, localOutbound := run(ctx, remotePrivKey.Signatory())
+				remoteCh, remoteInbound, remoteOutbound := run(ctx, localPrivKey.Signatory())
 
 				// Number of messages that we will test. This number is higher than
 				// in other tests, because we need sending/receiving to take long
 				// enough that replacements will happen.
-				n := uint64(3000)
+				n := uint64(10000)
 				// Send and receive messages in both direction; from local to
 				// remote, and from remote to local.
 				q1 := sink(localOutbound, n)
@@ -195,41 +192,6 @@ var _ = Describe("Channels", func() {
 				// Local channel will dial the listener (and re-dial once per
 				// second).
 				dial(ctx, localCh, localPrivKey.Signatory(), remotePrivKey.Signatory(), 3353, time.Second)
-
-				// Wait for sinking and streaming to finish.
-				<-q1
-				<-q2
-				<-q3
-				<-q4
-			})
-		})
-
-		Context("when draining connections in the foreground", func() {
-			It("should send and receive all messages in order", func() {
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
-
-				localPrivKey := id.NewPrivKey()
-				remotePrivKey := id.NewPrivKey()
-				localCh, localInbound, localOutbound := run(ctx, remotePrivKey.Signatory(), false)
-				remoteCh, remoteInbound, remoteOutbound := run(ctx, localPrivKey.Signatory(), false)
-
-				// Number of messages that we will test. This number is higher than
-				// in other tests, because we need sending/receiving to take long
-				// enough that replacements will happen.
-				n := uint64(3000)
-				// Send and receive messages in both direction; from local to
-				// remote, and from remote to local.
-				q1 := sink(localOutbound, n)
-				q2 := stream(remoteInbound, n, true)
-				q3 := sink(remoteOutbound, n)
-				q4 := stream(localInbound, n, true)
-
-				// Remote channel will listen for incoming connections.
-				listen(ctx, remoteCh, remotePrivKey.Signatory(), localPrivKey.Signatory(), 3363)
-				// Local channel will dial the listener (and re-dial once per
-				// second).
-				dial(ctx, localCh, localPrivKey.Signatory(), remotePrivKey.Signatory(), 3363, time.Second)
 
 				// Wait for sinking and streaming to finish.
 				<-q1
