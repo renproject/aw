@@ -62,14 +62,18 @@ func (g *Gossiper) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash
 		}
 	}
 
+	var wg sync.WaitGroup;
+	wg.Add(len(recipients))
 	msg := wire.Msg{Version: wire.MsgVersion1, To: *subnet, Type: wire.MsgTypePush, Data: contentID}
 	for _, recipient := range recipients {
-		innerContext, cancel := context.WithTimeout(ctx, g.opts.Timeout)
-		if err := g.transport.Send(innerContext, recipient, msg); err != nil {
-			g.opts.Logger.Error("pushing gossip", zap.String("peer", recipient.String()), zap.Error(err))
-		}
-		cancel()
+		go func(to id.Signatory) {
+			defer wg.Done()
+			if err := g.transport.Send(ctx, to, msg); err != nil {
+				g.opts.Logger.Error("pushing gossip", zap.String("peer", recipient.String()), zap.Error(err))
+			}
+		}(recipient)
 	}
+	wg.Wait()
 }
 
 func (g *Gossiper) DidReceiveMessage(from id.Signatory, msg wire.Msg) error {
