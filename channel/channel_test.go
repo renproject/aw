@@ -73,7 +73,7 @@ var _ = Describe("Channels", func() {
 					if inOrder {
 						Expect(data).To(Equal(iter))
 					}
-					if rand.Int()%100 == 0 {
+					if rand.Int()%1000 == 0 {
 						log.Printf("stream %v/%v", len(received), max+1)
 					}
 				case <-timeout:
