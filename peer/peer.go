@@ -88,6 +88,7 @@ func (p *Peer) DiscoverPeers(ctx context.Context) {
 
 func (p *Peer) Run(ctx context.Context) {
 	p.transport.Receive(ctx, func(from id.Signatory, msg wire.Msg) error {
+		// TODO(ross): Think about merging the syncer and the gossiper.
 		if err := p.syncer.DidReceiveMessage(from, msg); err != nil {
 			return err
 		}

@@ -83,16 +83,21 @@ func (client *Client) Bind(remote id.Signatory) {
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := New(client.opts, remote, inbound, outbound)
 	go func() {
-		defer close(inbound)
 		if err := ch.Run(ctx); err != nil {
 			client.opts.Logger.Error("run", zap.Error(err))
 		}
 	}()
 	go func() {
-		for msg := range inbound {
+		for {
 			select {
 			case <-ctx.Done():
-			case client.inbound <- Msg{Msg: msg, From: remote}:
+				return
+			case msg := <-inbound:
+				select {
+				case <-ctx.Done():
+					return
+				case client.inbound <- Msg{Msg: msg, From: remote}:
+				}
 			}
 		}
 	}()

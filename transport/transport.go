@@ -228,8 +228,6 @@ func (t *Transport) run(ctx context.Context) {
 		}
 	}()
 
-	t.table.AddPeer(t.self, wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", t.opts.Host, t.opts.Port), uint64(time.Now().UnixNano())))
-
 	// Listen for incoming connection attempts.
 	t.opts.Logger.Info("listening", zap.String("host", t.opts.Host), zap.Uint16("port", t.opts.Port))
 	err := tcp.Listen(

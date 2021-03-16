@@ -55,20 +55,6 @@ func setup(numPeers int) ([]*id.PrivKey, []dht.Table, []*channel.Client, []*tran
 }
 
 var _ = Describe("Transport", func() {
-	Context("when starting the transport layer", func() {
-		It("a node should register itself with in the hash table", func() {
-			privKeys, tables, _, transports := setup(1)
-			go transports[0].Run(context.Background())
-			time.Sleep(500 * time.Millisecond)
-			addr, ok := tables[0].PeerAddress(privKeys[0].Signatory())
-			Expect(ok).To(BeTrue())
-			Expect(addr.Value).To(Or(
-				Equal(fmt.Sprintf("127.0.0.1:%v", uint16(3333))),
-				Equal(fmt.Sprintf("localhost:%v", uint16(3333))),
-				Equal(fmt.Sprintf(":%v", uint16(3333)))))
-		})
-	})
-
 	Context("when a transport dial is successful in establishing a connection", func() {
 		It("the IP address of the dialer node should be registered in the hash table", func() {
 			_, tables, _, transports := setup(2)

@@ -2,6 +2,8 @@ package peer_test
 
 import (
 	"context"
+	"time"
+
 	"github.com/renproject/aw/channel"
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/handshake"
@@ -9,17 +11,20 @@ import (
 	"github.com/renproject/aw/transport"
 	"github.com/renproject/id"
 	"go.uber.org/zap"
-	"time"
 )
 
 func setup(numPeers int) ([]peer.Options, []*peer.Peer, []dht.Table, []dht.ContentResolver, []*channel.Client, []*transport.Transport) {
 	loggerConfig := zap.NewProductionConfig()
-	loggerConfig.Level.SetLevel(zap.PanicLevel)
+	loggerConfig.Level.SetLevel(zap.ErrorLevel)
 	logger, err := loggerConfig.Build()
 	if err != nil {
 		panic(err)
 	}
 
+	return setupWithLogger(numPeers, logger)
+}
+
+func setupWithLogger(numPeers int, logger *zap.Logger) ([]peer.Options, []*peer.Peer, []dht.Table, []dht.ContentResolver, []*channel.Client, []*transport.Transport) {
 	// Init options for all peers.
 	opts := make([]peer.Options, numPeers)
 	for i := range opts {
