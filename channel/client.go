@@ -92,7 +92,7 @@ func (client *Client) Bind(remote id.Signatory) {
 			select {
 			case <-ctx.Done():
 				return
-			case msg := <-inbound
+			case msg := <-inbound:
 				select {
 				case <-ctx.Done():
 					return
