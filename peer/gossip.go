@@ -68,8 +68,8 @@ func (g *Gossiper) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash
 	for i := range recipients {
 		go func(index int) {
 			defer wg.Done()
-			recipient := recipients[index]
-			if err := g.transport.Send(ctx, recipient, msg); err != nil {
+			recipient := &recipients[index]
+			if err := g.transport.Send(ctx, *recipient, msg); err != nil {
 				g.opts.Logger.Error("pushing gossip", zap.String("peer", recipient.String()), zap.Error(err))
 			}
 		}(i)
