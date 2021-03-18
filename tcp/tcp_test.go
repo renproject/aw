@@ -104,7 +104,7 @@ var _ = Describe("TCP", func() {
 				}
 			},
 			nil,
-			policy.ConstantTimeout(time.Millisecond))
+			policy.ConstantTimeout(time.Second))
 
 		// If the listener is enabled, and there is no policy for rejecting
 		// inbound connection attempts, then we expect messages to have been
