@@ -36,6 +36,31 @@ func Listen(ctx context.Context, address string, handle func(net.Conn), handleEr
 		handleErr = func(err error) {}
 	}
 
+	return listenLoop(ctx, listener, handle, handleErr, allow)
+}
+
+// NOTE: The listener passed to this function will be closed when the given
+// context finishes.
+func ListenWithListener(ctx context.Context, listener net.Listener, handle func(net.Conn), handleErr func(error), allow policy.Allow) error {
+	if handle == nil {
+		return fmt.Errorf("nil handle function")
+	}
+
+	if handleErr == nil {
+		handleErr = func(err error) {}
+	}
+
+	go func() {
+		<-ctx.Done()
+		if err := listener.Close(); err != nil {
+			handleErr(fmt.Errorf("close listener: %v", err))
+		}
+	}()
+
+	return listenLoop(ctx, listener, handle, handleErr, allow)
+}
+
+func listenLoop(ctx context.Context, listener net.Listener, handle func(net.Conn), handleErr func(error), allow policy.Allow) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -81,6 +106,15 @@ func Listen(ctx context.Context, address string, handle func(net.Conn), handleEr
 			handleErr(fmt.Errorf("close connection: %v", err))
 		}
 	}
+}
+
+func ListenerWithAssignedPort(ctx context.Context, ip net.IP) (net.Listener, int, error) {
+	listener, err := new(net.ListenConfig).Listen(ctx, "tcp", fmt.Sprintf("%v:%v", ip.String(), 0))
+	if err != nil {
+		return nil, 0, err
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	return listener, port, nil
 }
 
 // Dial a remote peer until a connection is successfully established, or until
