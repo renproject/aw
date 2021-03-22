@@ -3,6 +3,7 @@ package channel_test
 import (
 	"context"
 	"encoding/binary"
+	"net"
 	"time"
 
 	"github.com/renproject/aw/channel"
@@ -41,7 +42,7 @@ var _ = Describe("Client", func() {
 			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
 			receiver := make(chan wire.Msg)
-			client.Receive(ctx, func(signatory id.Signatory, msg wire.Msg) error {
+			client.Receive(ctx, func(signatory id.Signatory, ipAddr net.Addr, msg wire.Msg) error {
 				receiver <- msg
 				return nil
 			})
