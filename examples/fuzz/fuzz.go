@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net"
 	"time"
 
 	"github.com/renproject/aw/dht"
