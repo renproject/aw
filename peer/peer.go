@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/renproject/aw/channel"
@@ -87,7 +88,7 @@ func (p *Peer) DiscoverPeers(ctx context.Context) {
 }
 
 func (p *Peer) Run(ctx context.Context) {
-	p.transport.Receive(ctx, func(from id.Signatory, msg wire.Msg) error {
+	p.transport.Receive(ctx, func(from id.Signatory, ipAddr net.Addr, msg wire.Msg) error {
 		// TODO(ross): Think about merging the syncer and the gossiper.
 		if err := p.syncer.DidReceiveMessage(from, msg); err != nil {
 			return err
@@ -95,7 +96,7 @@ func (p *Peer) Run(ctx context.Context) {
 		if err := p.gossiper.DidReceiveMessage(from, msg); err != nil {
 			return err
 		}
-		if err := p.discoveryClient.DidReceiveMessage(from, msg); err != nil {
+		if err := p.discoveryClient.DidReceiveMessage(from, ipAddr, msg); err != nil {
 			return err
 		}
 		return nil
@@ -103,7 +104,7 @@ func (p *Peer) Run(ctx context.Context) {
 	p.transport.Run(ctx)
 }
 
-func (p *Peer) Receive(ctx context.Context, f func(id.Signatory, wire.Msg) error) {
+func (p *Peer) Receive(ctx context.Context, f func(id.Signatory, net.Addr, wire.Msg) error) {
 	p.transport.Receive(ctx, f)
 }
 

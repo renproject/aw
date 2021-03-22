@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strings"
 	"sync"
 	"time"
 
@@ -171,7 +170,7 @@ func (t *Transport) Send(ctx context.Context, remote id.Signatory, msg wire.Msg)
 	return t.client.Send(ctx, remote, msg)
 }
 
-func (t *Transport) Receive(ctx context.Context, receiver func(id.Signatory, wire.Msg) error) {
+func (t *Transport) Receive(ctx context.Context, receiver func(id.Signatory, net.Addr, wire.Msg) error) {
 	t.client.Receive(ctx, receiver)
 }
 
@@ -243,8 +242,6 @@ func (t *Transport) run(ctx context.Context) {
 
 			enc = codec.LengthPrefixEncoder(codec.PlainEncoder, enc)
 			dec = codec.LengthPrefixDecoder(codec.PlainDecoder, dec)
-
-			t.table.AddIP(remote, addr[:strings.IndexByte(addr, ':')])
 
 			t.connect(remote)
 			defer t.disconnect(remote)
