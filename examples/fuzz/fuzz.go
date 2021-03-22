@@ -63,7 +63,7 @@ func main() {
 		peers[i] = peer.New(
 			opts[i],
 			transports[i])
-		peers[i].Receive(context.Background(), func(from id.Signatory, msg wire.Msg) error {
+		peers[i].Receive(context.Background(), func(from id.Signatory, ipAddr net.Addr, msg wire.Msg) error {
 			fmt.Printf("%4v: received \"%v\" from %4v\n", opts[i].PrivKey.Signatory(), string(msg.Data), from)
 			return nil
 		})
