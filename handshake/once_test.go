@@ -33,10 +33,17 @@ var _ = Describe("Handshake", func() {
 				handshakeDone2 := make(chan struct{}, 1)
 				serverHandshakeDone := make(chan struct{}, 2)
 
+				ip := net.IPv4(127, 0, 0, 1)
+				portCh1 := make(chan int, 1)
+				portCh2 := make(chan int, 1)
+
 				var connectionKillCount int64 = 0
 				go func() {
-					tcp.Listen(ctx,
-						"localhost:12345",
+					listener, port, err := tcp.ListenerWithAssignedPort(ctx, ip)
+					Expect(err).ToNot(HaveOccurred())
+					portCh1 <- port
+					tcp.ListenWithListener(ctx,
+						listener,
 						func(conn net.Conn) {
 							h := handshake.ECIES(privKey1)
 							h = handshake.Once(privKey1.Signatory(), &pool1, h)
@@ -53,8 +60,11 @@ var _ = Describe("Handshake", func() {
 				}()
 
 				go func() {
-					tcp.Listen(ctx,
-						"localhost:12346",
+					listener, port, err := tcp.ListenerWithAssignedPort(ctx, ip)
+					Expect(err).ToNot(HaveOccurred())
+					portCh2 <- port
+					tcp.ListenWithListener(ctx,
+						listener,
 						func(conn net.Conn) {
 							h := handshake.ECIES(privKey2)
 							h = handshake.Once(privKey2.Signatory(), &pool2, h)
@@ -73,7 +83,7 @@ var _ = Describe("Handshake", func() {
 
 				go func() {
 					tcp.Dial(ctx,
-						"localhost:12346",
+						fmt.Sprintf("localhost:%v", <-portCh2),
 						func(conn net.Conn) {
 							h := handshake.ECIES(privKey1)
 							h = handshake.Once(privKey1.Signatory(), &pool1, h)
@@ -90,7 +100,7 @@ var _ = Describe("Handshake", func() {
 				}()
 
 				tcp.Dial(ctx,
-					"localhost:12345",
+					fmt.Sprintf("localhost:%v", <-portCh1),
 					func(conn net.Conn) {
 						h := handshake.ECIES(privKey2)
 						h = handshake.Once(privKey2.Signatory(), &pool2, h)
@@ -129,10 +139,16 @@ var _ = Describe("Handshake", func() {
 				handshakeDone2 := make(chan struct{}, 1)
 				serverHandshakeDone := make(chan struct{}, 2)
 
+				ip := net.IPv4(127, 0, 0, 1)
+				portCh := make(chan int, 1)
+
 				var connectionKillCount int64 = 0
 				go func() {
-					tcp.Listen(ctx,
-						"localhost:12345",
+					listener, port, err := tcp.ListenerWithAssignedPort(ctx, ip)
+					Expect(err).ToNot(HaveOccurred())
+					portCh <- port
+					tcp.ListenWithListener(ctx,
+						listener,
 						func(conn net.Conn) {
 							h := handshake.ECIES(privKey1)
 							h = handshake.Once(privKey1.Signatory(), &pool1, h)
@@ -147,11 +163,12 @@ var _ = Describe("Handshake", func() {
 						policy.Max(2),
 					)
 				}()
+				port := <-portCh
 				<-time.After(100 * time.Millisecond)
 
 				go func() {
 					tcp.Dial(ctx,
-						"localhost:12345",
+						fmt.Sprintf("localhost:%v", port),
 						func(conn net.Conn) {
 							h := handshake.ECIES(privKey2)
 							h = handshake.Once(privKey2.Signatory(), &pool2, h)
@@ -168,7 +185,7 @@ var _ = Describe("Handshake", func() {
 				}()
 
 				tcp.Dial(ctx,
-					"localhost:12345",
+					fmt.Sprintf("localhost:%v", port),
 					func(conn net.Conn) {
 						h := handshake.ECIES(privKey2)
 						h = handshake.Once(privKey2.Signatory(), &pool2, h)

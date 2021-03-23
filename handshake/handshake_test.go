@@ -2,6 +2,7 @@ package handshake_test
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -17,67 +18,14 @@ import (
 )
 
 var _ = Describe("Handshake", func() {
-
-	run := func(ctx context.Context, dialAfter, listenAfter time.Duration, shouldListen bool, dialRetry, dialSuccess chan bool) {
-		if shouldListen {
-			go func() {
-				time.Sleep(0)
-				<-time.After(listenAfter)
-
-				privKey := id.NewPrivKey()
-				h := handshake.ECIES(privKey)
-
-				tcp.Listen(ctx,
-					"127.0.0.1:3334",
-					func(conn net.Conn) {
-						h(conn,
-							codec.PlainEncoder,
-							codec.PlainDecoder,
-						)
-					},
-					nil,
-					nil,
-				)
-			}()
-		}
-
-		go func() {
-			time.Sleep(0)
-			<-time.After(dialAfter)
-
-			retrySignalOnce := sync.Once{}
-			privKey := id.NewPrivKey()
-			h := handshake.ECIES(privKey)
-
-			tcp.Dial(ctx,
-				"127.0.0.1:3334",
-				func(conn net.Conn) {
-					_, _, _, err := h(conn,
-						codec.PlainEncoder,
-						codec.PlainDecoder)
-					if err == nil {
-						dialSuccess <- true
-					}
-				},
-				func() func(error) {
-					return func(error) {
-						retrySignalOnce.Do(func() {
-							dialRetry <- true
-						})
-					}
-				}(),
-				policy.ConstantTimeout(50*time.Millisecond),
-			)
-		}()
-	}
-
 	Context("connecting a client to a server", func() {
 		When("the server is online", func() {
 			It("should connect successfully", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				var dialRetry, dialSuccess chan bool = nil, make(chan bool)
-				run(ctx, 500*time.Millisecond, 0, true, dialRetry, dialSuccess)
+				portCh := listenOnAssignedPort(ctx)
+				dial(ctx, <-portCh, dialRetry, dialSuccess)
 				Expect(<-dialSuccess).Should(BeTrue())
 			})
 		})
@@ -87,7 +35,7 @@ var _ = Describe("Handshake", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				var dialRetry, dialSuccess chan bool = make(chan bool), make(chan bool)
-				run(ctx, 0, 500*time.Millisecond, false, dialRetry, dialSuccess)
+				dial(ctx, 3333, dialRetry, dialSuccess)
 				Expect(<-dialRetry).Should(BeTrue())
 			})
 
@@ -95,10 +43,85 @@ var _ = Describe("Handshake", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				var dialRetry, dialSuccess chan bool = make(chan bool), make(chan bool)
-				run(ctx, 0, 500*time.Millisecond, true, dialRetry, dialSuccess)
+				port := 3334
+				dial(ctx, port, dialRetry, dialSuccess)
+				time.Sleep(500 * time.Millisecond)
+				listen(ctx, port)
 				Expect(<-dialRetry).Should(BeTrue())
 				Expect(<-dialSuccess).Should(BeTrue())
 			})
 		})
 	})
 })
+
+func listen(ctx context.Context, port int) {
+	go func() {
+		privKey := id.NewPrivKey()
+		h := handshake.ECIES(privKey)
+
+		tcp.Listen(ctx,
+			fmt.Sprintf("127.0.0.1:%v", port),
+			func(conn net.Conn) {
+				h(conn,
+					codec.PlainEncoder,
+					codec.PlainDecoder,
+				)
+			},
+			nil,
+			nil,
+		)
+	}()
+}
+
+func listenOnAssignedPort(ctx context.Context) <-chan int {
+	portCh := make(chan int, 1)
+	go func() {
+		privKey := id.NewPrivKey()
+		h := handshake.ECIES(privKey)
+
+		ip := net.IPv4(127, 0, 0, 1)
+		listener, port, err := tcp.ListenerWithAssignedPort(ctx, ip)
+		Expect(err).ToNot(HaveOccurred())
+		portCh <- port
+
+		tcp.ListenWithListener(ctx,
+			listener,
+			func(conn net.Conn) {
+				h(conn,
+					codec.PlainEncoder,
+					codec.PlainDecoder,
+				)
+			},
+			nil,
+			nil,
+		)
+	}()
+
+	return portCh
+}
+
+func dial(ctx context.Context, port int, dialRetry, dialSuccess chan bool) {
+	go func() {
+		retrySignalOnce := sync.Once{}
+		privKey := id.NewPrivKey()
+		h := handshake.ECIES(privKey)
+
+		tcp.Dial(ctx,
+			fmt.Sprintf("127.0.0.1:%v", port),
+			func(conn net.Conn) {
+				_, _, _, err := h(conn,
+					codec.PlainEncoder,
+					codec.PlainDecoder)
+				if err == nil {
+					dialSuccess <- true
+				}
+			},
+			func(error) {
+				retrySignalOnce.Do(func() {
+					dialRetry <- true
+				})
+			},
+			policy.ConstantTimeout(50*time.Millisecond),
+		)
+	}()
+}
