@@ -81,8 +81,8 @@ var _ = Describe("Client", func() {
 			defer remote.Unbind(localPrivKey.Signatory())
 			Expect(remote.IsBound(localPrivKey.Signatory())).To(BeTrue())
 
-			listen(ctx, remote, remotePrivKey.Signatory(), localPrivKey.Signatory(), 4444)
-			dial(ctx, local, localPrivKey.Signatory(), remotePrivKey.Signatory(), 4444, time.Minute)
+			port := listen(ctx, remote, remotePrivKey.Signatory(), localPrivKey.Signatory())
+			dial(ctx, local, localPrivKey.Signatory(), remotePrivKey.Signatory(), port, time.Minute)
 
 			n := uint64(5000)
 			q1 := sink(ctx, local, remotePrivKey.Signatory(), n)
@@ -119,8 +119,8 @@ var _ = Describe("Client", func() {
 			defer remote.Unbind(localPrivKey.Signatory())
 			Expect(remote.IsBound(localPrivKey.Signatory())).To(BeTrue())
 
-			listen(ctx, remote, remotePrivKey.Signatory(), localPrivKey.Signatory(), 5555)
-			dial(ctx, local, localPrivKey.Signatory(), remotePrivKey.Signatory(), 5555, time.Minute)
+			port := listen(ctx, remote, remotePrivKey.Signatory(), localPrivKey.Signatory())
+			dial(ctx, local, localPrivKey.Signatory(), remotePrivKey.Signatory(), port, time.Minute)
 
 			go func() {
 				remote := remotePrivKey.Signatory()
