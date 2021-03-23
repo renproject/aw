@@ -21,22 +21,7 @@ func Listen(ctx context.Context, address string, handle func(net.Conn), handleEr
 	if err != nil {
 		return err
 	}
-	go func() {
-		<-ctx.Done()
-		if err := listener.Close(); err != nil {
-			handleErr(fmt.Errorf("close listener: %v", err))
-		}
-	}()
-
-	if handle == nil {
-		return fmt.Errorf("nil handle function")
-	}
-
-	if handleErr == nil {
-		handleErr = func(err error) {}
-	}
-
-	return listenLoop(ctx, listener, handle, handleErr, allow)
+	return ListenWithListener(ctx, listener, handle, handleErr, allow)
 }
 
 // NOTE: The listener passed to this function will be closed when the given
@@ -57,10 +42,6 @@ func ListenWithListener(ctx context.Context, listener net.Listener, handle func(
 		}
 	}()
 
-	return listenLoop(ctx, listener, handle, handleErr, allow)
-}
-
-func listenLoop(ctx context.Context, listener net.Listener, handle func(net.Conn), handleErr func(error), allow policy.Allow) error {
 	for {
 		select {
 		case <-ctx.Done():
