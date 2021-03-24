@@ -220,7 +220,7 @@ func (table *InMemTable) RandomPeers(n int) []id.Signatory {
 	// This is used only if the sorted array (array of length m) is sufficiently
 	// small or the number of random elements to be selected (n) i sufficiently
 	// large in comparison to m
-	if m <= 10000 || n >= m / 50.0 {
+	if m <= 10000 || n >= m/50.0 {
 		shuffled := make([]id.Signatory, n)
 		indexPerm := rand.Perm(m)
 		table.sortedMu.Lock()

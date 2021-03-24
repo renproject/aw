@@ -199,7 +199,7 @@ var _ = Describe("DHT", func() {
 				}
 
 				for i := 0; i < 10; i++ {
-					for j := i+1; j < 10; j++ {
+					for j := i + 1; j < 10; j++ {
 						Expect(lists[i]).To(Not(Equal(lists[j])))
 					}
 				}

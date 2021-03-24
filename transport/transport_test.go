@@ -33,7 +33,7 @@ func setup(numPeers int) ([]*id.PrivKey, []dht.Table, []*channel.Client, []*tran
 	transports := make([]*transport.Transport, numPeers)
 	for i := range privKeys {
 		privKeys[i] = id.NewPrivKey()
-		self :=  privKeys[i].Signatory()
+		self := privKeys[i].Signatory()
 		h := handshake.Filter(func(id.Signatory) error { return nil }, handshake.ECIES(privKeys[i]))
 		clients[i] = channel.NewClient(
 			channel.DefaultOptions().
@@ -58,9 +58,9 @@ var _ = Describe("Transport", func() {
 	Context("when a transport dial is successful in establishing a connection", func() {
 		It("the IP address of the dialer node should be registered in the hash table", func() {
 			_, tables, _, transports := setup(2)
-			ctx, cancel := context.WithTimeout(context.Background(), 1 * time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 			defer cancel()
-			transports[1].Receive(ctx, func(from id.Signatory, msg wire.Msg) error {return nil})
+			transports[1].Receive(ctx, func(from id.Signatory, msg wire.Msg) error { return nil })
 			go transports[1].Run(ctx)
 			println("Receive finished")
 			tables[0].AddPeer(transports[1].Self(),
@@ -72,9 +72,9 @@ var _ = Describe("Transport", func() {
 			sig := transports[1].Self()
 			err := transports[0].Send(ctx, transports[1].Self(), wire.Msg{
 				Type: wire.MsgTypeSend,
-				To: id.Hash(sig),
+				To:   id.Hash(sig),
 				Data: msg,
-				})
+			})
 			Expect(err).To(BeNil())
 			Expect(tables[0].IP(transports[1].Self())).To(Or(
 				Equal(fmt.Sprintf("127.0.0.1")),

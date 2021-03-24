@@ -52,7 +52,7 @@ var _ = Describe("Handshake", func() {
 								fmt.Printf("%v - server side \n", err)
 								atomic.AddInt64(&connectionKillCount, 1)
 							}
-							serverHandshakeDone<- struct{}{}
+							serverHandshakeDone <- struct{}{}
 						},
 						nil,
 						policy.Max(2),
@@ -73,7 +73,7 @@ var _ = Describe("Handshake", func() {
 								fmt.Printf("%v - server side \n", err)
 								atomic.AddInt64(&connectionKillCount, 1)
 							}
-							serverHandshakeDone<- struct{}{}
+							serverHandshakeDone <- struct{}{}
 						},
 						nil,
 						policy.Max(2),
@@ -92,7 +92,7 @@ var _ = Describe("Handshake", func() {
 								fmt.Printf("%v - client side 1\n", err)
 								atomic.AddInt64(&connectionKillCount, 1)
 							}
-							handshakeDone1<- struct{}{}
+							handshakeDone1 <- struct{}{}
 						},
 						nil,
 						policy.ConstantTimeout(time.Second*2),
@@ -109,7 +109,7 @@ var _ = Describe("Handshake", func() {
 							fmt.Printf("%v - client side 2\n", err)
 							atomic.AddInt64(&connectionKillCount, 1)
 						}
-						handshakeDone2<- struct{}{}
+						handshakeDone2 <- struct{}{}
 					},
 					nil,
 					policy.ConstantTimeout(time.Second*2),
@@ -157,7 +157,7 @@ var _ = Describe("Handshake", func() {
 								fmt.Printf("%v - server side \n", err)
 								atomic.AddInt64(&connectionKillCount, 1)
 							}
-							serverHandshakeDone<- struct{}{}
+							serverHandshakeDone <- struct{}{}
 						},
 						nil,
 						policy.Max(2),
@@ -177,7 +177,7 @@ var _ = Describe("Handshake", func() {
 								fmt.Printf("%v - client side \n", err)
 								atomic.AddInt64(&connectionKillCount, 1)
 							}
-							handshakeDone1<- struct{}{}
+							handshakeDone1 <- struct{}{}
 						},
 						nil,
 						policy.ConstantTimeout(time.Second*2),
@@ -194,7 +194,7 @@ var _ = Describe("Handshake", func() {
 							fmt.Printf("%v - client side \n", err)
 							atomic.AddInt64(&connectionKillCount, 1)
 						}
-						handshakeDone2<- struct{}{}
+						handshakeDone2 <- struct{}{}
 					},
 					nil,
 					policy.ConstantTimeout(time.Second*2),
