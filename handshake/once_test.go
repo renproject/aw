@@ -29,6 +29,10 @@ var _ = Describe("Handshake", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
+				handshakeDone1 := make(chan struct{}, 1)
+				handshakeDone2 := make(chan struct{}, 1)
+				serverHandshakeDone := make(chan struct{}, 2)
+
 				var connectionKillCount int64 = 0
 				go func() {
 					tcp.Listen(ctx,
@@ -41,7 +45,7 @@ var _ = Describe("Handshake", func() {
 								fmt.Printf("%v - server side \n", err)
 								atomic.AddInt64(&connectionKillCount, 1)
 							}
-							<-time.After(time.Second * 1)
+							serverHandshakeDone<- struct{}{}
 						},
 						nil,
 						policy.Max(2),
@@ -59,12 +63,13 @@ var _ = Describe("Handshake", func() {
 								fmt.Printf("%v - server side \n", err)
 								atomic.AddInt64(&connectionKillCount, 1)
 							}
-							<-time.After(time.Second * 1)
+							serverHandshakeDone<- struct{}{}
 						},
 						nil,
 						policy.Max(2),
 					)
 				}()
+				<-time.After(100 * time.Millisecond)
 
 				go func() {
 					tcp.Dial(ctx,
@@ -77,6 +82,7 @@ var _ = Describe("Handshake", func() {
 								fmt.Printf("%v - client side 1\n", err)
 								atomic.AddInt64(&connectionKillCount, 1)
 							}
+							handshakeDone1<- struct{}{}
 						},
 						nil,
 						policy.ConstantTimeout(time.Second*2),
@@ -93,12 +99,17 @@ var _ = Describe("Handshake", func() {
 							fmt.Printf("%v - client side 2\n", err)
 							atomic.AddInt64(&connectionKillCount, 1)
 						}
+						handshakeDone2<- struct{}{}
 					},
 					nil,
 					policy.ConstantTimeout(time.Second*2),
 				)
 
-				<-time.After(time.Second * 1)
+				<-handshakeDone1
+				<-handshakeDone2
+				<-serverHandshakeDone
+				<-serverHandshakeDone
+
 				Expect(atomic.LoadInt64(&connectionKillCount)).To(Equal(int64(2)))
 
 			})
@@ -114,6 +125,10 @@ var _ = Describe("Handshake", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
+				handshakeDone1 := make(chan struct{}, 1)
+				handshakeDone2 := make(chan struct{}, 1)
+				serverHandshakeDone := make(chan struct{}, 2)
+
 				var connectionKillCount int64 = 0
 				go func() {
 					tcp.Listen(ctx,
@@ -126,12 +141,13 @@ var _ = Describe("Handshake", func() {
 								fmt.Printf("%v - server side \n", err)
 								atomic.AddInt64(&connectionKillCount, 1)
 							}
-							<-time.After(time.Second * 1)
+							serverHandshakeDone<- struct{}{}
 						},
 						nil,
 						policy.Max(2),
 					)
 				}()
+				<-time.After(100 * time.Millisecond)
 
 				go func() {
 					tcp.Dial(ctx,
@@ -144,6 +160,7 @@ var _ = Describe("Handshake", func() {
 								fmt.Printf("%v - client side \n", err)
 								atomic.AddInt64(&connectionKillCount, 1)
 							}
+							handshakeDone1<- struct{}{}
 						},
 						nil,
 						policy.ConstantTimeout(time.Second*2),
@@ -160,14 +177,18 @@ var _ = Describe("Handshake", func() {
 							fmt.Printf("%v - client side \n", err)
 							atomic.AddInt64(&connectionKillCount, 1)
 						}
+						handshakeDone2<- struct{}{}
 					},
 					nil,
 					policy.ConstantTimeout(time.Second*2),
 				)
 
-				<-time.After(time.Second * 1)
-				Expect(atomic.LoadInt64(&connectionKillCount)).To(Equal(int64(2)))
+				<-handshakeDone1
+				<-handshakeDone2
+				<-serverHandshakeDone
+				<-serverHandshakeDone
 
+				Expect(atomic.LoadInt64(&connectionKillCount)).To(Equal(int64(2)))
 			})
 		})
 	})
