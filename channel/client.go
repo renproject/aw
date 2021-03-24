@@ -15,7 +15,7 @@ import (
 
 type receiver struct {
 	ctx context.Context
-	f   func(id.Signatory, net.Addr, wire.Msg) error
+	f   func(id.Signatory, wire.Packet) error
 }
 
 type sharedChannel struct {
@@ -35,9 +35,8 @@ type sharedChannel struct {
 }
 
 type Msg struct {
-	wire.Msg
+	wire.Packet
 	From   id.Signatory
-	IPAddr net.Addr
 }
 
 type Client struct {
@@ -97,7 +96,7 @@ func (client *Client) Bind(remote id.Signatory) {
 				select {
 				case <-ctx.Done():
 					return
-				case client.inbound <- Msg{Msg: packet.Msg, From: remote, IPAddr: packet.IPAddr}:
+				case client.inbound <- Msg{Packet: packet, From: remote}:
 				}
 			}
 		}
@@ -173,7 +172,7 @@ func (client *Client) Send(ctx context.Context, remote id.Signatory, msg wire.Ms
 	}
 }
 
-func (client *Client) Receive(ctx context.Context, f func(id.Signatory, net.Addr, wire.Msg) error) {
+func (client *Client) Receive(ctx context.Context, f func(id.Signatory, wire.Packet) error) {
 	client.receiversRunningMu.Lock()
 	if client.receiversRunning {
 		client.receiversRunningMu.Unlock()
@@ -202,7 +201,7 @@ func (client *Client) Receive(ctx context.Context, f func(id.Signatory, net.Addr
 						// Do nothing. This will implicitly mark it for
 						// deletion.
 					default:
-						if err := receiver.f(msg.From, msg.IPAddr, msg.Msg); err != nil {
+						if err := receiver.f(msg.From, msg.Packet); err != nil {
 							// When a channel is killed, its context will be
 							// cancelled, its underlying network connections
 							// will be dropped, and sending will fail. A killed

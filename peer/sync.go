@@ -144,7 +144,8 @@ func (syncer *Syncer) Sync(ctx context.Context, contentID []byte, hint *id.Signa
 	}
 }
 
-func (syncer *Syncer) DidReceiveMessage(from id.Signatory, msg wire.Msg) error {
+func (syncer *Syncer) DidReceiveMessage(from id.Signatory, packet wire.Packet) error {
+	msg := packet.Msg
 	if msg.Type == wire.MsgTypeSync {
 		// TODO: Fix Channel to not drop connection on first filtered message,
 		// since it could be a valid message that is simply late (comes after the grace period)

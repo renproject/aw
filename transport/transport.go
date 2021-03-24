@@ -170,7 +170,7 @@ func (t *Transport) Send(ctx context.Context, remote id.Signatory, msg wire.Msg)
 	return t.client.Send(ctx, remote, msg)
 }
 
-func (t *Transport) Receive(ctx context.Context, receiver func(id.Signatory, net.Addr, wire.Msg) error) {
+func (t *Transport) Receive(ctx context.Context, receiver func(id.Signatory, wire.Packet) error) {
 	t.client.Receive(ctx, receiver)
 }
 

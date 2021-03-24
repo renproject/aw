@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"net"
 	"time"
 
 	"github.com/renproject/aw/dht"
@@ -64,8 +63,8 @@ func main() {
 		peers[i] = peer.New(
 			opts[i],
 			transports[i])
-		peers[i].Receive(context.Background(), func(from id.Signatory, ipAddr net.Addr, msg wire.Msg) error {
-			fmt.Printf("%4v: received \"%v\" from %4v\n", opts[i].PrivKey.Signatory(), string(msg.Data), from)
+		peers[i].Receive(context.Background(), func(from id.Signatory, packet wire.Packet) error {
+			fmt.Printf("%4v: received \"%v\" from %4v\n", opts[i].PrivKey.Signatory(), string(packet.Msg.Data), from)
 			return nil
 		})
 		peers[i].Resolve(context.Background(), contentResolver)

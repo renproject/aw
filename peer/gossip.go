@@ -72,7 +72,8 @@ func (g *Gossiper) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash
 	}
 }
 
-func (g *Gossiper) DidReceiveMessage(from id.Signatory, msg wire.Msg) error {
+func (g *Gossiper) DidReceiveMessage(from id.Signatory, packet wire.Packet) error {
+	msg := packet.Msg
 	switch msg.Type {
 	case wire.MsgTypePush:
 		g.didReceivePush(from, msg)

@@ -72,10 +72,11 @@ Outer:
 	}
 }
 
-func (dc *DiscoveryClient) DidReceiveMessage(from id.Signatory, ipAddr net.Addr, msg wire.Msg) error {
+func (dc *DiscoveryClient) DidReceiveMessage(from id.Signatory, packet wire.Packet) error {
+	msg := packet.Msg
 	switch msg.Type {
 	case wire.MsgTypePing:
-		if err := dc.didReceivePing(from, ipAddr, msg); err != nil {
+		if err := dc.didReceivePing(from, packet.IPAddr, msg); err != nil {
 			return err
 		}
 	case wire.MsgTypePingAck:
