@@ -79,7 +79,7 @@ func listenOnAssignedPort(ctx context.Context) <-chan int {
 		privKey := id.NewPrivKey()
 		h := handshake.ECIES(privKey)
 
-		ip := net.IPv4(127, 0, 0, 1)
+		ip := "127.0.0.1"
 		listener, port, err := tcp.ListenerWithAssignedPort(ctx, ip)
 		Expect(err).ToNot(HaveOccurred())
 		portCh <- port

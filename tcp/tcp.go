@@ -94,8 +94,8 @@ func ListenWithListener(ctx context.Context, listener net.Listener, handle func(
 
 // ListenerWithAssignedPort creates a new listener on a random port assigned by
 // the OS. On success, both the listener and port are returned.
-func ListenerWithAssignedPort(ctx context.Context, ip net.IP) (net.Listener, int, error) {
-	listener, err := new(net.ListenConfig).Listen(ctx, "tcp", fmt.Sprintf("%v:%v", ip.String(), 0))
+func ListenerWithAssignedPort(ctx context.Context, ip string) (net.Listener, int, error) {
+	listener, err := new(net.ListenConfig).Listen(ctx, "tcp", fmt.Sprintf("%v:%v", ip, 0))
 	if err != nil {
 		return nil, 0, err
 	}

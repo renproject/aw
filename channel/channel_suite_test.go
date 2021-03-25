@@ -25,7 +25,7 @@ func TestChannel(t *testing.T) {
 }
 
 func listen(ctx context.Context, attacher channel.Attacher, self, other id.Signatory) int {
-	ip := net.IPv4(127, 0, 0, 1)
+	ip := "127.0.0.1"
 	listener, port, err := tcp.ListenerWithAssignedPort(ctx, ip)
 	Expect(err).ToNot(HaveOccurred())
 	go func() {

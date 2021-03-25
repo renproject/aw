@@ -45,7 +45,7 @@ var _ = Describe("TCP", func() {
 			}
 			var listener net.Listener
 			var err error
-			ip := net.IPv4(127, 0, 0, 1)
+			ip := "127.0.0.1"
 			listener, port, err = tcp.ListenerWithAssignedPort(ctx, ip)
 			Expect(err).ToNot(HaveOccurred())
 			go func() {

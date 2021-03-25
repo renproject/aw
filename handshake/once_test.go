@@ -33,7 +33,7 @@ var _ = Describe("Handshake", func() {
 				handshakeDone2 := make(chan struct{}, 1)
 				serverHandshakeDone := make(chan struct{}, 2)
 
-				ip := net.IPv4(127, 0, 0, 1)
+				ip := "127.0.0.1"
 				portCh1 := make(chan int, 1)
 				portCh2 := make(chan int, 1)
 
@@ -139,7 +139,7 @@ var _ = Describe("Handshake", func() {
 				handshakeDone2 := make(chan struct{}, 1)
 				serverHandshakeDone := make(chan struct{}, 2)
 
-				ip := net.IPv4(127, 0, 0, 1)
+				ip := "127.0.0.1"
 				portCh := make(chan int, 1)
 
 				var connectionKillCount int64 = 0
