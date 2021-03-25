@@ -89,13 +89,13 @@ func (p *Peer) DiscoverPeers(ctx context.Context) {
 func (p *Peer) Run(ctx context.Context) {
 	p.transport.Receive(ctx, func(from id.Signatory, packet wire.Packet) error {
 		// TODO(ross): Think about merging the syncer and the gossiper.
-		if err := p.syncer.DidReceiveMessage(from, packet); err != nil {
+		if err := p.syncer.DidReceiveMessage(from, packet.Msg); err != nil {
 			return err
 		}
-		if err := p.gossiper.DidReceiveMessage(from, packet); err != nil {
+		if err := p.gossiper.DidReceiveMessage(from, packet.Msg); err != nil {
 			return err
 		}
-		if err := p.discoveryClient.DidReceiveMessage(from, packet); err != nil {
+		if err := p.discoveryClient.DidReceiveMessage(from, packet.IPAddr, packet.Msg); err != nil {
 			return err
 		}
 		return nil
