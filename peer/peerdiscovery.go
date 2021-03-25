@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/renproject/aw/transport"
@@ -71,10 +72,10 @@ Outer:
 	}
 }
 
-func (dc *DiscoveryClient) DidReceiveMessage(from id.Signatory, msg wire.Msg) error {
+func (dc *DiscoveryClient) DidReceiveMessage(from id.Signatory, ipAddr net.Addr, msg wire.Msg) error {
 	switch msg.Type {
 	case wire.MsgTypePing:
-		if err := dc.didReceivePing(from, msg); err != nil {
+		if err := dc.didReceivePing(from, ipAddr, msg); err != nil {
 			return err
 		}
 	case wire.MsgTypePingAck:
@@ -85,7 +86,7 @@ func (dc *DiscoveryClient) DidReceiveMessage(from id.Signatory, msg wire.Msg) er
 	return nil
 }
 
-func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) error {
+func (dc *DiscoveryClient) didReceivePing(from id.Signatory, ipAddr net.Addr, msg wire.Msg) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -93,18 +94,11 @@ func (dc *DiscoveryClient) didReceivePing(from id.Signatory, msg wire.Msg) error
 		return fmt.Errorf("malformed port received in ping message. expected: 2 bytes, received: %v bytes", dataLen)
 	}
 	port := binary.LittleEndian.Uint16(msg.Data)
-	ipAddr, ipAddrOk := dc.transport.Table().IP(from)
-	if !ipAddrOk {
-		if _, ok := dc.transport.Table().PeerAddress(from); ok {
-			return nil
-		}
-		return fmt.Errorf("ip address for remote peer not found")
-	}
+
 	dc.transport.Table().AddPeer(
 		from,
-		wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", ipAddr, port), uint64(time.Now().UnixNano())),
+		wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", ipAddr.(*net.TCPAddr).IP.String(), port), uint64(time.Now().UnixNano())),
 	)
-	dc.transport.Table().DeleteIP(from)
 
 	peers := dc.transport.Table().Peers(dc.opts.MaxExpectedPeers)
 	addrAndSig := make([]wire.SignatoryAndAddress, 0, len(peers))

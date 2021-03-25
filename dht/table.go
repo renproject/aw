@@ -28,13 +28,6 @@ type Table interface {
 	// PeerAddress returns the network address associated with the given peer.
 	PeerAddress(id.Signatory) (wire.Address, bool)
 
-	// AddPeer to the table with an associate network address.
-	AddIP(id.Signatory, string)
-	// DeleteIP from the table.
-	DeleteIP(id.Signatory)
-	// IP returns the network ip address associated with the given peer.
-	IP(id.Signatory) (string, bool)
-
 	// Peers returns the n closest peers to the local peer, using XORing as the
 	// measure of distance between two peers.
 	Peers(int) []id.Signatory
@@ -155,28 +148,6 @@ func (table *InMemTable) PeerAddress(peerID id.Signatory) (wire.Address, bool) {
 
 	addr, ok := table.addrsBySignatory[peerID]
 	return addr, ok
-}
-
-func (table *InMemTable) AddIP(peerID id.Signatory, ipAddress string) {
-	table.ipBySignatoryMu.Lock()
-	defer table.ipBySignatoryMu.Unlock()
-
-	table.ipBySignatory[peerID] = ipAddress
-}
-
-func (table *InMemTable) DeleteIP(peerID id.Signatory) {
-	table.ipBySignatoryMu.Lock()
-	defer table.ipBySignatoryMu.Unlock()
-
-	delete(table.ipBySignatory, peerID)
-}
-
-func (table *InMemTable) IP(peerID id.Signatory) (string, bool) {
-	table.ipBySignatoryMu.Lock()
-	defer table.ipBySignatoryMu.Unlock()
-
-	ip, ok := table.ipBySignatory[peerID]
-	return ip, ok
 }
 
 // Peers returns the n closest peer IDs.

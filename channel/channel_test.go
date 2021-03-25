@@ -17,8 +17,8 @@ import (
 
 var _ = Describe("Channels", func() {
 
-	run := func(ctx context.Context, remote id.Signatory) (*channel.Channel, <-chan wire.Msg, chan<- wire.Msg) {
-		inbound, outbound := make(chan wire.Msg), make(chan wire.Msg)
+	run := func(ctx context.Context, remote id.Signatory) (*channel.Channel, <-chan wire.Packet, chan<- wire.Msg) {
+		inbound, outbound := make(chan wire.Packet), make(chan wire.Msg)
 		ch := channel.New(
 			channel.DefaultOptions().WithDrainTimeout(1500*time.Millisecond),
 			remote,
@@ -54,7 +54,7 @@ var _ = Describe("Channels", func() {
 		return quit
 	}
 
-	stream := func(inbound <-chan wire.Msg, n uint64, inOrder bool) <-chan struct{} {
+	stream := func(inbound <-chan wire.Packet, n uint64, inOrder bool) <-chan struct{} {
 		quit := make(chan struct{})
 		go func() {
 			defer GinkgoRecover()
@@ -65,7 +65,7 @@ var _ = Describe("Channels", func() {
 			for iter := uint64(0); iter < n; iter++ {
 				select {
 				case msg := <-inbound:
-					data := binary.BigEndian.Uint64(msg.Data)
+					data := binary.BigEndian.Uint64(msg.Msg.Data)
 					if data > max {
 						max = data
 					}

@@ -2,6 +2,7 @@ package wire
 
 import (
 	"fmt"
+	"net"
 
 	"github.com/renproject/id"
 
@@ -31,6 +32,12 @@ type Msg struct {
 	To       id.Hash `json:"to"`
 	Data     []byte  `json:"data"`
 	SyncData []byte  `json:"syncData"`
+}
+
+// Packet defines a struct that captures the incoming message and the corresponding IP address
+type Packet struct {
+	Msg    Msg
+	IPAddr net.Addr
 }
 
 // SizeHint returns the number of bytes required to represent a Msg in binary.

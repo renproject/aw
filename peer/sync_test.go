@@ -135,16 +135,16 @@ var _ = Describe("Sync", func() {
 			go peers[0].Run(ctx)
 			go func(ctx context.Context) {
 				once := false
-				transports[1].Receive(ctx, func(from id.Signatory, msg wire.Msg) error {
+				transports[1].Receive(ctx, func(from id.Signatory, packet wire.Packet) error {
 					if !once {
 						once = true
 						return nil
 					}
 
-					if err := peers[1].Syncer().DidReceiveMessage(from, msg); err != nil {
+					if err := peers[1].Syncer().DidReceiveMessage(from, packet.Msg); err != nil {
 						return err
 					}
-					if err := peers[1].Gossiper().DidReceiveMessage(from, msg); err != nil {
+					if err := peers[1].Gossiper().DidReceiveMessage(from, packet.Msg); err != nil {
 						return err
 					}
 					return nil
