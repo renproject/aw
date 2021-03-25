@@ -141,10 +141,10 @@ var _ = Describe("Sync", func() {
 						return nil
 					}
 
-					if err := peers[1].Syncer().DidReceiveMessage(from, packet); err != nil {
+					if err := peers[1].Syncer().DidReceiveMessage(from, packet.Msg); err != nil {
 						return err
 					}
-					if err := peers[1].Gossiper().DidReceiveMessage(from, packet); err != nil {
+					if err := peers[1].Gossiper().DidReceiveMessage(from, packet.Msg); err != nil {
 						return err
 					}
 					return nil
