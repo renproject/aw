@@ -61,7 +61,6 @@ var _ = Describe("Sync", func() {
 		})
 	})
 
-
 	Context("when getting a successful sync response on sending multiple parallel sync requests", func() {
 		It("should not drop connections for additional sync responses", func() {
 
@@ -119,8 +118,8 @@ var _ = Describe("Sync", func() {
 			}
 		})
 	})
-  
-  Context("if a sync request fails", func() {
+
+	Context("if a sync request fails", func() {
 		It("the corresponding pending content condition variable should be deleted", func() {
 			n := 2
 			opts, peers, tables, contentResolvers, _, transports := setup(n)
@@ -131,21 +130,21 @@ var _ = Describe("Sync", func() {
 			tables[1].AddPeer(opts[0].PrivKey.Signatory(),
 				wire.NewUnsignedAddress(wire.TCP,
 					fmt.Sprintf("%v:%v", "localhost", uint16(3333)), uint64(time.Now().UnixNano())))
-			ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			go peers[0].Run(ctx)
 			go func(ctx context.Context) {
 				once := false
-				transports[1].Receive(ctx, func(from id.Signatory, msg wire.Msg) error {
+				transports[1].Receive(ctx, func(from id.Signatory, packet wire.Packet) error {
 					if !once {
 						once = true
 						return nil
 					}
 
-					if err := peers[1].Syncer().DidReceiveMessage(from, msg); err != nil {
+					if err := peers[1].Syncer().DidReceiveMessage(from, packet.Msg); err != nil {
 						return err
 					}
-					if err := peers[1].Gossiper().DidReceiveMessage(from, msg); err != nil {
+					if err := peers[1].Gossiper().DidReceiveMessage(from, packet.Msg); err != nil {
 						return err
 					}
 					return nil

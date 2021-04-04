@@ -79,8 +79,8 @@ type writer struct {
 //	go ch.Run(ctx)
 //	// Read inbound messages that have been sent by the remote peer and echo
 //	// them back to the remote peer.
-//	for msg := range inbound {
-//		outbound <- msg
+//	for Msg := range inbound {
+//		outbound <- Msg
 //	}
 //	// Attach a network connection to the remote peer.
 //	// ...
@@ -96,7 +96,7 @@ type Channel struct {
 	opts   Options
 	remote id.Signatory
 
-	inbound  chan<- wire.Msg
+	inbound  chan<- wire.Packet
 	outbound <-chan wire.Msg
 
 	readers chan reader
@@ -116,7 +116,7 @@ type Channel struct {
 // outbound messaging channel, but there is no functional attached network
 // connection, or when messages are being received on an attached network
 // connection, but the inbound message channel is not being drained.
-func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-chan wire.Msg) *Channel {
+func New(opts Options, remote id.Signatory, inbound chan<- wire.Packet, outbound <-chan wire.Msg) *Channel {
 	return &Channel{
 		opts:   opts,
 		remote: remote,
@@ -292,7 +292,7 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 					close(r.q)
 				}
 				return
-			case ch.inbound <- m:
+			case ch.inbound <- wire.Packet{Msg: m, IPAddr: r.Conn.RemoteAddr()}:
 			}
 		}
 	}
