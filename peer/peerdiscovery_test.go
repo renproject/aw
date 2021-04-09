@@ -27,7 +27,7 @@ func testPeerDiscovery(n int, peers []*peer.Peer, tables []dht.Table, transports
 	<-ctx.Done()
 
 	for i := range peers {
-		Expect(tables[i].NumPeers()).To(Equal(n))
+		Expect(tables[i].NumPeers()).To(Equal(n - 1))
 		for j := range peers {
 			if i != j {
 				self := transports[j].Self()
@@ -141,7 +141,7 @@ var _ = Describe("Peer Discovery", func() {
 			cancelPeerContext := createRingTopology(n, opts, peers, tables, transports)
 			defer cancelPeerContext()
 
-			ctx, cancel := context.WithTimeout(context.Background(), 3 * time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 			func(ctx context.Context) {
 				var pingData [4]byte
@@ -159,7 +159,7 @@ var _ = Describe("Peer Discovery", func() {
 				sendDuration := time.Second
 			Outer:
 				for {
-					if count % 2 == 1 {
+					if count%2 == 1 {
 						msg.Data = pingData[:]
 					} else {
 						msg.Data = nil

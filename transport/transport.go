@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strings"
 	"sync"
 	"time"
 
@@ -171,7 +170,7 @@ func (t *Transport) Send(ctx context.Context, remote id.Signatory, msg wire.Msg)
 	return t.client.Send(ctx, remote, msg)
 }
 
-func (t *Transport) Receive(ctx context.Context, receiver func(id.Signatory, wire.Msg) error) {
+func (t *Transport) Receive(ctx context.Context, receiver func(id.Signatory, wire.Packet) error) {
 	t.client.Receive(ctx, receiver)
 }
 
@@ -228,8 +227,6 @@ func (t *Transport) run(ctx context.Context) {
 		}
 	}()
 
-	t.table.AddPeer(t.self, wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", t.opts.Host, t.opts.Port), uint64(time.Now().UnixNano())))
-
 	// Listen for incoming connection attempts.
 	t.opts.Logger.Info("listening", zap.String("host", t.opts.Host), zap.Uint16("port", t.opts.Port))
 	err := tcp.Listen(
@@ -246,10 +243,6 @@ func (t *Transport) run(ctx context.Context) {
 			enc = codec.LengthPrefixEncoder(codec.PlainEncoder, enc)
 			dec = codec.LengthPrefixDecoder(codec.PlainDecoder, dec)
 
-			t.table.AddIP(remote, addr[:strings.IndexByte(addr, ':')])
-
-			t.connect(remote)
-			defer t.disconnect(remote)
 
 			// If the Transport is linked to the remote peer, then the
 			// network connection should be kept alive until the remote peer
@@ -261,6 +254,8 @@ func (t *Transport) run(ctx context.Context) {
 				// Attaching a connection will block until the Channel is
 				// unbound (which happens when the Transport is unlinked), the
 				// connection is replaced, or the connection faults.
+				t.connect(remote)
+				defer t.disconnect(remote)
 				if err := t.client.Attach(ctx, remote, conn, enc, dec); err != nil {
 					t.opts.Logger.Error("incoming attachment", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
 				}
@@ -279,6 +274,8 @@ func (t *Transport) run(ctx context.Context) {
 			t.client.Bind(remote)
 			defer t.client.Unbind(remote)
 
+			t.connect(remote)
+			defer t.disconnect(remote)
 			if err := t.client.Attach(ctx, remote, conn, enc, dec); err != nil {
 				t.opts.Logger.Error("incoming attachment", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
 			}

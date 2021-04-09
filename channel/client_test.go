@@ -40,19 +40,21 @@ var _ = Describe("Client", func() {
 			defer time.Sleep(time.Millisecond) // Wait for the receiver to be shutdown.
 			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
-			client.Receive(ctx, func(signatory id.Signatory, msg wire.Msg) error {
+			receiver := make(chan wire.Msg)
+			client.Receive(ctx, func(signatory id.Signatory, packet wire.Packet) error {
+				receiver <- packet.Msg
 				return nil
 			})
-			//for iter := uint64(0); iter < n; iter++ {
-			//	time.Sleep(time.Millisecond)
-			//	select {
-			//	case <-ctx.Done():
-			//		Expect(ctx.Err()).ToNot(HaveOccurred())
-			//	case msg := <-receiver:
-			//		data := binary.BigEndian.Uint64(msg.Data)
-			//		Expect(data).To(Equal(iter))
-			//	}
-			//}
+			for iter := uint64(0); iter < n; iter++ {
+				time.Sleep(time.Millisecond)
+				select {
+				case <-ctx.Done():
+					Expect(ctx.Err()).ToNot(HaveOccurred())
+				case msg := <-receiver:
+					data := binary.BigEndian.Uint64(msg.Data)
+					Expect(data).To(Equal(iter))
+				}
+			}
 		}()
 		return quit
 	}
@@ -79,8 +81,8 @@ var _ = Describe("Client", func() {
 			defer remote.Unbind(localPrivKey.Signatory())
 			Expect(remote.IsBound(localPrivKey.Signatory())).To(BeTrue())
 
-			listen(ctx, remote, remotePrivKey.Signatory(), localPrivKey.Signatory(), 4444)
-			dial(ctx, local, localPrivKey.Signatory(), remotePrivKey.Signatory(), 4444, time.Minute)
+			port := listen(ctx, remote, remotePrivKey.Signatory(), localPrivKey.Signatory())
+			dial(ctx, local, localPrivKey.Signatory(), remotePrivKey.Signatory(), port, time.Minute)
 
 			n := uint64(5000)
 			q1 := sink(ctx, local, remotePrivKey.Signatory(), n)
@@ -117,8 +119,8 @@ var _ = Describe("Client", func() {
 			defer remote.Unbind(localPrivKey.Signatory())
 			Expect(remote.IsBound(localPrivKey.Signatory())).To(BeTrue())
 
-			listen(ctx, remote, remotePrivKey.Signatory(), localPrivKey.Signatory(), 5555)
-			dial(ctx, local, localPrivKey.Signatory(), remotePrivKey.Signatory(), 5555, time.Minute)
+			port := listen(ctx, remote, remotePrivKey.Signatory(), localPrivKey.Signatory())
+			dial(ctx, local, localPrivKey.Signatory(), remotePrivKey.Signatory(), port, time.Minute)
 
 			go func() {
 				remote := remotePrivKey.Signatory()

@@ -68,7 +68,7 @@ func (g *Gossiper) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash
 	for _, recipient := range recipients {
 		innerContext, cancel := context.WithTimeout(ctx, g.opts.Timeout)
 		if err := g.transport.Send(innerContext, recipient, msg); err != nil {
-			g.opts.Logger.Error("pushing gossip", zap.String("peer", recipient.String()), zap.Error(err))
+			g.opts.Logger.DPanic("pushing gossip", zap.String("peer", recipient.String()), zap.Error(err))
 		}
 		cancel()
 	}
@@ -148,7 +148,7 @@ func (g *Gossiper) didReceivePush(from id.Signatory, msg wire.Msg) {
 		To:      id.Hash(from),
 		Data:    msg.Data,
 	}); err != nil {
-		g.opts.Logger.Error("pull", zap.String("peer", from.String()), zap.String("id", base64.RawURLEncoding.EncodeToString(msg.Data)), zap.Error(err))
+		g.opts.Logger.DPanic("pull", zap.String("peer", from.String()), zap.String("id", base64.RawURLEncoding.EncodeToString(msg.Data)), zap.Error(err))
 		return
 	}
 }
@@ -188,7 +188,7 @@ func (g *Gossiper) didReceivePull(from id.Signatory, msg wire.Msg) {
 		Data:     msg.Data,
 		SyncData: content,
 	}); err != nil {
-		g.opts.Logger.Error("sync", zap.String("peer", from.String()), zap.String("id", base64.RawURLEncoding.EncodeToString(msg.Data)), zap.Error(err))
+		g.opts.Logger.DPanic("sync", zap.String("peer", from.String()), zap.String("id", base64.RawURLEncoding.EncodeToString(msg.Data)), zap.Error(err))
 	}
 	return
 }

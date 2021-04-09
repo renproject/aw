@@ -15,7 +15,7 @@ import (
 
 type receiver struct {
 	ctx context.Context
-	f   func(id.Signatory, wire.Msg) error
+	f   func(id.Signatory, wire.Packet) error
 }
 
 type sharedChannel struct {
@@ -28,15 +28,15 @@ type sharedChannel struct {
 	cancel context.CancelFunc
 	// inbound channel receives messages from the remote peer to which the
 	// channel is bound.
-	inbound <-chan wire.Msg
+	inbound <-chan wire.Packet
 	// outbound channel is sent messages that are destined for the remote peer
 	// to which the channel is bound.
 	outbound chan<- wire.Msg
 }
 
 type Msg struct {
-	wire.Msg
-	From id.Signatory
+	wire.Packet
+	From   id.Signatory
 }
 
 type Client struct {
@@ -77,22 +77,27 @@ func (client *Client) Bind(remote id.Signatory) {
 		return
 	}
 
-	inbound := make(chan wire.Msg, client.opts.InboundBufferSize)
+	inbound := make(chan wire.Packet, client.opts.InboundBufferSize)
 	outbound := make(chan wire.Msg, client.opts.OutboundBufferSize)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := New(client.opts, remote, inbound, outbound)
 	go func() {
-		defer close(inbound)
 		if err := ch.Run(ctx); err != nil {
 			client.opts.Logger.Error("run", zap.Error(err))
 		}
 	}()
 	go func() {
-		for msg := range inbound {
+		for {
 			select {
 			case <-ctx.Done():
-			case client.inbound <- Msg{Msg: msg, From: remote}:
+				return
+			case packet := <-inbound:
+				select {
+				case <-ctx.Done():
+					return
+				case client.inbound <- Msg{Packet: packet, From: remote}:
+				}
 			}
 		}
 	}()
@@ -167,7 +172,7 @@ func (client *Client) Send(ctx context.Context, remote id.Signatory, msg wire.Ms
 	}
 }
 
-func (client *Client) Receive(ctx context.Context, f func(id.Signatory, wire.Msg) error) {
+func (client *Client) Receive(ctx context.Context, f func(id.Signatory, wire.Packet) error) {
 	client.receiversRunningMu.Lock()
 	if client.receiversRunning {
 		client.receiversRunningMu.Unlock()
@@ -196,7 +201,7 @@ func (client *Client) Receive(ctx context.Context, f func(id.Signatory, wire.Msg
 						// Do nothing. This will implicitly mark it for
 						// deletion.
 					default:
-						if err := receiver.f(msg.From, msg.Msg); err != nil {
+						if err := receiver.f(msg.From, msg.Packet); err != nil {
 							// When a channel is killed, its context will be
 							// cancelled, its underlying network connections
 							// will be dropped, and sending will fail. A killed

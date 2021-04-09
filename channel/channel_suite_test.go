@@ -24,12 +24,15 @@ func TestChannel(t *testing.T) {
 	RunSpecs(t, "Channel suite")
 }
 
-func listen(ctx context.Context, attacher channel.Attacher, self, other id.Signatory, port uint16) {
+func listen(ctx context.Context, attacher channel.Attacher, self, other id.Signatory) int {
+	ip := "127.0.0.1"
+	listener, port, err := tcp.ListenerWithAssignedPort(ctx, ip)
+	Expect(err).ToNot(HaveOccurred())
 	go func() {
 		defer GinkgoRecover()
-		Expect(tcp.Listen(
+		Expect(tcp.ListenWithListener(
 			ctx,
-			fmt.Sprintf("127.0.0.1:%v", port),
+			listener,
 			func(conn net.Conn) {
 				log.Printf("accepted: %v", conn.RemoteAddr())
 				enc, dec, remote, err := handshake.Insecure(self)(
@@ -56,9 +59,11 @@ func listen(ctx context.Context, attacher channel.Attacher, self, other id.Signa
 			nil,
 		)).To(Equal(context.Canceled))
 	}()
+
+	return port
 }
 
-func dial(ctx context.Context, attacher channel.Attacher, self, other id.Signatory, port uint64, retry time.Duration) {
+func dial(ctx context.Context, attacher channel.Attacher, self, other id.Signatory, port int, retry time.Duration) {
 	go func() {
 		defer GinkgoRecover()
 		for {

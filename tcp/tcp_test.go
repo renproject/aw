@@ -2,6 +2,7 @@ package tcp_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"math/rand"
 	"net"
@@ -28,6 +29,8 @@ var _ = Describe("TCP", func() {
 		r := rand.New(rand.NewSource(time.Now().UnixNano()))
 		r.Read(message[:])
 
+		port := 12345
+
 		if enableListener {
 			allow := policy.Max(0)
 			if !rejectInboundConns {
@@ -40,14 +43,19 @@ var _ = Describe("TCP", func() {
 					allow = nil
 				}
 			}
+			var listener net.Listener
+			var err error
+			ip := "127.0.0.1"
+			listener, port, err = tcp.ListenerWithAssignedPort(ctx, ip)
+			Expect(err).ToNot(HaveOccurred())
 			go func() {
 				defer GinkgoRecover()
 
 				time.Sleep(listenerDelay)
 
-				err := tcp.Listen(
+				err := tcp.ListenWithListener(
 					ctx,
-					"127.0.0.1:3333",
+					listener,
 					func(conn net.Conn) {
 						defer GinkgoRecover()
 
@@ -81,7 +89,7 @@ var _ = Describe("TCP", func() {
 
 		err := tcp.Dial(
 			ctx,
-			"127.0.0.1:3333",
+			fmt.Sprintf("127.0.0.1:%v", port),
 			func(conn net.Conn) {
 				defer GinkgoRecover()
 
@@ -104,7 +112,7 @@ var _ = Describe("TCP", func() {
 				}
 			},
 			nil,
-			policy.ConstantTimeout(time.Millisecond))
+			policy.ConstantTimeout(time.Second))
 
 		// If the listener is enabled, and there is no policy for rejecting
 		// inbound connection attempts, then we expect messages to have been

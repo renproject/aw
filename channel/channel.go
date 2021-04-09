@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/renproject/aw/codec"
@@ -78,8 +79,8 @@ type writer struct {
 //	go ch.Run(ctx)
 //	// Read inbound messages that have been sent by the remote peer and echo
 //	// them back to the remote peer.
-//	for msg := range inbound {
-//		outbound <- msg
+//	for Msg := range inbound {
+//		outbound <- Msg
 //	}
 //	// Attach a network connection to the remote peer.
 //	// ...
@@ -95,7 +96,7 @@ type Channel struct {
 	opts   Options
 	remote id.Signatory
 
-	inbound  chan<- wire.Msg
+	inbound  chan<- wire.Packet
 	outbound <-chan wire.Msg
 
 	readers chan reader
@@ -115,7 +116,7 @@ type Channel struct {
 // outbound messaging channel, but there is no functional attached network
 // connection, or when messages are being received on an attached network
 // connection, but the inbound message channel is not being drained.
-func New(opts Options, remote id.Signatory, inbound chan<- wire.Msg, outbound <-chan wire.Msg) *Channel {
+func New(opts Options, remote id.Signatory, inbound chan<- wire.Packet, outbound <-chan wire.Msg) *Channel {
 	return &Channel{
 		opts:   opts,
 		remote: remote,
@@ -215,37 +216,35 @@ func (ch Channel) Remote() id.Signatory {
 }
 
 func (ch *Channel) readLoop(ctx context.Context) error {
-	buf := make([]byte, ch.opts.MaxMessageSize)
+	read := func(r reader, drain <-chan struct{}) {
+		draining := uint64(0)
 
-	var r reader
-	var rOk bool
+		// If the drain channel is written to, this signals that this reader is
+		// now expired and we should begin draining it.
+		go func() {
+			<-drain
 
-	var m wire.Msg
-	var mOk bool
+			atomic.StoreUint64(&draining, 1)
 
-	syncData := make([]byte, ch.opts.MaxMessageSize)
-
-	for {
-		if !rOk {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case r, rOk = <-ch.readers:
-				ch.opts.Logger.Debug("replaced reader", zap.String("remote", ch.remote.String()), zap.String("addr", r.Conn.RemoteAddr().String()))
+			// Set the read deadline here, instead of per-message, so that the
+			// remote peer cannot easily "slow loris" the local peer by
+			// periodically sending messages into the draining connection.
+			if err := r.Conn.SetReadDeadline(time.Now().Add(ch.opts.DrainTimeout)); err != nil {
+				ch.opts.Logger.Error("drain: set deadline", zap.Error(err))
+				return
 			}
-		}
+		}()
 
-		if !mOk {
+		buf := make([]byte, ch.opts.MaxMessageSize)
+		bufSyncData := make([]byte, ch.opts.MaxMessageSize)
+
+		for {
 			n, err := r.Decoder(r.Reader, buf[:])
 			if err != nil {
-				ch.opts.Logger.Error("decode", zap.Error(err))
-				// If reading from the reader fails, then clear the reader. This
-				// will cause the next iteration to wait until a new underlying
-				// network connection is attached to the Channel.
+				draining := atomic.LoadUint64(&draining)
+				ch.opts.Logger.Error("decode", zap.Uint64("draining", draining), zap.Error(err))
 				close(r.q)
-				r = reader{}
-				rOk = false
-				continue
+				return
 			}
 
 			// Check that the underlying connection is not exceeding its rate
@@ -253,10 +252,10 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 			if !ch.rateLimiter.AllowN(time.Now(), n) {
 				ch.opts.Logger.Error("rate limit exceeded", zap.String("remote", ch.remote.String()), zap.String("addr", r.Conn.RemoteAddr().String()))
 				close(r.q)
-				r = reader{}
-				rOk = false
-				continue
+				return
 			}
+
+			m := wire.Msg{}
 
 			// Unmarshal the message from binary. If this is successfully, then
 			// we mark the message as available (and will attempt to write it to
@@ -266,8 +265,6 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 				continue
 			}
 
-			mOk = true
-
 			// An aggressive filtering strategy would involve pre-filtering
 			// synchronisation messages before reading the synchronisation data.
 			// However, in practice, this does not provide much of an advantage
@@ -276,44 +273,41 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 			// rate-limiting, and (b) filtering that happens in the client
 			// results in bad channels being killed quickly anyway.
 			if m.Type == wire.MsgTypeSync {
-				n, err := r.Decoder(r.Reader, syncData)
+				n, err := r.Decoder(r.Reader, bufSyncData)
 				if err != nil {
 					ch.opts.Logger.Error("decode sync data", zap.Error(err))
 					// If reading from the reader fails, then clear the reader. This
 					// will cause the next iteration to wait until a new underlying
 					// network connection is attached to the Channel.
 					close(r.q)
-					r = reader{}
-					rOk = false
-					mOk = false
-					continue
+					return
 				}
 				m.SyncData = make([]byte, n)
-				copy(m.SyncData, syncData[:n])
+				copy(m.SyncData, bufSyncData[:n])
+			}
+
+			select {
+			case <-ctx.Done():
+				if r.q != nil {
+					close(r.q)
+				}
+				return
+			case ch.inbound <- wire.Packet{Msg: m, IPAddr: r.Conn.RemoteAddr()}:
 			}
 		}
+	}
 
-		// At this point, a message is guaranteed to be available, so we attempt
-		// to write it to the inbound message channel.
+	drain := make(chan struct{}, 1)
+	for {
 		select {
 		case <-ctx.Done():
-			if r.q != nil {
-				close(r.q)
-			}
 			return ctx.Err()
-		case ch.inbound <- m:
-			// If we succeed, then we clear the message. This will allow us to
-			// progress and try to read the next message.
-			m = wire.Msg{}
-			mOk = false
-		case v, vOk := <-ch.readers:
-			// If a new underlying network connection is attached to the
-			// Channel before we can write the message to the inbound message
-			// channel, we do not clear the message. This will force us to
-			// re-attempt writing the message in the next iteration.
-			ch.drainReader(ctx, r, m, mOk)
-			r, rOk = v, vOk
-			m, mOk = wire.Msg{}, false
+		case r := <-ch.readers:
+			ch.opts.Logger.Debug("replaced reader", zap.String("remote", ch.remote.String()), zap.String("addr", r.Conn.RemoteAddr().String()))
+
+			drain <- struct{}{}            // Write to the previous drain channel.
+			drain = make(chan struct{}, 1) // Create a new drain channel.
+			go read(r, drain)
 		}
 	}
 }
@@ -403,57 +397,4 @@ func (ch *Channel) writeLoop(ctx context.Context) {
 			mOk = false
 		}
 	}
-}
-
-func (ch *Channel) drainReader(ctx context.Context, r reader, m wire.Msg, mOk bool) {
-	f := func() {
-		defer func() {
-			if r.q != nil {
-				close(r.q)
-			}
-		}()
-		if mOk {
-			select {
-			case <-ctx.Done():
-				return
-			case ch.inbound <- m:
-			}
-		}
-
-		// Set the deadline here, instead of per-message, so that the remote
-		// peer can easily "slow loris" the local peer by periodically sending
-		// messages into the draining connection.
-		if err := r.Conn.SetDeadline(time.Now().Add(ch.opts.DrainTimeout)); err != nil {
-			ch.opts.Logger.Error("drain: set deadline", zap.Error(err))
-			return
-		}
-
-		buf := make([]byte, ch.opts.MaxMessageSize)
-		msg := wire.Msg{}
-		for {
-			n, err := r.Decoder(r.Reader, buf[:])
-			if err != nil {
-				// We do not log this as an error, because it is entirely
-				// expected when draining.
-				ch.opts.Logger.Info("drain: decode", zap.Error(err))
-				return
-			}
-			if _, _, err := msg.Unmarshal(buf[:n], len(buf)); err != nil {
-				ch.opts.Logger.Error("drain: unmarshal", zap.Error(err))
-				return
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case ch.inbound <- msg:
-			}
-		}
-	}
-	if ch.opts.DrainInBackground {
-		ch.opts.Logger.Debug("drain: background", zap.String("addr", r.Conn.RemoteAddr().String()))
-		go f()
-		return
-	}
-	ch.opts.Logger.Debug("drain: foreground", zap.String("addr", r.Conn.RemoteAddr().String()))
-	f()
 }
