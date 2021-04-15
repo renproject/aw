@@ -12,7 +12,11 @@ import (
 // Enumerate all valid MsgVersion values.
 const (
 	MsgVersion1 = uint16(1)
+	CurrentVersion = MsgVersion1
 )
+
+var romanNumeralDict = map[uint16]struct{}{
+}
 
 // Enumerate all valid MsgType values.
 const (
