@@ -49,6 +49,10 @@ func NewOncePool(opts OncePoolOptions) OncePool {
 	}
 }
 
+// Once returns a handshake that only maintains one connection of a particular signatory
+// at any given time. If a second connection is attempted, the peer with the larger signatory
+// value decides to persist/kill the new connection based on whether the previous connection
+// has expired its minimum expiry age
 func Once(self id.Signatory, pool *OncePool, h Handshake) Handshake {
 	return func(conn net.Conn, enc codec.Encoder, dec codec.Decoder) (codec.Encoder, codec.Decoder, id.Signatory, error) {
 		enc, dec, remote, err := h(conn, enc, dec)
