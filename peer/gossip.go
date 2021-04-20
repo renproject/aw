@@ -70,7 +70,7 @@ func (g *Gossiper) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash
 			defer wg.Done()
 			recipient := &recipients[index]
 			if err := g.transport.Send(ctx, *recipient, msg); err != nil {
-				g.opts.Logger.DPanic("pushing gossip", zap.String("peer", recipient.String()), zap.Error(err))
+				g.opts.Logger.Error("pushing gossip", zap.String("peer", recipient.String()), zap.Error(err))
 			}
 		}(i)
 	}
