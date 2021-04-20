@@ -243,8 +243,6 @@ func (t *Transport) run(ctx context.Context) {
 			enc = codec.LengthPrefixEncoder(codec.PlainEncoder, enc)
 			dec = codec.LengthPrefixDecoder(codec.PlainDecoder, dec)
 
-			t.connect(remote)
-			defer t.disconnect(remote)
 
 			// If the Transport is linked to the remote peer, then the
 			// network connection should be kept alive until the remote peer
@@ -256,6 +254,8 @@ func (t *Transport) run(ctx context.Context) {
 				// Attaching a connection will block until the Channel is
 				// unbound (which happens when the Transport is unlinked), the
 				// connection is replaced, or the connection faults.
+				t.connect(remote)
+				defer t.disconnect(remote)
 				if err := t.client.Attach(ctx, remote, conn, enc, dec); err != nil {
 					t.opts.Logger.Error("incoming attachment", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
 				}
@@ -274,6 +274,8 @@ func (t *Transport) run(ctx context.Context) {
 			t.client.Bind(remote)
 			defer t.client.Unbind(remote)
 
+			t.connect(remote)
+			defer t.disconnect(remote)
 			if err := t.client.Attach(ctx, remote, conn, enc, dec); err != nil {
 				t.opts.Logger.Error("incoming attachment", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
 			}
