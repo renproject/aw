@@ -74,7 +74,7 @@ func NewAddressHashWithBuffer(protocol Protocol, value string, nonce uint64, dat
 	if buf, rem, err = surge.MarshalU64(nonce, buf, rem); err != nil {
 		return id.Hash{}, err
 	}
-	return id.Hash(sha256.Sum256(buf)), nil
+	return sha256.Sum256(data[:len(data)-len(buf)]), nil
 }
 
 // An Address is a verifiable and expirable network address associated with a
