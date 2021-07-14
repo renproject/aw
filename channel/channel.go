@@ -301,6 +301,7 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
+			close(drain)
 			return ctx.Err()
 		case r := <-ch.readers:
 			ch.opts.Logger.Debug("replaced reader", zap.String("remote", ch.remote.String()), zap.String("addr", r.Conn.RemoteAddr().String()))

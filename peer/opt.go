@@ -93,6 +93,26 @@ func DefaultDiscoveryOptions() DiscoveryOptions {
 	}
 }
 
+func (opts DiscoveryOptions) WithLogger(logger *zap.Logger) DiscoveryOptions {
+	opts.Logger = logger
+	return opts
+}
+
+func (opts DiscoveryOptions) WithAlpha(alpha int) DiscoveryOptions {
+	opts.Alpha = alpha
+	return opts
+}
+
+func (opts DiscoveryOptions) WithMaxExpectedPeers(max int) DiscoveryOptions {
+	opts.MaxExpectedPeers = max
+	return opts
+}
+
+func (opts DiscoveryOptions) WithPingTimePeriod(period time.Duration) DiscoveryOptions {
+	opts.PingTimePeriod = period
+	return opts
+}
+
 type Options struct {
 	SyncerOptions
 	GossiperOptions
@@ -125,6 +145,11 @@ func (opts Options) WithSyncerOptions(syncerOptions SyncerOptions) Options {
 
 func (opts Options) WithGossiperOptions(gossiperOptions GossiperOptions) Options {
 	opts.GossiperOptions = gossiperOptions
+	return opts
+}
+
+func (opts Options) WithDiscoveryOptions(discoveryOptions DiscoveryOptions) Options {
+	opts.DiscoveryOptions = discoveryOptions
 	return opts
 }
 
