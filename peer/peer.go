@@ -17,6 +17,7 @@ var (
 	DefaultSubnet  = id.Hash{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
 	DefaultAlpha   = 5
 	DefaultTimeout = time.Second
+	DefaultExpiryTimeout = time.Minute
 )
 
 var (
@@ -71,7 +72,17 @@ func (p *Peer) Ping(ctx context.Context) error {
 }
 
 func (p *Peer) Send(ctx context.Context, to id.Signatory, msg wire.Msg) error {
-	return p.transport.Send(ctx, to, msg)
+	err := p.transport.Send(ctx, to, msg)
+	if err != nil {
+		p.transport.Table().AddExpiry(to, p.opts.ExpiryDuration)
+		expired := p.transport.Table().HandleExpired(to)
+		if expired {
+			p.transport.Unlink(to)
+		}
+	} else {
+		p.transport.Table().DeleteExpiry(to)
+	}
+	return err
 }
 
 func (p *Peer) Sync(ctx context.Context, contentID []byte, hint *id.Signatory) ([]byte, error) {
