@@ -117,7 +117,6 @@ type Options struct {
 	SyncerOptions
 	GossiperOptions
 	DiscoveryOptions
-	ExpiryDuration time.Duration
 
 	Logger  *zap.Logger
 	PrivKey *id.PrivKey
@@ -133,7 +132,6 @@ func DefaultOptions() Options {
 		SyncerOptions:    DefaultSyncerOptions(),
 		GossiperOptions:  DefaultGossiperOptions(),
 		DiscoveryOptions: DefaultDiscoveryOptions(),
-		ExpiryDuration: DefaultExpiryTimeout,
 
 		Logger:  logger,
 		PrivKey: privKey,

@@ -29,6 +29,7 @@ var (
 	DefaultDialTimeout   = policy.ConstantTimeout(time.Second)
 	DefaultClientTimeout = 10 * time.Second
 	DefaultServerTimeout = 10 * time.Second
+	DefaultExpiryTimeout = time.Minute
 )
 
 // Options used to parameterise the behaviour of a Transport.
@@ -42,6 +43,7 @@ type Options struct {
 	ClientTimeout   time.Duration
 	ServerTimeout   time.Duration
 	OncePoolOptions handshake.OncePoolOptions
+	ExpiryDuration  time.Duration
 }
 
 // DefaultOptions returns Options with sensible defaults.
@@ -60,6 +62,7 @@ func DefaultOptions() Options {
 		ClientTimeout:   DefaultClientTimeout,
 		ServerTimeout:   DefaultServerTimeout,
 		OncePoolOptions: handshake.DefaultOncePoolOptions(),
+		ExpiryDuration:  DefaultExpiryTimeout,
 	}
 }
 
@@ -150,24 +153,35 @@ func (t *Transport) Send(ctx context.Context, remote id.Signatory, msg wire.Msg)
 		return fmt.Errorf("peer not found: %v", remote)
 	}
 
+	var err error
 	if t.IsConnected(remote) {
 		t.opts.Logger.Debug("send", zap.Bool("connected", true), zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()))
-		return t.client.Send(ctx, remote, msg)
-	}
-
-	if t.IsLinked(remote) {
+		err = t.client.Send(ctx, remote, msg)
+	} else if t.IsLinked(remote) {
 		t.opts.Logger.Debug("send", zap.Bool("linked", true), zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()))
 		go t.dial(ctx, remote, remoteAddr)
-		return t.client.Send(ctx, remote, msg)
+		err = t.client.Send(ctx, remote, msg)
+	} else {
+		t.opts.Logger.Debug("send", zap.Bool("linked", false), zap.Bool("connected", false), zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()))
+
+		t.client.Bind(remote)
+		go func() {
+			defer t.client.Unbind(remote)
+			t.dial(ctx, remote, remoteAddr)
+		}()
+		err = t.client.Send(ctx, remote, msg)
 	}
 
-	t.opts.Logger.Debug("send", zap.Bool("linked", false), zap.Bool("connected", false), zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()))
-	t.client.Bind(remote)
-	go func() {
-		defer t.client.Unbind(remote)
-		t.dial(ctx, remote, remoteAddr)
-	}()
-	return t.client.Send(ctx, remote, msg)
+	if err != nil {
+		t.table.AddExpiry(remote, t.opts.ExpiryDuration)
+		expired := t.table.HandleExpired(remote)
+		if expired {
+			t.Unlink(remote)
+		}
+	} else {
+		t.table.DeleteExpiry(remote)
+	}
+	return err
 }
 
 func (t *Transport) Receive(ctx context.Context, receiver func(id.Signatory, wire.Packet) error) {
