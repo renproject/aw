@@ -73,9 +73,6 @@ type InMemTable struct {
 	addrsBySignatoryMu *sync.Mutex
 	addrsBySignatory   map[id.Signatory]wire.Address
 
-	ipBySignatoryMu *sync.Mutex
-	ipBySignatory   map[id.Signatory]string
-
 	expiryBySignatoryMu *sync.Mutex
 	expiryBySignatory map[id.Signatory]Expiry
 
@@ -94,9 +91,6 @@ func NewInMemTable(self id.Signatory) *InMemTable {
 
 		addrsBySignatoryMu: new(sync.Mutex),
 		addrsBySignatory:   map[id.Signatory]wire.Address{},
-
-		ipBySignatoryMu: new(sync.Mutex),
-		ipBySignatory:   map[id.Signatory]string{},
 
 		expiryBySignatoryMu: new(sync.Mutex),
 		expiryBySignatory:   map[id.Signatory]Expiry{},
