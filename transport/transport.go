@@ -352,7 +352,7 @@ func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAd
 				}
 			},
 			func(err error) {
-				t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()), zap.Error(err))
+				t.opts.Logger.Debug("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()), zap.Error(err))
 				t.table.AddExpiry(remote, t.opts.ExpiryDuration)
 				if t.table.HandleExpired(remote) {
 					t.Unlink(remote)
@@ -362,7 +362,7 @@ func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAd
 			},
 			t.opts.DialTimeout)
 		if err != nil {
-			t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()), zap.Error(err))
+			t.opts.Logger.Debug("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()), zap.Error(err))
 			select {
 			case <-exit:
 				break
@@ -376,6 +376,10 @@ func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAd
 			}
 		} else {
 			t.table.DeleteExpiry(remote)
+		}
+
+		if !t.IsConnected(remote) {
+			t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()), zap.Error(fmt.Errorf("failed to connect")))
 		}
 		// Cancel last dial context before exiting
 		cancel()
