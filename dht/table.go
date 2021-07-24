@@ -251,7 +251,7 @@ func (table *InMemTable) HandleExpired(peerID id.Signatory) bool {
 	expired := (time.Now().Sub(expiry.timestamp)) > expiry.minimumExpiryAge
 	if expired {
 		table.DeletePeer(peerID)
-		table.DeleteExpiry(peerID)
+		delete(table.expiryBySignatory, peerID)
 	}
 	return expired
 }
