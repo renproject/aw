@@ -96,6 +96,11 @@ func (opts Options) WithOncePoolOptions(oncePoolOpts handshake.OncePoolOptions) 
 	return opts
 }
 
+func (opts Options) WithExpiry(minimumDuration time.Duration) Options {
+	opts.ExpiryDuration = minimumDuration
+	return opts
+}
+
 type Transport struct {
 	opts Options
 
