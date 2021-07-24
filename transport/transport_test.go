@@ -30,7 +30,7 @@ var _ = Describe("Transport", func() {
 					transport.DefaultOptions().
 						WithClientTimeout(10*time.Second).
 						WithOncePoolOptions(handshake.DefaultOncePoolOptions().WithMinimumExpiryAge(10*time.Second)).
-						WithExpiry(8 * time.Second).
+						WithExpiry(5 * time.Second).
 						WithPort(uint16(3333)),
 					self,
 					client,
@@ -44,12 +44,14 @@ var _ = Describe("Transport", func() {
 				_, ok := table.PeerAddress(privKey2.Signatory())
 				Expect(ok).To(BeTrue())
 
+
+				ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
 				go func() {
-					ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
-					defer cancel()
 					transport.Send(ctx, privKey2.Signatory(), wire.Msg{})
 				}()
-				time.Sleep(15 * time.Second)
+
+				time.Sleep(6 * time.Second)
+				cancel()
 
 				_, ok = table.PeerAddress(privKey2.Signatory())
 				Expect(ok).To(BeFalse())
