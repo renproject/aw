@@ -28,7 +28,7 @@ var _ = Describe("Transport", func() {
 				table := dht.NewInMemTable(self)
 				transport := transport.New(
 					transport.DefaultOptions().
-						WithClientTimeout(15*time.Second).
+						WithClientTimeout(10*time.Second).
 						WithOncePoolOptions(handshake.DefaultOncePoolOptions().WithMinimumExpiryAge(10*time.Second)).
 						WithExpiry(8 * time.Second).
 						WithPort(uint16(3333)),
@@ -47,8 +47,7 @@ var _ = Describe("Transport", func() {
 				go func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
 					defer cancel()
-					err := transport.Send(ctx, privKey2.Signatory(), wire.Msg{})
-					Expect(err).To(BeNil())
+					transport.Send(ctx, privKey2.Signatory(), wire.Msg{})
 				}()
 				time.Sleep(10 * time.Second)
 
