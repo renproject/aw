@@ -17,7 +17,7 @@ import (
 
 var _ = Describe("Transport", func() {
 	Describe("Dial", func() {
-		Context("when failing to connect to peer", func(){
+		Context("when failing to connect to peer", func() {
 			It("should create an expiry and delete peer after expiration", func() {
 				privKey := id.NewPrivKey()
 				self := privKey.Signatory()
@@ -30,13 +30,13 @@ var _ = Describe("Transport", func() {
 					transport.DefaultOptions().
 						WithClientTimeout(10*time.Second).
 						WithOncePoolOptions(handshake.DefaultOncePoolOptions().WithMinimumExpiryAge(10*time.Second)).
-						WithExpiry(5 * time.Second).
+						WithExpiry(5*time.Second).
 						WithPort(uint16(3333)),
 					self,
 					client,
 					h,
 					table,
-					)
+				)
 
 				privKey2 := id.NewPrivKey()
 				table.AddPeer(privKey2.Signatory(),
@@ -44,8 +44,7 @@ var _ = Describe("Transport", func() {
 				_, ok := table.PeerAddress(privKey2.Signatory())
 				Expect(ok).To(BeTrue())
 
-
-				ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				go func() {
 					transport.Send(ctx, privKey2.Signatory(), wire.Msg{})
 				}()

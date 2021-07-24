@@ -15,7 +15,7 @@ var _ Table = &InMemTable{}
 
 type Expiry struct {
 	minimumExpiryAge time.Duration
-	timestamp time.Time
+	timestamp        time.Time
 }
 
 // A Table is responsible for keeping tack of peers, their network addresses,
@@ -74,7 +74,7 @@ type InMemTable struct {
 	addrsBySignatory   map[id.Signatory]wire.Address
 
 	expiryBySignatoryMu *sync.Mutex
-	expiryBySignatory map[id.Signatory]Expiry
+	expiryBySignatory   map[id.Signatory]Expiry
 
 	subnetsByHashMu *sync.Mutex
 	subnetsByHash   map[id.Hash][]id.Signatory

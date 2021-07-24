@@ -251,7 +251,6 @@ func (t *Transport) run(ctx context.Context) {
 			enc = codec.LengthPrefixEncoder(codec.PlainEncoder, enc)
 			dec = codec.LengthPrefixDecoder(codec.PlainDecoder, dec)
 
-
 			// If the Transport is linked to the remote peer, then the
 			// network connection should be kept alive until the remote peer
 			// is unlinked (or the network connection faults).
