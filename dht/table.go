@@ -259,7 +259,11 @@ func (table *InMemTable) HandleExpired(peerID id.Signatory) bool {
 func (table *InMemTable) AddExpiry(peerID id.Signatory, duration time.Duration) {
 	table.expiryBySignatoryMu.Lock()
 	defer table.expiryBySignatoryMu.Unlock()
-	_, ok := table.expiryBySignatory[peerID]
+	_, ok := table.PeerAddress(peerID)
+	if !ok {
+		return
+	}
+	_, ok = table.expiryBySignatory[peerID]
 	if ok {
 		return
 	}
