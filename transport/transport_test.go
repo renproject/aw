@@ -28,8 +28,8 @@ var _ = Describe("Transport", func() {
 				table := dht.NewInMemTable(self)
 				transport := transport.New(
 					transport.DefaultOptions().
-						WithClientTimeout(10*time.Second).
-						WithOncePoolOptions(handshake.DefaultOncePoolOptions().WithMinimumExpiryAge(5*time.Second)).
+						WithClientTimeout(15*time.Second).
+						WithOncePoolOptions(handshake.DefaultOncePoolOptions().WithMinimumExpiryAge(10*time.Second)).
 						WithExpiry(8 * time.Second).
 						WithPort(uint16(3333)),
 					self,
