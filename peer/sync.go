@@ -2,7 +2,9 @@ package peer
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -140,6 +142,7 @@ func (syncer *Syncer) Sync(ctx context.Context, contentID []byte, hint *id.Signa
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case content := <-pending.wait():
+		log.Printf("content id = %v, size = %v", hex.EncodeToString(contentID), len(content))
 		return content, nil
 	}
 }
