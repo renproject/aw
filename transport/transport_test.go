@@ -49,7 +49,7 @@ var _ = Describe("Transport", func() {
 					transport.Send(ctx, privKey2.Signatory(), wire.Msg{})
 				}()
 
-				time.Sleep(6 * time.Second)
+				time.Sleep(7 * time.Second)
 				cancel()
 
 				_, ok = table.PeerAddress(privKey2.Signatory())
