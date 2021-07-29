@@ -44,7 +44,7 @@ var _ = Describe("Transport", func() {
 				_, ok := table.PeerAddress(privKey2.Signatory())
 				Expect(ok).To(BeTrue())
 
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				ctx, cancel := context.WithCancel(context.Background())
 				go func() {
 					transport.Send(ctx, privKey2.Signatory(), wire.Msg{})
 				}()
