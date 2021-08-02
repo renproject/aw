@@ -36,7 +36,7 @@ type sharedChannel struct {
 
 type Msg struct {
 	wire.Packet
-	From   id.Signatory
+	From id.Signatory
 }
 
 type Client struct {

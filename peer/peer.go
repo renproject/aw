@@ -103,7 +103,7 @@ func (p *Peer) Run(ctx context.Context) {
 	p.transport.Run(ctx)
 }
 
-func (p *Peer) Receive(ctx context.Context, f func(id.Signatory,wire.Packet) error) {
+func (p *Peer) Receive(ctx context.Context, f func(id.Signatory, wire.Packet) error) {
 	p.transport.Receive(ctx, f)
 }
 

@@ -29,6 +29,7 @@ var (
 	DefaultDialTimeout   = policy.ConstantTimeout(time.Second)
 	DefaultClientTimeout = 10 * time.Second
 	DefaultServerTimeout = 10 * time.Second
+	DefaultExpiryTimeout = time.Minute
 )
 
 // Options used to parameterise the behaviour of a Transport.
@@ -42,6 +43,7 @@ type Options struct {
 	ClientTimeout   time.Duration
 	ServerTimeout   time.Duration
 	OncePoolOptions handshake.OncePoolOptions
+	ExpiryDuration  time.Duration
 }
 
 // DefaultOptions returns Options with sensible defaults.
@@ -60,6 +62,7 @@ func DefaultOptions() Options {
 		ClientTimeout:   DefaultClientTimeout,
 		ServerTimeout:   DefaultServerTimeout,
 		OncePoolOptions: handshake.DefaultOncePoolOptions(),
+		ExpiryDuration:  DefaultExpiryTimeout,
 	}
 }
 
@@ -90,6 +93,11 @@ func (opts Options) WithServerTimeout(timeout time.Duration) Options {
 
 func (opts Options) WithOncePoolOptions(oncePoolOpts handshake.OncePoolOptions) Options {
 	opts.OncePoolOptions = oncePoolOpts
+	return opts
+}
+
+func (opts Options) WithExpiry(minimumDuration time.Duration) Options {
+	opts.ExpiryDuration = minimumDuration
 	return opts
 }
 
@@ -243,7 +251,6 @@ func (t *Transport) run(ctx context.Context) {
 			enc = codec.LengthPrefixEncoder(codec.PlainEncoder, enc)
 			dec = codec.LengthPrefixDecoder(codec.PlainDecoder, dec)
 
-
 			// If the Transport is linked to the remote peer, then the
 			// network connection should be kept alive until the remote peer
 			// is unlinked (or the network connection faults).
@@ -301,6 +308,7 @@ func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAd
 		return
 	}
 
+	exit := make(chan struct{})
 	for {
 		dialCtx, cancel := context.WithTimeout(context.Background(), t.opts.ClientTimeout)
 
@@ -348,12 +356,20 @@ func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAd
 				}
 			},
 			func(err error) {
-				t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()), zap.Error(err))
+				t.opts.Logger.Debug("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()), zap.Error(err))
+				t.table.AddExpiry(remote, t.opts.ExpiryDuration)
+				if t.table.HandleExpired(remote) {
+					t.Unlink(remote)
+					close(exit)
+					cancel()
+				}
 			},
 			t.opts.DialTimeout)
 		if err != nil {
-			t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()), zap.Error(err))
+			t.opts.Logger.Debug("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()), zap.Error(err))
 			select {
+			case <-exit:
+				break
 			case <-retryCtx.Done():
 			case <-dialCtx.Done():
 				if !t.IsConnected(remote) {
@@ -362,6 +378,12 @@ func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAd
 					continue
 				}
 			}
+		} else {
+			t.table.DeleteExpiry(remote)
+		}
+
+		if !t.IsConnected(remote) {
+			t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()), zap.Error(fmt.Errorf("failed to connect")))
 		}
 		// Cancel last dial context before exiting
 		cancel()

@@ -13,6 +13,11 @@ import (
 // Force InMemTable to implement the Table interface.
 var _ Table = &InMemTable{}
 
+type Expiry struct {
+	minimumExpiryAge time.Duration
+	timestamp        time.Time
+}
+
 // A Table is responsible for keeping tack of peers, their network addresses,
 // and the subnet to which they belong.
 type Table interface {
@@ -38,6 +43,15 @@ type Table interface {
 	// addresses in the table.
 	NumPeers() int
 
+	// HandleExpired returns whether a signatory has expired. It checks whether
+	// an Expiry exists for the signatory, and if it does, has it expired?
+	// If found expired, it deletes the peer from the table
+	HandleExpired(id.Signatory) bool
+	// AddExpiry to the table with given duration if no existing expiry is found
+	AddExpiry(id.Signatory, time.Duration)
+	// DeleteExpiry from the table
+	DeleteExpiry(id.Signatory)
+
 	// AddSubnet to the table. This returns a subnet hash that can be used to
 	// read/delete the subnet. It is the merkle root hash of the peers in the
 	// subnet.
@@ -59,8 +73,8 @@ type InMemTable struct {
 	addrsBySignatoryMu *sync.Mutex
 	addrsBySignatory   map[id.Signatory]wire.Address
 
-	ipBySignatoryMu *sync.Mutex
-	ipBySignatory   map[id.Signatory]string
+	expiryBySignatoryMu *sync.Mutex
+	expiryBySignatory   map[id.Signatory]Expiry
 
 	subnetsByHashMu *sync.Mutex
 	subnetsByHash   map[id.Hash][]id.Signatory
@@ -78,8 +92,8 @@ func NewInMemTable(self id.Signatory) *InMemTable {
 		addrsBySignatoryMu: new(sync.Mutex),
 		addrsBySignatory:   map[id.Signatory]wire.Address{},
 
-		ipBySignatoryMu: new(sync.Mutex),
-		ipBySignatory:   map[id.Signatory]string{},
+		expiryBySignatoryMu: new(sync.Mutex),
+		expiryBySignatory:   map[id.Signatory]Expiry{},
 
 		subnetsByHashMu: new(sync.Mutex),
 		subnetsByHash:   map[id.Hash][]id.Signatory{},
@@ -225,6 +239,44 @@ func (table *InMemTable) NumPeers() int {
 	defer table.addrsBySignatoryMu.Unlock()
 
 	return len(table.addrsBySignatory)
+}
+
+func (table *InMemTable) HandleExpired(peerID id.Signatory) bool {
+	table.expiryBySignatoryMu.Lock()
+	defer table.expiryBySignatoryMu.Unlock()
+	expiry, ok := table.expiryBySignatory[peerID]
+	if !ok {
+		return false
+	}
+	expired := (time.Now().Sub(expiry.timestamp)) > expiry.minimumExpiryAge
+	if expired {
+		table.DeletePeer(peerID)
+		delete(table.expiryBySignatory, peerID)
+	}
+	return expired
+}
+
+func (table *InMemTable) AddExpiry(peerID id.Signatory, duration time.Duration) {
+	table.expiryBySignatoryMu.Lock()
+	defer table.expiryBySignatoryMu.Unlock()
+	_, ok := table.PeerAddress(peerID)
+	if !ok {
+		return
+	}
+	_, ok = table.expiryBySignatory[peerID]
+	if ok {
+		return
+	}
+	table.expiryBySignatory[peerID] = Expiry{
+		minimumExpiryAge: duration,
+		timestamp:        time.Now(),
+	}
+}
+
+func (table *InMemTable) DeleteExpiry(peerID id.Signatory) {
+	table.expiryBySignatoryMu.Lock()
+	defer table.expiryBySignatoryMu.Unlock()
+	delete(table.expiryBySignatory, peerID)
 }
 
 func (table *InMemTable) AddSubnet(signatories []id.Signatory) id.Hash {
