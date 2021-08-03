@@ -2,7 +2,7 @@ package dht_test
 
 import (
 	"fmt"
-	"github.com/renproject/aw/wire"
+	"log"
 	"math/rand"
 	"strconv"
 	"testing/quick"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/renproject/aw/dht"
 	"github.com/renproject/aw/dht/dhtutil"
+	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 
 	. "github.com/onsi/ginkgo"
@@ -203,6 +204,43 @@ var _ = Describe("DHT", func() {
 						Expect(lists[i]).To(Not(Equal(lists[j])))
 					}
 				}
+			})
+
+			It("should work while deleting peers from the table", func() {
+				table, _ := initDHT()
+				numAddrs := rand.Intn(100)
+				numRandAddrs := rand.Intn(numAddrs)
+
+				// Insert `numAddrs` random addresses into the store.
+				deletedPeers := make([]id.Signatory, 0, 50)
+				for i := 0; i < numAddrs; i++ {
+					privKey := id.NewPrivKey()
+					sig := privKey.Signatory()
+					addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
+					table.AddPeer(sig, addr)
+					if i < numAddrs/2 {
+						deletedPeers = append(deletedPeers, sig)
+					}
+				}
+
+				done := make(chan struct{}, 1)
+				go func() {
+					defer close(done)
+
+					for i := range deletedPeers{
+						table.DeletePeer(deletedPeers[i])
+					}
+				}()
+
+				total := time.Duration(0)
+				for i := 0; i <50 ; i ++ {
+					start := time.Now()
+					table.RandomPeers(numRandAddrs)
+					duration := time.Now().Sub(start)
+					total += duration
+				}
+				log.Printf("RandomPeers takes %v on average", total/50)
+				<- done
 			})
 		})
 
