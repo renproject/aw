@@ -63,13 +63,21 @@ func (g *Gossiper) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash
 	}
 
 	msg := wire.Msg{Version: wire.MsgVersion1, To: *subnet, Type: wire.MsgTypePush, Data: contentID}
-	for _, recipient := range recipients {
-		innerContext, cancel := context.WithTimeout(ctx, g.opts.Timeout)
-		if err := g.transport.Send(innerContext, recipient, msg); err != nil {
-			g.opts.Logger.Error("pushing gossip", zap.String("peer", recipient.String()), zap.Error(err))
-		}
-		cancel()
+	wg := new(sync.WaitGroup)
+	for i := range recipients {
+		recipient := recipients[i]
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			innerContext, cancel := context.WithTimeout(ctx, g.opts.Timeout)
+			defer cancel()
+
+			// Ignore the error, cause random recipient could be offline.
+			_ = g.transport.Send(innerContext, recipient, msg)
+		}()
 	}
+	wg.Wait()
 }
 
 func (g *Gossiper) DidReceiveMessage(from id.Signatory, msg wire.Msg) error {
@@ -210,7 +218,7 @@ func (g *Gossiper) didReceiveSync(from id.Signatory, msg wire.Msg) {
 
 	if !ok {
 		// The gossip has taken too long, and the subnet was removed from the
-		// map to preseve memory. Gossiping cannot continue.
+		// map to preserve memory. Gossiping cannot continue.
 		return
 	}
 

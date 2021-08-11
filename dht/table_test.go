@@ -227,20 +227,20 @@ var _ = Describe("DHT", func() {
 				go func() {
 					defer close(done)
 
-					for i := range deletedPeers{
+					for i := range deletedPeers {
 						table.DeletePeer(deletedPeers[i])
 					}
 				}()
 
 				total := time.Duration(0)
-				for i := 0; i <50 ; i ++ {
+				for i := 0; i < 50; i++ {
 					start := time.Now()
 					table.RandomPeers(numRandAddrs)
 					duration := time.Now().Sub(start)
 					total += duration
 				}
 				log.Printf("RandomPeers takes %v on average", total/50)
-				<- done
+				<-done
 			})
 		})
 

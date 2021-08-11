@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -84,7 +85,9 @@ func (client *Client) Bind(remote id.Signatory) {
 	ch := New(client.opts, remote, inbound, outbound)
 	go func() {
 		if err := ch.Run(ctx); err != nil {
-			client.opts.Logger.Error("run", zap.Error(err))
+			if !errors.Is(err, context.Canceled) {
+				client.opts.Logger.Error("run", zap.Error(err))
+			}
 		}
 	}()
 	go func() {
@@ -150,7 +153,7 @@ func (client *Client) Attach(ctx context.Context, remote id.Signatory, conn net.
 
 	client.opts.Logger.Debug("attach", zap.String("self", client.self.String()), zap.String("remote", remote.String()), zap.String("addr", conn.RemoteAddr().String()))
 	if err := shared.ch.Attach(ctx, remote, conn, enc, dec); err != nil {
-		return fmt.Errorf("attach: %v", err)
+		return fmt.Errorf("attach: %w", err)
 	}
 	return nil
 }
@@ -166,7 +169,7 @@ func (client *Client) Send(ctx context.Context, remote id.Signatory, msg wire.Ms
 
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("sending message %w", ctx.Err())
 	case shared.outbound <- msg:
 		return nil
 	}

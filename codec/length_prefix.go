@@ -15,11 +15,11 @@ func LengthPrefixEncoder(prefixEnc Encoder, bodyEnc Encoder) Encoder {
 		prefixBytes := [4]byte{}
 		binary.BigEndian.PutUint32(prefixBytes[:], prefix)
 		if _, err := prefixEnc(w, prefixBytes[:]); err != nil {
-			return 0, fmt.Errorf("encoding data length: %v", err)
+			return 0, fmt.Errorf("encoding data length: %w", err)
 		}
 		n, err := bodyEnc(w, buf)
 		if err != nil {
-			return n, fmt.Errorf("encoding data: %v", err)
+			return n, fmt.Errorf("encoding data: %w", err)
 		}
 		return n, nil
 	}
@@ -33,7 +33,7 @@ func LengthPrefixDecoder(prefixDec Decoder, bodyDec Decoder) Decoder {
 	return func(r io.Reader, buf []byte) (int, error) {
 		prefixBytes := [4]byte{}
 		if _, err := prefixDec(r, prefixBytes[:]); err != nil {
-			return 0, fmt.Errorf("decoding data length: %v", err)
+			return 0, fmt.Errorf("decoding data length: %w", err)
 		}
 		prefix := binary.BigEndian.Uint32(prefixBytes[:])
 		if uint32(len(buf)) < prefix {
@@ -41,7 +41,7 @@ func LengthPrefixDecoder(prefixDec Decoder, bodyDec Decoder) Decoder {
 		}
 		n, err := bodyDec(r, buf[:prefix])
 		if err != nil {
-			return n, fmt.Errorf("decoding data: %v", err)
+			return n, fmt.Errorf("decoding data: %w", err)
 		}
 		return n, nil
 	}

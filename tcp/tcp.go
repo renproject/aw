@@ -38,12 +38,7 @@ func ListenWithListener(ctx context.Context, listener net.Listener, handle func(
 		handleErr = func(err error) {}
 	}
 
-	go func() {
-		<-ctx.Done()
-		if err := listener.Close(); err != nil {
-			handleErr(fmt.Errorf("close listener: %v", err))
-		}
-	}()
+	defer listener.Close()
 
 	for {
 		select {
@@ -60,11 +55,8 @@ func ListenWithListener(ctx context.Context, listener net.Listener, handle func(
 
 		if allow == nil {
 			go func() {
-				defer func() {
-					if err := conn.Close(); err != nil {
-						handleErr(fmt.Errorf("close connection: %v", err))
-					}
-				}()
+				defer conn.Close()
+
 				handle(conn)
 			}()
 			continue
@@ -72,11 +64,8 @@ func ListenWithListener(ctx context.Context, listener net.Listener, handle func(
 
 		if err, cleanup := allow(conn); err == nil {
 			go func() {
-				defer func() {
-					if err := conn.Close(); err != nil {
-						handleErr(fmt.Errorf("close connection: %v", err))
-					}
-				}()
+				defer conn.Close()
+
 				defer func() {
 					if cleanup != nil {
 						cleanup()
@@ -86,9 +75,7 @@ func ListenWithListener(ctx context.Context, listener net.Listener, handle func(
 			}()
 			continue
 		}
-		if err := conn.Close(); err != nil {
-			handleErr(fmt.Errorf("close connection: %v", err))
-		}
+		conn.Close()
 	}
 }
 
@@ -126,7 +113,7 @@ func Dial(ctx context.Context, address string, handle func(net.Conn), handleErr 
 	for attempt := 1; ; attempt++ {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("dialing %w", ctx.Err())
 		default:
 		}
 
@@ -141,9 +128,8 @@ func Dial(ctx context.Context, address string, handle func(net.Conn), handleErr 
 		dialCancel()
 
 		return func() (err error) {
-			defer func() {
-				err = conn.Close()
-			}()
+			defer conn.Close()
+
 			handle(conn)
 			return
 		}()
