@@ -196,7 +196,7 @@ func (t *Transport) Link(remote id.Signatory) {
 
 func (t *Transport) Unlink(remote id.Signatory) {
 	t.linksMu.Lock()
-	defer t.linksMu.Lock()
+	defer t.linksMu.Unlock()
 
 	if t.links[remote] {
 		t.client.Unbind(remote)
@@ -386,7 +386,6 @@ func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAd
 			case <-exit:
 				break
 			case <-retryCtx.Done():
-				return
 			case <-dialCtx.Done():
 				if !t.IsConnected(remote) {
 					// Cancel current dial context if restarting loop
