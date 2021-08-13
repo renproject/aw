@@ -367,14 +367,17 @@ func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAd
 				}
 
 				if err := t.client.Attach(dialCtx, remote, conn, enc, dec); err != nil {
-					t.opts.Logger.Error("outgoing", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
+					// Context deadline exceeds means we decide to drop the
+					// connection and the error could be ignored.
+					if !errors.Is(err, context.DeadlineExceeded) {
+						t.opts.Logger.Error("outgoing", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
+					}
 				}
 			},
 			func(err error) {
 				t.opts.Logger.Debug("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()), zap.Error(err))
 				t.table.AddExpiry(remote, t.opts.ExpiryDuration)
 				if t.table.HandleExpired(remote) {
-					t.Unlink(remote)
 					close(exit)
 					cancel()
 				}

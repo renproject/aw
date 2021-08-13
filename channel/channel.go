@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"sync/atomic"
 	"syscall"
@@ -232,7 +233,9 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 			// remote peer cannot easily "slow loris" the local peer by
 			// periodically sending messages into the draining connection.
 			if err := r.Conn.SetReadDeadline(time.Now().Add(ch.opts.DrainTimeout)); err != nil {
-				ch.opts.Logger.Error("drain: set deadline", zap.Error(err))
+				if !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) {
+					ch.opts.Logger.Error("drain: set deadline", zap.Error(err))
+				}
 				return
 			}
 		}()
