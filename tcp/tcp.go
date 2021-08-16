@@ -128,7 +128,9 @@ func Dial(ctx context.Context, address string, handle func(net.Conn), handleErr 
 		dialCancel()
 
 		return func() (err error) {
-			defer conn.Close()
+			defer func() {
+				err = conn.Close()
+			}()
 
 			handle(conn)
 			return
