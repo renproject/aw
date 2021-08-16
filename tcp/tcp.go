@@ -21,6 +21,15 @@ func Listen(ctx context.Context, address string, handle func(net.Conn), handleEr
 	if err != nil {
 		return err
 	}
+
+	// The 'ctx' we passed to Listen() will not unblock `Listener.Accept()` if
+	// context exceeding the deadline. We need to manually close the listener
+	// to stop `Listener.Accept()` from blocking.
+	// See https://github.com/golang/go/issues/28120
+	go func() {
+		<- ctx.Done()
+		listener.Close()
+	}()
 	return ListenWithListener(ctx, listener, handle, handleErr, allow)
 }
 
@@ -49,7 +58,7 @@ func ListenWithListener(ctx context.Context, listener net.Listener, handle func(
 
 		conn, err := listener.Accept()
 		if err != nil {
-			handleErr(fmt.Errorf("accept connection: %v", err))
+			handleErr(fmt.Errorf("accept connection: %w", err))
 			continue
 		}
 

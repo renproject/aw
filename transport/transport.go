@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/renproject/aw/dht"
@@ -298,7 +300,9 @@ func (t *Transport) run(ctx context.Context) {
 			}
 		},
 		func(err error) {
-			t.opts.Logger.Error("listen", zap.Error(err))
+			if !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET) {
+				t.opts.Logger.Error("listen", zap.Error(err))
+			}
 		},
 		nil)
 	if err != nil {

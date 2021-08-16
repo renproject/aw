@@ -3,9 +3,9 @@ package peer_test
 import (
 	"context"
 	"fmt"
-	"github.com/renproject/aw/peer"
 	"time"
 
+	"github.com/renproject/aw/peer"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 
@@ -179,7 +179,6 @@ var _ = Describe("Sync", func() {
 				Ω(err).To(BeNil())
 				Ω(msg).To(Equal([]byte(helloMsg)))
 			}()
-
 		})
 	})
 })
