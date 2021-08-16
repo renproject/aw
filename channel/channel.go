@@ -232,7 +232,7 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 			// remote peer cannot easily "slow loris" the local peer by
 			// periodically sending messages into the draining connection.
 			if err := r.Conn.SetReadDeadline(time.Now().Add(ch.opts.DrainTimeout)); err != nil {
-				if !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) {
+				if !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET) {
 					ch.opts.Logger.Error("drain: set deadline", zap.Error(err))
 				}
 				return
@@ -248,7 +248,7 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 				draining := atomic.LoadUint64(&draining)
 
 				// If the reader is closed, we don't print the error message
-				if !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) {
+				if !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET) {
 					ch.opts.Logger.Error("decode", zap.Uint64("draining", draining), zap.Error(err))
 				}
 				close(r.q)
@@ -396,7 +396,7 @@ func (ch *Channel) writeLoop(ctx context.Context) {
 					continue
 				}
 				if err := w.Writer.Flush(); err != nil {
-					if !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) {
+					if !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET) {
 						ch.opts.Logger.Error("flush", zap.NamedError("sync data", err))
 					}
 					// An error when flushing is the same as an error when encoding.
