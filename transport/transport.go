@@ -2,9 +2,12 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/renproject/aw/dht"
@@ -195,7 +198,7 @@ func (t *Transport) Link(remote id.Signatory) {
 
 func (t *Transport) Unlink(remote id.Signatory) {
 	t.linksMu.Lock()
-	defer t.linksMu.Lock()
+	defer t.linksMu.Unlock()
 
 	if t.links[remote] {
 		t.client.Unbind(remote)
@@ -244,7 +247,10 @@ func (t *Transport) run(ctx context.Context) {
 			addr := conn.RemoteAddr().String()
 			enc, dec, remote, err := t.once(conn, t.opts.Encoder, t.opts.Decoder)
 			if err != nil {
-				t.opts.Logger.Error("handshake", zap.String("addr", addr), zap.Error(err))
+				var e wire.NegligibleError
+				if !errors.As(err, &e) {
+					t.opts.Logger.Error("handshake", zap.String("addr", addr), zap.Error(err))
+				}
 				return
 			}
 
@@ -264,7 +270,11 @@ func (t *Transport) run(ctx context.Context) {
 				t.connect(remote)
 				defer t.disconnect(remote)
 				if err := t.client.Attach(ctx, remote, conn, enc, dec); err != nil {
-					t.opts.Logger.Error("incoming attachment", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
+					// If ctx is canceled, this usually means the entire transport has been shutdown
+					// and we can safely ignore all errors with client.Attach.
+					if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+						t.opts.Logger.Error("incoming attachment", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
+					}
 				}
 				return
 			}
@@ -284,15 +294,21 @@ func (t *Transport) run(ctx context.Context) {
 			t.connect(remote)
 			defer t.disconnect(remote)
 			if err := t.client.Attach(ctx, remote, conn, enc, dec); err != nil {
-				t.opts.Logger.Error("incoming attachment", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
+				if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+					t.opts.Logger.Error("incoming attachment", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
+				}
 			}
 		},
 		func(err error) {
-			t.opts.Logger.Error("listen", zap.Error(err))
+			if !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET) {
+				t.opts.Logger.Error("listen", zap.Error(err))
+			}
 		},
 		nil)
 	if err != nil {
-		t.opts.Logger.Error("listen", zap.Error(err))
+		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			t.opts.Logger.Error("listen", zap.Error(err))
+		}
 	}
 }
 
@@ -321,7 +337,10 @@ func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAd
 				addr := conn.RemoteAddr().String()
 				enc, dec, r, err := t.once(conn, t.opts.Encoder, t.opts.Decoder)
 				if err != nil {
-					t.opts.Logger.Error("handshake", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
+					var e wire.NegligibleError
+					if !errors.As(err, &e) {
+						t.opts.Logger.Error("handshake", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
+					}
 					return
 				}
 				if !r.Equal(&remote) {
@@ -352,14 +371,17 @@ func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAd
 				}
 
 				if err := t.client.Attach(dialCtx, remote, conn, enc, dec); err != nil {
-					t.opts.Logger.Error("outgoing", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
+					// Context deadline exceeds means we decide to drop the
+					// connection and the error could be ignored.
+					if !errors.Is(err, context.DeadlineExceeded) {
+						t.opts.Logger.Error("outgoing", zap.String("remote", remote.String()), zap.String("addr", addr), zap.Error(err))
+					}
 				}
 			},
 			func(err error) {
 				t.opts.Logger.Debug("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()), zap.Error(err))
 				t.table.AddExpiry(remote, t.opts.ExpiryDuration)
 				if t.table.HandleExpired(remote) {
-					t.Unlink(remote)
 					close(exit)
 					cancel()
 				}
@@ -382,9 +404,6 @@ func (t *Transport) dial(retryCtx context.Context, remote id.Signatory, remoteAd
 			t.table.DeleteExpiry(remote)
 		}
 
-		if !t.IsConnected(remote) {
-			t.opts.Logger.Error("dial", zap.String("remote", remote.String()), zap.String("addr", remoteAddr.String()), zap.Error(fmt.Errorf("failed to connect")))
-		}
 		// Cancel last dial context before exiting
 		cancel()
 		return

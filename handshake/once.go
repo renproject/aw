@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/renproject/aw/codec"
+	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
 )
 
@@ -53,7 +54,7 @@ func Once(self id.Signatory, pool *OncePool, h Handshake) Handshake {
 	return func(conn net.Conn, enc codec.Encoder, dec codec.Decoder) (codec.Encoder, codec.Decoder, id.Signatory, error) {
 		enc, dec, remote, err := h(conn, enc, dec)
 		if err != nil {
-			return enc, dec, remote, err
+			return enc, dec, remote, fmt.Errorf("handshake error = %v", err)
 		}
 
 		cmp := bytes.Compare(self[:], remote[:])
@@ -66,7 +67,7 @@ func Once(self id.Signatory, pool *OncePool, h Handshake) Handshake {
 				return enc, dec, remote, fmt.Errorf("decoding keep-alive message: %v", err)
 			}
 			if keepAlive[0] == 0x00 {
-				return nil, nil, remote, fmt.Errorf("kill connection from %v", remote)
+				return nil, nil, remote, wire.NewNegligibleError(fmt.Errorf("kill connection from %v", remote))
 			}
 
 			pool.connsMu.Lock()
@@ -98,7 +99,7 @@ func Once(self id.Signatory, pool *OncePool, h Handshake) Handshake {
 			if err != nil {
 				return enc, dec, remote, fmt.Errorf("encoding keep-alive message 0x00 to %v: %v", remote, err)
 			}
-			return enc, dec, remote, fmt.Errorf("kill connection to %v", remote)
+			return enc, dec, remote, wire.NewNegligibleError(fmt.Errorf("kill connection to %v", remote))
 		}
 
 		if existingConnIsOk {

@@ -3,10 +3,12 @@ package channel
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/renproject/aw/codec"
@@ -230,7 +232,9 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 			// remote peer cannot easily "slow loris" the local peer by
 			// periodically sending messages into the draining connection.
 			if err := r.Conn.SetReadDeadline(time.Now().Add(ch.opts.DrainTimeout)); err != nil {
-				ch.opts.Logger.Error("drain: set deadline", zap.Error(err))
+				if !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET) {
+					ch.opts.Logger.Error("drain: set deadline", zap.Error(err))
+				}
 				return
 			}
 		}()
@@ -242,7 +246,11 @@ func (ch *Channel) readLoop(ctx context.Context) error {
 			n, err := r.Decoder(r.Reader, buf[:])
 			if err != nil {
 				draining := atomic.LoadUint64(&draining)
-				ch.opts.Logger.Error("decode", zap.Uint64("draining", draining), zap.Error(err))
+
+				// If the reader is closed, we don't print the error message
+				if !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET) {
+					ch.opts.Logger.Error("decode", zap.Uint64("draining", draining), zap.Error(err))
+				}
 				close(r.q)
 				return
 			}
@@ -370,7 +378,11 @@ func (ch *Channel) writeLoop(ctx context.Context) {
 				continue
 			}
 			if err := w.Writer.Flush(); err != nil {
-				ch.opts.Logger.Error("flush", zap.Error(err))
+				// syscall.EPIPE is returned when the pipeline is broken which
+				// mean the connection has been closed.
+				if !errors.Is(err, syscall.EPIPE) {
+					ch.opts.Logger.Error("flush", zap.Error(err))
+				}
 				// An error when flushing is the same as an error when encoding.
 				close(w.q)
 				w, wOk = writer{}, false
@@ -384,7 +396,9 @@ func (ch *Channel) writeLoop(ctx context.Context) {
 					continue
 				}
 				if err := w.Writer.Flush(); err != nil {
-					ch.opts.Logger.Error("flush", zap.NamedError("sync data", err))
+					if !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET) {
+						ch.opts.Logger.Error("flush", zap.NamedError("sync data", err))
+					}
 					// An error when flushing is the same as an error when encoding.
 					close(w.q)
 					w, wOk = writer{}, false

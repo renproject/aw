@@ -21,6 +21,15 @@ func Listen(ctx context.Context, address string, handle func(net.Conn), handleEr
 	if err != nil {
 		return err
 	}
+
+	// The 'ctx' we passed to Listen() will not unblock `Listener.Accept()` if
+	// context exceeding the deadline. We need to manually close the listener
+	// to stop `Listener.Accept()` from blocking.
+	// See https://github.com/golang/go/issues/28120
+	go func() {
+		<- ctx.Done()
+		listener.Close()
+	}()
 	return ListenWithListener(ctx, listener, handle, handleErr, allow)
 }
 
@@ -38,12 +47,7 @@ func ListenWithListener(ctx context.Context, listener net.Listener, handle func(
 		handleErr = func(err error) {}
 	}
 
-	go func() {
-		<-ctx.Done()
-		if err := listener.Close(); err != nil {
-			handleErr(fmt.Errorf("close listener: %v", err))
-		}
-	}()
+	defer listener.Close()
 
 	for {
 		select {
@@ -54,17 +58,14 @@ func ListenWithListener(ctx context.Context, listener net.Listener, handle func(
 
 		conn, err := listener.Accept()
 		if err != nil {
-			handleErr(fmt.Errorf("accept connection: %v", err))
+			handleErr(fmt.Errorf("accept connection: %w", err))
 			continue
 		}
 
 		if allow == nil {
 			go func() {
-				defer func() {
-					if err := conn.Close(); err != nil {
-						handleErr(fmt.Errorf("close connection: %v", err))
-					}
-				}()
+				defer conn.Close()
+
 				handle(conn)
 			}()
 			continue
@@ -72,11 +73,8 @@ func ListenWithListener(ctx context.Context, listener net.Listener, handle func(
 
 		if err, cleanup := allow(conn); err == nil {
 			go func() {
-				defer func() {
-					if err := conn.Close(); err != nil {
-						handleErr(fmt.Errorf("close connection: %v", err))
-					}
-				}()
+				defer conn.Close()
+
 				defer func() {
 					if cleanup != nil {
 						cleanup()
@@ -86,9 +84,7 @@ func ListenWithListener(ctx context.Context, listener net.Listener, handle func(
 			}()
 			continue
 		}
-		if err := conn.Close(); err != nil {
-			handleErr(fmt.Errorf("close connection: %v", err))
-		}
+		conn.Close()
 	}
 }
 
@@ -126,7 +122,7 @@ func Dial(ctx context.Context, address string, handle func(net.Conn), handleErr 
 	for attempt := 1; ; attempt++ {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("dialing %w", ctx.Err())
 		default:
 		}
 
@@ -144,6 +140,7 @@ func Dial(ctx context.Context, address string, handle func(net.Conn), handleErr 
 			defer func() {
 				err = conn.Close()
 			}()
+
 			handle(conn)
 			return
 		}()
