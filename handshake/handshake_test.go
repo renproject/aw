@@ -2,188 +2,126 @@ package handshake_test
 
 import (
 	"context"
-	"io"
+	"fmt"
 	"net"
-	"testing/quick"
+	"sync"
 	"time"
+
+	"github.com/renproject/aw/codec"
+	"github.com/renproject/aw/handshake"
+	"github.com/renproject/aw/policy"
+	"github.com/renproject/aw/tcp"
+	"github.com/renproject/id"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	. "github.com/renproject/aw/handshake"
-	. "github.com/renproject/aw/testutil"
-
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/renproject/aw/protocol"
-	"github.com/renproject/phi"
 )
 
-var _ = Describe("Handshaker", func() {
-
-	handshake := func(ctx context.Context, clientConn, serverConn io.ReadWriter) (protocol.Session, protocol.Session) {
-		clientSignVerifier := NewMockSignVerifier()
-		serverSignVerifier := NewMockSignVerifier(clientSignVerifier.ID())
-		clientSignVerifier.Whitelist(serverSignVerifier.ID())
-
-		clientHandshaker := New(clientSignVerifier, NewGCMSessionManager())
-		serverHandshaker := New(serverSignVerifier, NewGCMSessionManager())
-
-		var clientErr, serverError error
-		var clientSession, serverSession protocol.Session
-		phi.ParBegin(func() {
-			clientSession, clientErr = clientHandshaker.Handshake(ctx, clientConn)
-		}, func() {
-			serverSession, serverError = serverHandshaker.AcceptHandshake(ctx, serverConn)
-		})
-		Expect(clientErr).NotTo(HaveOccurred())
-		Expect(serverError).NotTo(HaveOccurred())
-
-		return clientSession, serverSession
-	}
-
-	Context("when initializing handshake", func() {
-		It("should panic if providing a nil SignVerifier", func() {
-			Expect(func() {
-				_ = New(NewMockSignVerifier(), nil)
-			}).Should(Panic())
-		})
-
-		It("should panic if providing a nil sessionManager", func() {
-			Expect(func() {
-				_ = New(nil, NewGCMSessionManager())
-			}).Should(Panic())
-		})
-	})
-
-	Context("when both client and server are honest", func() {
-		Context("when handshaking", func() {
-			It("should authenticate the client and server", func() {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+var _ = Describe("Handshake", func() {
+	Context("connecting a client to a server", func() {
+		When("the server is online", func() {
+			It("should connect successfully", func() {
+				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
-
-				clientConn, serverConn := net.Pipe()
-				_, _ = handshake(ctx, clientConn, serverConn)
+				var dialRetry, dialSuccess chan bool = nil, make(chan bool)
+				portCh := listenOnAssignedPort(ctx)
+				dial(ctx, <-portCh, dialRetry, dialSuccess)
+				Expect(<-dialSuccess).Should(BeTrue())
 			})
+		})
 
-			It("should cipher and decipher messages", func() {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		When("the server is offline", func() {
+			It("should retry", func() {
+				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
-
-				clientConn, serverConn := net.Pipe()
-				clientSession, serverSession := handshake(ctx, clientConn, serverConn)
-
-				test := func() bool {
-					var clientErr, serverError error
-					var readMessage protocol.MessageOnTheWire
-					message := RandomMessage(protocol.V1, RandomMessageVariant())
-
-					phi.ParBegin(func() {
-						clientErr = clientSession.WriteMessage(clientConn, message)
-					}, func() {
-						readMessage, serverError = serverSession.ReadMessageOnTheWire(serverConn)
-					})
-
-					Expect(clientErr).NotTo(HaveOccurred())
-					Expect(serverError).NotTo(HaveOccurred())
-					return cmp.Equal(readMessage.Message, message, cmpopts.EquateEmpty())
-				}
-
-				Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
+				var dialRetry, dialSuccess chan bool = make(chan bool), make(chan bool)
+				dial(ctx, 3333, dialRetry, dialSuccess)
+				Expect(<-dialRetry).Should(BeTrue())
 			})
-		})
-	})
 
-	PContext("when client is dishonest and server is honest", func() {
-		Context("when the client sends a malformed rsa.PublicKey", func() {
-			It("should return an error", func() {
-				Expect(true).To(BeFalse())
-			})
-		})
-
-		Context("when the client sends an invalid signature for their rsa.PublicKey", func() {
-			It("should return an error", func() {
-				Expect(true).To(BeFalse())
-			})
-		})
-
-		Context("when the client sends an invalid signature for the server session key", func() {
-			It("should return an error", func() {
-				Expect(true).To(BeFalse())
-			})
-		})
-
-		Context("when the client sends a valid signature for the server session key that does not match the signature for the client rsa.PublicKey", func() {
-			It("should return an error", func() {
-				Expect(true).To(BeFalse())
-			})
-		})
-
-		Context("when the client sends an incorrectly encrypted session key", func() {
-			It("should return an error", func() {
-				Expect(true).To(BeFalse())
-			})
-		})
-
-		Context("when the client sends an invalid signature for the client session key", func() {
-			It("should return an error", func() {
-				Expect(true).To(BeFalse())
-			})
-		})
-
-		Context("when the client sends a valid signature for the client session key that does not match the signature for the client rsa.PublicKey", func() {
-			It("should return an error", func() {
-				Expect(true).To(BeFalse())
-			})
-		})
-	})
-
-	PContext("when client is honest and server is dishonest", func() {
-		Context("when the server sends a malformed rsa.PublicKey", func() {
-			It("should return an error", func() {
-				Expect(true).To(BeFalse())
-			})
-		})
-
-		Context("when the server sends an incorrectly encrypted session key", func() {
-			It("should return an error", func() {
-				Expect(true).To(BeFalse())
-			})
-		})
-
-		Context("when the server sends an invalid session key", func() {
-			It("should return an error", func() {
-				Expect(true).To(BeFalse())
-			})
-		})
-
-		Context("when the server sends an invalid signature for the server session key", func() {
-			It("should return an error", func() {
-				Expect(true).To(BeFalse())
-			})
-		})
-
-		Context("when the server sends an invalid signature for the server rsa.PublicKey", func() {
-			It("should return an error", func() {
-				Expect(true).To(BeFalse())
-			})
-		})
-
-		Context("when the server sends a valid signaturefor the server rsa.PublicKey that does not match the signature for the server session key", func() {
-			It("should return an error", func() {
-				Expect(true).To(BeFalse())
-			})
-		})
-
-		Context("when the server sends an invalid signature for the client session key", func() {
-			It("should return an error", func() {
-				Expect(true).To(BeFalse())
-			})
-		})
-
-		Context("when the server sends a valid signature for the client session key that does not match the signature for the server session key", func() {
-			It("should return an error", func() {
-				Expect(true).To(BeFalse())
+			It("if the server comes online should eventually connect successfully", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				var dialRetry, dialSuccess chan bool = make(chan bool), make(chan bool)
+				port := 3334
+				dial(ctx, port, dialRetry, dialSuccess)
+				time.Sleep(500 * time.Millisecond)
+				listen(ctx, port)
+				Expect(<-dialRetry).Should(BeTrue())
+				Expect(<-dialSuccess).Should(BeTrue())
 			})
 		})
 	})
 })
+
+func listen(ctx context.Context, port int) {
+	go func() {
+		privKey := id.NewPrivKey()
+		h := handshake.ECIES(privKey)
+
+		tcp.Listen(ctx,
+			fmt.Sprintf("127.0.0.1:%v", port),
+			func(conn net.Conn) {
+				h(conn,
+					codec.PlainEncoder,
+					codec.PlainDecoder,
+				)
+			},
+			nil,
+			nil,
+		)
+	}()
+}
+
+func listenOnAssignedPort(ctx context.Context) <-chan int {
+	portCh := make(chan int, 1)
+	go func() {
+		privKey := id.NewPrivKey()
+		h := handshake.ECIES(privKey)
+
+		ip := "127.0.0.1"
+		listener, port, err := tcp.ListenerWithAssignedPort(ctx, ip)
+		Expect(err).ToNot(HaveOccurred())
+		portCh <- port
+
+		tcp.ListenWithListener(ctx,
+			listener,
+			func(conn net.Conn) {
+				h(conn,
+					codec.PlainEncoder,
+					codec.PlainDecoder,
+				)
+			},
+			nil,
+			nil,
+		)
+	}()
+
+	return portCh
+}
+
+func dial(ctx context.Context, port int, dialRetry, dialSuccess chan bool) {
+	go func() {
+		retrySignalOnce := sync.Once{}
+		privKey := id.NewPrivKey()
+		h := handshake.ECIES(privKey)
+
+		tcp.Dial(ctx,
+			fmt.Sprintf("127.0.0.1:%v", port),
+			func(conn net.Conn) {
+				_, _, _, err := h(conn,
+					codec.PlainEncoder,
+					codec.PlainDecoder)
+				if err == nil {
+					dialSuccess <- true
+				}
+			},
+			func(error) {
+				retrySignalOnce.Do(func() {
+					dialRetry <- true
+				})
+			},
+			policy.ConstantTimeout(50*time.Millisecond),
+		)
+	}()
+}

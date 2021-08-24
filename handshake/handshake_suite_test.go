@@ -9,5 +9,5 @@ import (
 
 func TestHandshake(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Handshake Suite")
+	RunSpecs(t, "Handshake suite")
 }

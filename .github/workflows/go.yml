@@ -4,12 +4,13 @@ jobs:
 
     test:
         runs-on: ubuntu-latest
+        if: "!contains(github.event.head_commit.message, '[skip ci]')"
         steps:
 
-            - name: Set up Go 1.13
+            - name: Set up Go 1.16
               uses: actions/setup-go@v1
               with:
-                  go-version: 1.13
+                  go-version: 1.16
               id: go
 
             - name: Check out code into the Go module directory
@@ -40,13 +41,13 @@ jobs:
                   cd $GITHUB_WORKSPACE
                   CI=true ginkgo --v --race --cover --coverprofile coverprofile.out ./...
                   covermerge                        \
-                    protocol/coverprofile.out       \
+                    channel/coverprofile.out        \
+                    codec/coverprofile.out          \
                     dht/coverprofile.out            \
-                    cast/coverprofile.out           \
-                    multicast/coverprofile.out      \
-                    broadcast/coverprofile.out      \
-                    pingpong/coverprofile.out       \
                     handshake/coverprofile.out      \
                     peer/coverprofile.out           \
-                    tcp/coverprofile.out > coverprofile.out
+                    policy/coverprofile.out         \
+                    tcp/coverprofile.out            \
+                    transport/coverprofile.out      \
+                    wire/coverprofile.out > coverprofile.out
                   goveralls -coverprofile=coverprofile.out -service=github

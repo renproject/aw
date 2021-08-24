@@ -2,260 +2,112 @@ package peer
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"math/rand"
 	"time"
 
-	"github.com/renproject/aw/broadcast"
-	"github.com/renproject/aw/cast"
+	"github.com/renproject/aw/channel"
 	"github.com/renproject/aw/dht"
-	"github.com/renproject/aw/handshake"
-	"github.com/renproject/aw/multicast"
-	"github.com/renproject/aw/pingpong"
-	"github.com/renproject/aw/protocol"
-	"github.com/renproject/aw/tcp"
-	"github.com/renproject/kv"
-	"github.com/sirupsen/logrus"
+	"github.com/renproject/aw/transport"
+	"github.com/renproject/aw/wire"
+	"github.com/renproject/id"
 )
 
-type Peer interface {
-	dht.DHT
+var (
+	DefaultSubnet        = id.Hash{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+	DefaultAlpha         = 5
+	DefaultTimeout       = time.Second
+	DefaultGossipTimeout = 3 * time.Second
+)
 
-	Run(context.Context)
+var (
+	ErrPeerNotFound = errors.New("peer not found")
+)
 
-	Cast(context.Context, protocol.PeerID, protocol.MessageBody) error
-
-	Multicast(context.Context, protocol.GroupID, protocol.MessageBody) error
-
-	Broadcast(context.Context, protocol.GroupID, protocol.MessageBody) error
+type Peer struct {
+	opts            Options
+	transport       *transport.Transport
+	syncer          *Syncer
+	gossiper        *Gossiper
+	discoveryClient *DiscoveryClient
 }
 
-type peer struct {
-	// General
-	logger     logrus.FieldLogger
-	options    Options
-	dht        dht.DHT
-	handshaker handshake.Handshaker
-	events     protocol.EventSender
-
-	// network connections
-	client         protocol.Client
-	clientMessages chan protocol.MessageOnTheWire
-	server         protocol.Server
-	serverMessages chan protocol.MessageOnTheWire
-
-	// messengers
-	caster      cast.Caster
-	pingPonger  pingpong.PingPonger
-	multicaster multicast.Multicaster
-	broadcaster broadcast.Broadcaster
-}
-
-func New(options Options, logger logrus.FieldLogger, codec protocol.PeerAddressCodec, dht dht.DHT, handshaker handshake.Handshaker, client protocol.Client, server protocol.Server, events protocol.EventSender) Peer {
-	if err := options.SetZeroToDefault(); err != nil {
-		panic(fmt.Errorf("pre-condition violation: invalid peer option, err = %v", err))
-	}
-
-	serverMessages := make(chan protocol.MessageOnTheWire, options.Capacity)
-	clientMessages := make(chan protocol.MessageOnTheWire, options.Capacity)
-
-	pingpongOption := pingpong.Options{
-		Logger:     logger,
-		NumWorkers: options.NumWorkers,
-		Alpha:      options.Alpha,
-	}
-	caster := cast.NewCaster(logger, clientMessages, events, dht)
-	pingponger := pingpong.NewPingPonger(pingpongOption, dht, clientMessages, events, codec)
-	multicaster := multicast.NewMulticaster(logger, options.NumWorkers, clientMessages, events, dht)
-	broadcaster := broadcast.NewBroadcaster(logger, options.NumWorkers, clientMessages, events, dht)
-
-	return &peer{
-		logger:         logger,
-		options:        options,
-		dht:            dht,
-		handshaker:     handshaker,
-		events:         events,
-		client:         client,
-		clientMessages: clientMessages,
-		server:         server,
-		serverMessages: serverMessages,
-		caster:         caster,
-		pingPonger:     pingponger,
-		multicaster:    multicaster,
-		broadcaster:    broadcaster,
+func New(opts Options, transport *transport.Transport) *Peer {
+	filter := channel.NewSyncFilter()
+	return &Peer{
+		opts:            opts,
+		transport:       transport,
+		syncer:          NewSyncer(opts.SyncerOptions, filter, transport),
+		gossiper:        NewGossiper(opts.GossiperOptions, filter, transport),
+		discoveryClient: NewDiscoveryClient(opts.DiscoveryOptions, transport),
 	}
 }
 
-func NewTCP(options Options, logger logrus.FieldLogger, codec protocol.PeerAddressCodec, events protocol.EventSender, signVerifier protocol.SignVerifier, poolOptions tcp.ConnPoolOptions, serverOptions tcp.ServerOptions) Peer {
-	if err := options.SetZeroToDefault(); err != nil {
-		panic(fmt.Errorf("pre-condition violation: invalid peer option, err = %v", err))
-	}
-	store := kv.NewTable(kv.NewMemDB(kv.JSONCodec), "dht")
-	dht, err := dht.New(options.Me, codec, store, options.BootstrapAddresses...)
-	if err != nil {
-		panic(fmt.Errorf("pre-condition violation: fail to initialize dht, err = %v", err))
-	}
-	handshaker := handshake.New(signVerifier, handshake.NewGCMSessionManager())
-	connPool := tcp.NewConnPool(poolOptions, logger, handshaker)
-	client := tcp.NewClient(logger, connPool)
-	server := tcp.NewServer(serverOptions, logger, handshaker)
-	return New(options, logger, codec, dht, handshaker, client, server, events)
+func (p *Peer) ID() id.Signatory {
+	return p.opts.PrivKey.Signatory()
 }
 
-func (peer *peer) Run(ctx context.Context) {
-	// Start both the client and server before bootstrapping
-	go peer.client.Run(ctx, peer.clientMessages)
-	go peer.server.Run(ctx, peer.serverMessages)
-	go peer.handleMessage(ctx)
+func (p *Peer) Syncer() *Syncer {
+	return p.syncer
+}
 
-	// Start bootstrapping
-	peer.bootstrap(ctx)
-	ticker := time.NewTicker(peer.options.BootstrapDuration)
-	defer ticker.Stop()
+func (p *Peer) Gossiper() *Gossiper {
+	return p.gossiper
+}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
+func (p *Peer) Transport() *transport.Transport {
+	return p.transport
+}
 
-		case <-ticker.C:
-			peer.bootstrap(ctx)
+func (p *Peer) Link(remote id.Signatory) {
+	p.transport.Link(remote)
+}
+
+func (p *Peer) Unlink(remote id.Signatory) {
+	p.transport.Unlink(remote)
+}
+
+func (p *Peer) Ping(ctx context.Context) error {
+	return fmt.Errorf("unimplemented")
+}
+
+func (p *Peer) Send(ctx context.Context, to id.Signatory, msg wire.Msg) error {
+	return p.transport.Send(ctx, to, msg)
+}
+
+func (p *Peer) Sync(ctx context.Context, contentID []byte, hint *id.Signatory) ([]byte, error) {
+	return p.syncer.Sync(ctx, contentID, hint)
+}
+
+func (p *Peer) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash) {
+	p.gossiper.Gossip(ctx, contentID, subnet)
+}
+
+func (p *Peer) DiscoverPeers(ctx context.Context) {
+	p.discoveryClient.DiscoverPeers(ctx)
+}
+
+func (p *Peer) Run(ctx context.Context) {
+	p.transport.Receive(ctx, func(from id.Signatory, packet wire.Packet) error {
+		// TODO(ross): Think about merging the syncer and the gossiper.
+		if err := p.syncer.DidReceiveMessage(from, packet.Msg); err != nil {
+			return err
 		}
-	}
-}
-
-func (peer *peer) Me() protocol.PeerAddress {
-	return peer.dht.Me()
-}
-
-func (peer *peer) NumPeers() (int, error) {
-	return peer.dht.NumPeers()
-}
-
-func (peer *peer) PeerAddress(id protocol.PeerID) (protocol.PeerAddress, error) {
-	return peer.dht.PeerAddress(id)
-}
-
-func (peer *peer) PeerAddresses() (protocol.PeerAddresses, error) {
-	return peer.dht.PeerAddresses()
-}
-
-func (peer *peer) RandomPeerAddresses(id protocol.GroupID, n int) (protocol.PeerAddresses, error) {
-	return peer.dht.RandomPeerAddresses(id, n)
-}
-
-func (peer *peer) AddPeerAddress(addrs protocol.PeerAddress) error {
-	return peer.dht.AddPeerAddress(addrs)
-}
-
-func (peer *peer) UpdatePeerAddress(addr protocol.PeerAddress) (bool, error) {
-	return peer.dht.UpdatePeerAddress(addr)
-}
-
-func (peer *peer) RemovePeerAddress(id protocol.PeerID) error {
-	return peer.dht.RemovePeerAddress(id)
-}
-
-func (peer *peer) AddGroup(groupID protocol.GroupID, ids protocol.PeerIDs) error {
-	return peer.dht.AddGroup(groupID, ids)
-}
-
-func (peer *peer) GroupIDs(groupID protocol.GroupID) (protocol.PeerIDs, error) {
-	return peer.GroupIDs(groupID)
-}
-
-func (peer *peer) GroupAddresses(groupID protocol.GroupID) (protocol.PeerAddresses, error) {
-	return peer.GroupAddresses(groupID)
-}
-
-func (peer *peer) RemoveGroup(groupID protocol.GroupID) {
-	peer.dht.RemoveGroup(groupID)
-}
-
-func (peer *peer) Cast(ctx context.Context, to protocol.PeerID, data protocol.MessageBody) error {
-	return peer.caster.Cast(ctx, to, data)
-}
-
-func (peer *peer) Multicast(ctx context.Context, groupID protocol.GroupID, data protocol.MessageBody) error {
-	return peer.multicaster.Multicast(ctx, groupID, data)
-}
-
-func (peer *peer) Broadcast(ctx context.Context, groupID protocol.GroupID, data protocol.MessageBody) error {
-	return peer.broadcaster.Broadcast(ctx, groupID, data)
-}
-
-func (peer *peer) bootstrap(ctx context.Context) {
-	if peer.options.DisablePeerDiscovery {
-		return
-	}
-
-	peerAddrs, err := peer.dht.PeerAddresses()
-	if err != nil {
-		peer.logger.Errorf("error bootstrapping: error loading peer addresses: %v", err)
-		return
-	}
-
-	rand.Shuffle(len(peerAddrs), func(i, j int) {
-		tmp := peerAddrs[i]
-		peerAddrs[i] = peerAddrs[j]
-		peerAddrs[j] = tmp
+		if err := p.gossiper.DidReceiveMessage(from, packet.Msg); err != nil {
+			return err
+		}
+		if err := p.discoveryClient.DidReceiveMessage(from, packet.IPAddr, packet.Msg); err != nil {
+			return err
+		}
+		return nil
 	})
-	maxPeerAddrs := 10
-	if len(peerAddrs) < maxPeerAddrs {
-		maxPeerAddrs = len(peerAddrs)
-	}
-	peerAddrs = peerAddrs[:maxPeerAddrs]
-
-	protocol.ParForAllAddresses(peerAddrs, peer.options.NumWorkers, func(peerAddr protocol.PeerAddress) {
-		// Timeout is computed to ensure that we are ready for the next
-		// bootstrap tick even if every single ping takes the maximum amount of
-		// time (with a minimum timeout of 1 second)
-		pingTimeout := time.Duration(int64(peer.options.NumWorkers) * int64(peer.options.BootstrapDuration) / int64(len(peerAddrs)))
-		if pingTimeout > peer.options.BootstrapDuration {
-			pingTimeout = peer.options.BootstrapDuration
-		}
-		if pingTimeout > peer.options.MaxPingTimeout {
-			pingTimeout = peer.options.MaxPingTimeout
-		}
-		if pingTimeout < peer.options.MinPingTimeout {
-			pingTimeout = peer.options.MinPingTimeout
-		}
-
-		pingCtx, pingCancel := context.WithTimeout(ctx, pingTimeout)
-		defer pingCancel()
-		if err := peer.pingPonger.Ping(pingCtx, peerAddr.PeerID()); err != nil {
-			peer.logger.Errorf("error bootstrapping: error ping/ponging peer address=%v: %v", peerAddr, err)
-			return
-		}
-	})
+	p.transport.Run(ctx)
 }
 
-func (peer *peer) handleMessage(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case messageOtw := <-peer.serverMessages:
-			if err := peer.receiveMessageOnTheWire(ctx, messageOtw); err != nil {
-				peer.logger.Error(err)
-			}
-		}
-	}
+func (p *Peer) Receive(ctx context.Context, f func(id.Signatory, wire.Packet) error) {
+	p.transport.Receive(ctx, f)
 }
 
-func (peer *peer) receiveMessageOnTheWire(ctx context.Context, messageOtw protocol.MessageOnTheWire) error {
-	switch messageOtw.Message.Variant {
-	case protocol.Ping:
-		return peer.pingPonger.AcceptPing(ctx, messageOtw.Message)
-	case protocol.Pong:
-		return peer.pingPonger.AcceptPong(ctx, messageOtw.Message)
-	case protocol.Broadcast:
-		return peer.broadcaster.AcceptBroadcast(ctx, messageOtw.From, messageOtw.Message)
-	case protocol.Multicast:
-		return peer.multicaster.AcceptMulticast(ctx, messageOtw.From, messageOtw.Message)
-	case protocol.Cast:
-		return peer.caster.AcceptCast(ctx, messageOtw.From, messageOtw.Message)
-	default:
-		return protocol.NewErrMessageVariantIsNotSupported(messageOtw.Message.Variant)
-	}
+func (p *Peer) Resolve(ctx context.Context, contentResolver dht.ContentResolver) {
+	p.gossiper.Resolve(contentResolver)
 }

@@ -1,22 +1,14 @@
 module github.com/renproject/aw
 
-go 1.12
+go 1.16
 
 require (
-	github.com/AndreasBriese/bbloom v0.0.0-20190825152654-46b345b51c96 // indirect
-	github.com/dgryski/go-farm v0.0.0-20191112170834-c2139c5d712b // indirect
-	github.com/ethereum/go-ethereum v1.9.2
-	github.com/golang/groupcache v0.0.0-20191027212112-611e8accdfc9 // indirect
-	github.com/golang/protobuf v1.3.2 // indirect
-	github.com/golang/snappy v0.0.1 // indirect
-	github.com/google/go-cmp v0.3.1
-	github.com/onsi/ginkgo v1.9.0
-	github.com/onsi/gomega v1.7.0
-	github.com/renproject/id v0.1.1
-	github.com/renproject/kv v1.1.0
-	github.com/renproject/phi v0.1.0
-	github.com/sirupsen/logrus v1.4.2
-	golang.org/x/crypto v0.0.0-20191112222119-e1110fd1c708
-	golang.org/x/net v0.0.0-20191112182307-2180aed22343 // indirect
-	golang.org/x/sys v0.0.0-20191113165036-4c7a9d0fe056 // indirect
+	github.com/ethereum/go-ethereum v1.9.10
+	github.com/onsi/ginkgo v1.16.4
+	github.com/onsi/gomega v1.10.1
+	github.com/renproject/id v0.4.2
+	github.com/renproject/surge v1.2.5
+	go.uber.org/multierr v1.6.0 // indirect
+	go.uber.org/zap v1.16.0
+	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4
 )

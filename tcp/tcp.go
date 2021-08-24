@@ -3,232 +3,146 @@ package tcp
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
-	"sync"
-	"sync/atomic"
 	"time"
 
-	"github.com/renproject/aw/handshake"
-	"github.com/renproject/aw/protocol"
-	"github.com/sirupsen/logrus"
+	"github.com/renproject/aw/policy"
 )
 
-type Client struct {
-	logger logrus.FieldLogger
-	pool   ConnPool
-}
-
-func NewClient(logger logrus.FieldLogger, pool ConnPool) *Client {
-	return &Client{
-		logger: logger,
-		pool:   pool,
+// Listen for connections from remote peers until the context is done. The
+// allow function will be used to control the acceptance/rejection of connection
+// attempts, and can be used to implement maximum connection limits, per-IP
+// rate-limiting, and so on. This function spawns all accepted connections into
+// their own background goroutines that run the handle function, and then
+// clean-up the connection. This function blocks until the context is done.
+func Listen(ctx context.Context, address string, handle func(net.Conn), handleErr func(error), allow policy.Allow) error {
+	// Create a TCP listener from given address and return an error if unable to do so
+	listener, err := new(net.ListenConfig).Listen(ctx, "tcp", address)
+	if err != nil {
+		return err
 	}
+
+	// The 'ctx' we passed to Listen() will not unblock `Listener.Accept()` if
+	// context exceeding the deadline. We need to manually close the listener
+	// to stop `Listener.Accept()` from blocking.
+	// See https://github.com/golang/go/issues/28120
+	go func() {
+		<- ctx.Done()
+		listener.Close()
+	}()
+	return ListenWithListener(ctx, listener, handle, handleErr, allow)
 }
 
-func (client *Client) Run(ctx context.Context, messages protocol.MessageReceiver) {
+// ListenWithListener is the same as Listen but instead of specifying an
+// address, it accepts an already constructed listener.
+//
+// NOTE: The listener passed to this function will be closed when the given
+// context finishes.
+func ListenWithListener(ctx context.Context, listener net.Listener, handle func(net.Conn), handleErr func(error), allow policy.Allow) error {
+	if handle == nil {
+		return fmt.Errorf("nil handle function")
+	}
+
+	if handleErr == nil {
+		handleErr = func(err error) {}
+	}
+
+	defer listener.Close()
+
 	for {
 		select {
 		case <-ctx.Done():
-			return
-		case messageOtw := <-messages:
-			go client.handleMessageOnTheWire(messageOtw)
+			return ctx.Err()
+		default:
 		}
-	}
-}
 
-func (client *Client) handleMessageOnTheWire(message protocol.MessageOnTheWire) {
-	for i := 0; i < 5; i++ {
-		err := client.pool.Send(message.To.NetworkAddress(), message.Message)
-		if err == nil {
-			return
-		}
-		client.logger.Debugf("error send %v message to %v: %v", message.Message.Variant, message.To.NetworkAddress(), err)
-		time.Sleep(time.Second)
-	}
-}
-
-type ServerOptions struct {
-	Host           string        // Host address
-	Timeout        time.Duration // Timeout when establish a connection
-	RateLimit      time.Duration // Minimum time interval before accepting connection from same peer.
-	MaxConnections int           // Max connections allowed.
-}
-
-func (options *ServerOptions) setZerosToDefaults() {
-	if options.Host == "" {
-		options.Host = "127.0.0.1:19231"
-	}
-	if options.Timeout == 0 {
-		options.Timeout = 20 * time.Second
-	}
-	if options.RateLimit == 0 {
-		options.RateLimit = time.Second
-	}
-	if options.MaxConnections == 0 {
-		options.MaxConnections = 256
-	}
-}
-
-type Server struct {
-	logger      logrus.FieldLogger
-	options     ServerOptions
-	handshaker  handshake.Handshaker
-	connections int64
-
-	lastConnAttemptsMu *sync.RWMutex
-	lastConnAttempts   map[string]time.Time
-}
-
-func NewServer(options ServerOptions, logger logrus.FieldLogger, handshaker handshake.Handshaker) *Server {
-	if logger == nil {
-		logger = logrus.New()
-	}
-	options.setZerosToDefaults()
-	if handshaker == nil {
-		panic("handshaker cannot be nil")
-	}
-	return &Server{
-		logger:      logger,
-		options:     options,
-		handshaker:  handshaker,
-		connections: 0,
-
-		lastConnAttemptsMu: new(sync.RWMutex),
-		lastConnAttempts:   map[string]time.Time{},
-	}
-}
-
-// Run the server until the context is done. The server will continuously listen
-// for new connections, spawning each one into a background goroutine so that it
-// can be handled concurrently.
-func (server *Server) Run(ctx context.Context, messages protocol.MessageSender) {
-	server.logger.Debugf("server start listening at %v", server.options.Host)
-	listener, err := net.Listen("tcp", server.options.Host)
-	if err != nil {
-		server.logger.Fatalf("failed to listen on %s: %v", server.options.Host, err)
-		return
-	}
-
-	go func() {
-		// When the context is done, explicitly close the listener so that it
-		// does not block on waiting to accept a new connection.
-		<-ctx.Done()
-		if err := listener.Close(); err != nil {
-			server.logger.Errorf("error closing listener: %v", err)
-		}
-	}()
-
-	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			select {
-			case <-ctx.Done():
-				// Do not log errors because returning from this canceling a
-				// context is the expected way to terminate the run loop.
-				return
-			default:
-			}
-
-			server.logger.Errorf("error accepting connection: %v", err)
+			handleErr(fmt.Errorf("accept connection: %w", err))
 			continue
 		}
-		if atomic.LoadInt64(&server.connections) >= int64(server.options.MaxConnections) {
-			server.logger.Info("tcp server reaches max number of connections")
-			conn.Close()
+
+		if allow == nil {
+			go func() {
+				defer conn.Close()
+
+				handle(conn)
+			}()
 			continue
 		}
-		atomic.AddInt64(&server.connections, 1)
 
-		// Spawn background goroutine to handle this connection so that it does
-		// not block other connections.
+		if err, cleanup := allow(conn); err == nil {
+			go func() {
+				defer conn.Close()
 
-		go server.handle(ctx, conn, messages)
+				defer func() {
+					if cleanup != nil {
+						cleanup()
+					}
+				}()
+				handle(conn)
+			}()
+			continue
+		}
+		conn.Close()
 	}
 }
 
-func (server *Server) handle(ctx context.Context, conn net.Conn, messages protocol.MessageSender) {
-	defer atomic.AddInt64(&server.connections, -1)
-	defer conn.Close()
-
-	// Reject connections from IP addresses that have attempted to connect too recently.
-	if !server.allowRateLimit(conn) {
-		return
-	}
-
-	// Attempt to establish a session with the client.
-	now := time.Now()
-	session, err := server.establishSession(ctx, conn)
+// ListenerWithAssignedPort creates a new listener on a random port assigned by
+// the OS. On success, both the listener and port are returned.
+func ListenerWithAssignedPort(ctx context.Context, ip string) (net.Listener, int, error) {
+	listener, err := new(net.ListenConfig).Listen(ctx, "tcp", fmt.Sprintf("%v:%v", ip, 0))
 	if err != nil {
-		return
+		return nil, 0, err
 	}
-	if session == nil {
-		server.logger.Errorf("cannot establish session with %v", conn.RemoteAddr().String())
-		return
+	port := listener.Addr().(*net.TCPAddr).Port
+	return listener, port, nil
+}
+
+// Dial a remote peer until a connection is successfully established, or until
+// the context is done. Multiple dial attempts can be made, and the timeout
+// function is used to define an upper bound on dial attempts. This function
+// blocks until the connection is handled (and the handle function returns).
+// This function will clean-up the connection.
+func Dial(ctx context.Context, address string, handle func(net.Conn), handleErr func(error), timeout func(int) time.Duration) error {
+	dialer := new(net.Dialer)
+
+	if handle == nil {
+		return fmt.Errorf("nil handle function")
 	}
-	server.logger.Debugf("new connection with %v takes %v", conn.RemoteAddr().String(), time.Now().Sub(now))
 
-	for {
-		sizeLimitedReader := io.LimitReader(conn, 10*1024*1024) // Limit incoming connection reads to 10 MB.
-		messageOtw, err := session.ReadMessageOnTheWire(sizeLimitedReader)
+	if handleErr == nil {
+		handleErr = func(error) {}
+	}
 
-		if err != nil {
-			if err != io.EOF {
-				server.logger.Errorf("error reading incoming message: %v", err)
-			}
-			server.logger.Info("closing connection: EOF")
-			return
-		}
+	if timeout == nil {
+		timeout = func(int) time.Duration { return time.Second }
+	}
 
+	for attempt := 1; ; attempt++ {
 		select {
 		case <-ctx.Done():
-			return
-		case messages <- messageOtw:
+			return fmt.Errorf("dialing %w", ctx.Err())
+		default:
 		}
+
+		dialCtx, dialCancel := context.WithTimeout(ctx, timeout(attempt))
+		conn, err := dialer.DialContext(dialCtx, "tcp", address)
+		if err != nil {
+			handleErr(err)
+			<-dialCtx.Done()
+			dialCancel()
+			continue
+		}
+		dialCancel()
+
+		return func() (err error) {
+			defer func() {
+				err = conn.Close()
+			}()
+
+			handle(conn)
+			return
+		}()
 	}
-}
-
-func (server *Server) allowRateLimit(conn net.Conn) bool {
-	server.lastConnAttemptsMu.Lock()
-	defer server.lastConnAttemptsMu.Unlock()
-
-	var address string
-	if addr, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
-		address = addr.IP.String()
-	} else {
-		address = conn.RemoteAddr().String()
-	}
-	defer func() {
-		server.lastConnAttempts[address] = time.Now()
-	}()
-
-	lastConnAttempt, ok := server.lastConnAttempts[address]
-	if !ok {
-		return true
-	}
-
-	return time.Now().Sub(lastConnAttempt) >= server.options.RateLimit
-}
-
-func (server *Server) establishSession(ctx context.Context, conn net.Conn) (protocol.Session, error) {
-	handshakeCtx, handshakeCancel := context.WithTimeout(ctx, server.options.Timeout)
-	defer handshakeCancel()
-
-	// Set a timeout for the handshake process
-	deadline := time.Now().Add(server.options.Timeout)
-	if err := conn.SetDeadline(deadline); err != nil {
-		return nil, err
-	}
-
-	session, err := server.handshaker.AcceptHandshake(handshakeCtx, conn)
-	if err != nil {
-		return nil, fmt.Errorf("bad handshake with %v: %v", conn.RemoteAddr().String(), err)
-	}
-
-	// Reset the timeout back
-	if err := conn.SetDeadline(time.Time{}); err != nil {
-		return nil, err
-	}
-
-	return session, nil
 }

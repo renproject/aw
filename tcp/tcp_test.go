@@ -2,158 +2,213 @@ package tcp_test
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"math/rand"
 	"net"
-	"testing/quick"
 	"time"
+
+	"github.com/renproject/aw/policy"
+	"github.com/renproject/aw/tcp"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	. "github.com/renproject/aw/tcp"
-	. "github.com/renproject/aw/testutil"
-
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/renproject/aw/protocol"
-	"github.com/sirupsen/logrus"
 )
 
-var _ = Describe("TCP client and server", func() {
+var _ = Describe("TCP", func() {
 
-	sendRandomMessage := func(messageSender protocol.MessageSender, to protocol.PeerAddress) protocol.Message {
-		message := RandomMessage(protocol.V1, RandomMessageVariant())
-		messageOtw := protocol.MessageOnTheWire{
-			To:      to,
-			Message: message,
+	// run test scenarios with some configurations that enable enough variation
+	// to test everything we are interested in testing.
+	run := func(ctx context.Context, dialDelay, listenerDelay time.Duration, enableListener, rejectInboundConns bool) {
+		// Channel for communicating to the main goroutine which messages have
+		// been received by the listener and the dialer.
+		messageReceived := make(chan [100]byte, 2)
+		message := [100]byte{}
+
+		// Generate a random message.
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		r.Read(message[:])
+
+		port := 12345
+
+		if enableListener {
+			allow := policy.Max(0)
+			if !rejectInboundConns {
+				// We want to allow the dialing attempt. To catch different
+				// cases, sometimes we use an explicit policy, and other times
+				// we use a nil policy.
+				if r.Int()%2 == 0 {
+					allow = policy.Max(1)
+				} else {
+					allow = nil
+				}
+			}
+			var listener net.Listener
+			var err error
+			ip := "127.0.0.1"
+			listener, port, err = tcp.ListenerWithAssignedPort(ctx, ip)
+			Expect(err).ToNot(HaveOccurred())
+			go func() {
+				defer GinkgoRecover()
+
+				time.Sleep(listenerDelay)
+
+				err := tcp.ListenWithListener(
+					ctx,
+					listener,
+					func(conn net.Conn) {
+						defer GinkgoRecover()
+
+						// Assume that the dialer will send a message first, and
+						// try to receive the message.
+						received := [100]byte{}
+						n, err := io.ReadFull(conn, received[:])
+
+						// Check that the expected message was received,
+						Expect(n).To(Equal(100))
+						Expect(err).ToNot(HaveOccurred())
+						Expect(received[:]).To(Equal(message[:]))
+						messageReceived <- received
+
+						// and then send it back.
+						n, err = conn.Write(message[:])
+						Expect(n).To(Equal(100))
+						Expect(err).ToNot(HaveOccurred())
+					},
+					nil,
+					allow,
+				)
+				Expect(err).To(Equal(context.Canceled))
+			}()
 		}
-		messageSender <- messageOtw
-		return message
+
+		// Delaying the dialer is useful to allow the listener to boot. This
+		// delay might need to be longer than expected, depending on the CI
+		// environment.
+		time.Sleep(dialDelay)
+
+		err := tcp.Dial(
+			ctx,
+			fmt.Sprintf("127.0.0.1:%v", port),
+			func(conn net.Conn) {
+				defer GinkgoRecover()
+
+				// Send a message and, if the listener is enabled, then expect
+				// it to succeed. Otherwise, expect it to fail.
+				n, err := conn.Write(message[:])
+				Expect(n).To(Equal(100))
+				Expect(err).ToNot(HaveOccurred())
+
+				// Same thing with receiving messages.
+				received := [100]byte{}
+				n, err = io.ReadFull(conn, received[:])
+				if !rejectInboundConns {
+					Expect(n).To(Equal(100))
+					Expect(err).ToNot(HaveOccurred())
+					Expect(received[:]).To(Equal(message[:]))
+					messageReceived <- received
+				} else {
+					Expect(err).To(HaveOccurred())
+				}
+			},
+			nil,
+			policy.ConstantTimeout(time.Second))
+
+		// If the listener is enabled, and there is no policy for rejecting
+		// inbound connection attempts, then we expect messages to have been
+		// sent and received.
+		if enableListener && !rejectInboundConns {
+			Expect(err).ToNot(HaveOccurred())
+			Expect(<-messageReceived).To(Equal(message))
+			Expect(<-messageReceived).To(Equal(message))
+		} else if rejectInboundConns {
+			Expect(err).ToNot(HaveOccurred())
+		} else {
+			Expect(err).To(HaveOccurred())
+		}
 	}
 
-	BeforeEach(func() {
-		// Give enough time for server to clean up between tests
-		time.Sleep(500 * time.Millisecond)
-	})
+	Context("when dialing a listener that is accepting inbound connections", func() {
+		It("should send and receive messages", func() {
+			for iter := 0; iter < 3; iter++ {
+				func() {
+					// Allow some time for the previous iteration to shutdown.
+					defer time.Sleep(10 * time.Millisecond)
 
-	Context("when initializing a server", func() {
-		It("should panic if providing a nil handshaker", func() {
-			Expect(func() {
-				_ = NewServer(ServerOptions{}, logrus.New(), nil)
-			}).Should(Panic())
-		})
-	})
-
-	Context("when sending a message", func() {
-		It("should create a session between client and server and successfully send the message through the session", func() {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			// Initialize a client
-			clientSignVerifier := NewMockSignVerifier()
-			messageSender := NewTCPClient(ctx, ConnPoolOptions{}, clientSignVerifier)
-
-			// Initialize a server
-			serverAddr := NewSimpleTCPPeerAddress(RandomPeerID().String(), "", "8080")
-			options := ServerOptions{Host: serverAddr.NetworkAddress().String()}
-			messageReceiver := NewTCPServer(ctx, options, clientSignVerifier)
-
-			// Send a message through the messageSender and expect the server receives it.
-			test := func() bool {
-				message := sendRandomMessage(messageSender, serverAddr)
-				var received protocol.MessageOnTheWire
-				Eventually(messageReceiver, 3*time.Second).Should(Receive(&received))
-				return cmp.Equal(message, received.Message, cmpopts.EquateEmpty())
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+					run(
+						ctx,
+						time.Millisecond, // Delay before dialing
+						time.Duration(0), // Delay before listening
+						true,             // Enable listening
+						false,            // No listening policy
+					)
+				}()
 			}
-
-			Expect(quick.Check(test, nil)).NotTo(HaveOccurred())
 		})
 	})
 
-	Context("when reach max number of connection allowed", func() {
-		It("show reject the connection", func() {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+	Context("when dialing a listener that is not accepting inbound connections", func() {
+		It("should return an error", func() {
+			for iter := 0; iter < 3; iter++ {
+				func() {
+					// Allow some time for the previous iteration to shutdown.
+					defer time.Sleep(10 * time.Millisecond)
 
-			// Initialize a server
-			serverAddr := NewSimpleTCPPeerAddress(RandomPeerID().String(), "", "8080")
-			options := ServerOptions{Host: serverAddr.NetworkAddress().String(), MaxConnections: 1}
-			_ = NewTCPServer(ctx, options)
-
-			addr1, err := net.ResolveTCPAddr("tcp", ":10000")
-			Expect(err).NotTo(HaveOccurred())
-			dialer1 := net.Dialer{LocalAddr: addr1}
-			_, err = dialer1.Dial("tcp", ":8080")
-			Expect(err).NotTo(HaveOccurred())
-
-			addr2, err := net.ResolveTCPAddr("tcp", ":10001")
-			Expect(err).NotTo(HaveOccurred())
-			dialer2 := net.Dialer{LocalAddr: addr2}
-			conn, err := dialer2.Dial("tcp", ":8080")
-			Expect(err).NotTo(HaveOccurred())
-			_, err = conn.Read(make([]byte, 10))
-			Expect(err).To(HaveOccurred())
-		})
-	})
-
-	Context("rate limiting of tcp server", func() {
-		It("should reject connection from client who has attempted to connect too recently", func() {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			// Initialize a client
-			clientSignVerifier := NewMockSignVerifier()
-			clientCtx, clientCancel := context.WithCancel(ctx)
-			messageSender := NewTCPClient(clientCtx, ConnPoolOptions{}, clientSignVerifier)
-
-			// Initialize a server
-			serverAddr := NewSimpleTCPPeerAddress(RandomPeerID().String(), "", "8080")
-			options := ServerOptions{
-				Host:      serverAddr.NetworkAddress().String(),
-				RateLimit: 500 * time.Millisecond,
+					ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+					defer cancel()
+					run(
+						ctx,
+						time.Millisecond, // Delay before dialing
+						time.Duration(0), // Delay before listening
+						false,            // Disable listening
+						false,            // No listening policy
+					)
+				}()
 			}
-			messageReceiver := NewTCPServer(ctx, options, clientSignVerifier)
-
-			// Try to connect and send a message to server
-			_ = sendRandomMessage(messageSender, serverAddr)
-			Eventually(messageReceiver, 600*time.Millisecond).Should(Receive())
-
-			// Cancel the ctx which close the connection
-			clientCancel()
-
-			// Create a new client and send a message and expect it to be rejected.
-			messageSender = NewTCPClient(ctx, ConnPoolOptions{}, clientSignVerifier)
-			_ = sendRandomMessage(messageSender, serverAddr)
-			Eventually(messageReceiver).ShouldNot(Receive())
-
-			// Wait for the rate limit expire
-			time.Sleep(600 * time.Millisecond)
-
-			// Expect the connection to be accepted by the server
-			message := sendRandomMessage(messageSender, serverAddr)
-			var received protocol.MessageOnTheWire
-			Eventually(messageReceiver, time.Second).Should(Receive(&received))
-			Expect(cmp.Equal(message, received.Message, cmpopts.EquateEmpty())).Should(BeTrue())
 		})
-	})
 
-	Context("when an honest server is dialed by a malicious client", func() {
-		Context("when client doesn't do anything in the handshake process", func() {
-			It("should timeout after sometime", func() {
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
+		Context("when the listener begins accepting inbound connections", func() {
+			It("should begin sending and receiving messages", func() {
+				for iter := 0; iter < 3; iter++ {
+					func() {
+						// Allow some time for the previous iteration to shutdown.
+						defer time.Sleep(10 * time.Millisecond)
 
-				// Initialize a malicious client
-				clientSignVerifier := NewMockSignVerifier()
-				messageSender := NewMaliciousTCPClient(ctx, ConnPoolOptions{}, clientSignVerifier)
-
-				// Initialize a server
-				serverAddr := NewSimpleTCPPeerAddress(RandomPeerID().String(), "", "8080")
-				options := ServerOptions{Host: serverAddr.NetworkAddress().String(), Timeout: 500 * time.Millisecond}
-				messageReceiver := NewTCPServer(ctx, options, clientSignVerifier)
-
-				// Send a message through the messageSender and expect the server reject the connection.
-				_ = sendRandomMessage(messageSender, serverAddr)
-				Eventually(messageReceiver, 3*time.Second).ShouldNot(Receive())
+						ctx, cancel := context.WithCancel(context.Background())
+						defer cancel()
+						run(
+							ctx,
+							time.Millisecond, // Delay before dialing
+							time.Second,      // Delay before listening
+							true,             // Enable listening
+							false,            // No listening policy
+						)
+					}()
+				}
 			})
+		})
+	})
+
+	Context("when dialing a listener that is rejecting inbound connections", func() {
+		It("should return an error", func() {
+			for iter := 0; iter < 3; iter++ {
+				func() {
+					// Allow some time for the previous iteration to shutdown.
+					defer time.Sleep(10 * time.Millisecond)
+
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+					run(
+						ctx,
+						time.Millisecond, // Delay before dialing
+						time.Second,      // Delay before listening
+						true,             // Enable listening
+						true,             // No listening policy
+					)
+				}()
+			}
 		})
 	})
 })

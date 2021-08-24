@@ -1,13 +1,13 @@
-package peer_test
+package peer
 
 import (
+	"testing"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-
-	"testing"
 )
 
 func TestPeer(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Peer Suite")
+	RunSpecs(t, "Peer Test Suite")
 }
