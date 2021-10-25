@@ -356,26 +356,29 @@ func (peer *Peer2) Gossip(contentID []byte, subnet *id.Hash) error {
 func (peer *Peer2) listenerHandler(conn net.Conn) {
 	peer.Opts.Logger.Debug("incoming connection")
 
-	// TODO(ross): We can't call blocking funtions here!
-	gcmSession, remote, err := handshake(peer.PrivKey, conn)
-	if err != nil {
-		peer.Opts.Logger.Warn("handshake failed", zap.Error(err))
-		conn.Close()
-		return
-	}
+	// TODO(ross): Maybe the handshake should be part of the event loop to
+	// avoided unbounded go routine spawning.
+	go func() {
+		gcmSession, remote, err := handshake(peer.PrivKey, conn)
+		if err != nil {
+			peer.Opts.Logger.Warn("handshake failed", zap.Error(err))
+			conn.Close()
+			return
+		}
 
-	newConnectionEvent := Event{
-		Type:       NewConnection,
-		ID:         remote,
-		Connection: conn,
-		GCMSession: gcmSession,
-	}
-	peer.Events <- newConnectionEvent
+		newConnectionEvent := Event{
+			Type:       NewConnection,
+			ID:         remote,
+			Connection: conn,
+			GCMSession: gcmSession,
+		}
+		peer.Events <- newConnectionEvent
+	}()
 }
 
 func (peer *Peer2) handleEvent(event Event) {
-	fmt.Printf("%v %-15v %v\n", peer.Self.String()[:4], event.Type, event.Error)
-	// peer.Opts.Logger.Debug("handling event", zap.String("self", peer.Self.String()), zap.String("type", event.Type.String()))
+	// fmt.Printf("%v %-15v %v\n", peer.Self.String()[:4], event.Type, event.Error)
+	peer.Opts.Logger.Debug("handling event", zap.String("self", peer.Self.String()), zap.String("type", event.Type.String()))
 	remote := event.ID
 
 	switch event.Type {
@@ -564,8 +567,7 @@ func (peer *Peer2) handleEvent(event Event) {
 		// TODO(ross): If the error was malicious we should act accordingly.
 
 		if linkedPeer, ok := peer.LinkedPeers[remote]; ok {
-			msg := peer.TearDownConnection(linkedPeer)
-			linkedPeer.PendingMessage = msg
+			peer.TearDownConnection(linkedPeer)
 
 			remoteAddr, ok := peer.PeerTable.PeerAddress(event.ID)
 			if ok && remoteAddr.Protocol == wire.TCP {
@@ -577,7 +579,7 @@ func (peer *Peer2) handleEvent(event Event) {
 		} else if ephemeralConnection, ok := peer.EphemeralConnections[remote]; ok {
 			// TODO(ross): Maybe we should try to reestablish the connection if
 			// there is a pending message.
-			_ = peer.TearDownConnection(&ephemeralConnection.PeerConnection)
+			peer.TearDownConnection(&ephemeralConnection.PeerConnection)
 			delete(peer.EphemeralConnections, remote)
 		} else {
 			// Do nothing.
@@ -585,8 +587,7 @@ func (peer *Peer2) handleEvent(event Event) {
 
 	case WriterDropped:
 		if linkedPeer, ok := peer.LinkedPeers[remote]; ok {
-			msg := peer.TearDownConnection(linkedPeer)
-			linkedPeer.PendingMessage = msg
+			peer.TearDownConnection(linkedPeer)
 
 			remoteAddr, ok := peer.PeerTable.PeerAddress(event.ID)
 			if ok && remoteAddr.Protocol == wire.TCP {
@@ -598,7 +599,7 @@ func (peer *Peer2) handleEvent(event Event) {
 		} else if ephemeralConnection, ok := peer.EphemeralConnections[remote]; ok {
 			// TODO(ross): Maybe we should try to reestablish the connection if
 			// there is a pending message.
-			_ = peer.TearDownConnection(&ephemeralConnection.PeerConnection)
+			peer.TearDownConnection(&ephemeralConnection.PeerConnection)
 			delete(peer.EphemeralConnections, remote)
 		} else {
 			// Do nothing.
@@ -613,22 +614,21 @@ func (peer *Peer2) handleEvent(event Event) {
 				decisionBuffer := [128]byte{}
 				var decisionEncoded []byte
 				if linkedPeer.Connection == nil || time.Now().Sub(linkedPeer.Timestamp) > peer.Opts.MinimumConnectionExpiryAge {
-					msg := peer.TearDownConnection(linkedPeer)
+					peer.TearDownConnection(linkedPeer)
 
 					linkedPeer.Connection = event.Connection
 					linkedPeer.GCMSession = event.GCMSession
 					linkedPeer.Timestamp = time.Now()
 
-					peer.StartConnection(linkedPeer, remote, msg)
-
 					decisionEncoded = encode.Encode([]byte{KeepAliveTrue}, decisionBuffer[:], event.GCMSession)
 
 					go func() {
-						fmt.Printf("%v signalling keep alive\n", peer.Self.String()[:4])
+						peer.Opts.Logger.Debug("signalling to keep alive", zap.String("remote", remote.String()))
 						_, err := event.Connection.Write(decisionEncoded[:])
 						if err != nil {
 							// TODO(ross): Dropped reader event?
 						} else {
+							peer.StartConnection(linkedPeer, remote)
 						}
 					}()
 				} else {
@@ -638,7 +638,7 @@ func (peer *Peer2) handleEvent(event Event) {
 					decisionEncoded = encode.Encode([]byte{KeepAliveFalse}, decisionBuffer[:], event.GCMSession)
 
 					go func() {
-						fmt.Printf("%v signalling to drop\n", peer.Self.String()[:4])
+						peer.Opts.Logger.Debug("signalling to drop", zap.String("remote", remote.String()))
 						event.Connection.Write(decisionEncoded[:])
 						event.Connection.Close()
 					}()
@@ -652,7 +652,7 @@ func (peer *Peer2) handleEvent(event Event) {
 					if err != nil {
 						fmt.Printf("%v decision error %v\n", peer.Self.String()[:4], err)
 					} else {
-						fmt.Printf("%v got decision %v\n", peer.Self.String()[:4], decisionDecoded[0])
+						peer.Opts.Logger.Debug("received keep alive message", zap.String("remote", remote.String()), zap.Uint8("decision", decisionDecoded[0]))
 					}
 
 					if err == nil && decisionDecoded[0] == KeepAliveTrue {
@@ -675,18 +675,17 @@ func (peer *Peer2) handleEvent(event Event) {
 	case KeepAlive:
 		if linkedPeer, ok := peer.LinkedPeers[remote]; ok {
 			remote := event.ID
-			msg := peer.TearDownConnection(linkedPeer)
+			peer.TearDownConnection(linkedPeer)
 
 			linkedPeer.Connection = event.Connection
 			linkedPeer.GCMSession = event.GCMSession
 			linkedPeer.Timestamp = time.Now()
 
-			peer.StartConnection(linkedPeer, remote, msg)
+			peer.StartConnection(linkedPeer, remote)
 		} else {
 			// TODO(ross): We will need to do something here for ephemeral
 			// connections if we did keep alive logic when handling a new
 			// connection.
-			fmt.Printf("%v ephemeral keep alive!\n", peer.Self.String()[:4])
 		}
 
 	case DialTimeout:
@@ -872,28 +871,28 @@ func (peer *Peer2) handleSendMessage(remote id.Signatory, message wire.Msg) erro
 	}
 }
 
-func (peer *Peer2) TearDownConnection(peerConnection *PeerConnection) *wire.Msg {
+func (peer *Peer2) TearDownConnection(peerConnection *PeerConnection) {
 	if peerConnection.Connection != nil {
 		peerConnection.Connection.Close()
 		peerConnection.Connection = nil
+
+		// NOTE(ross): Waiting for the reading and writing go routines to finish
+		// relies on the fact that closing the connection will cause blocked
+		// reads/writes to return, otherwise this will block the whole event loop.
+		// This behaviour is sepcified by the documentation for `Close`, so we
+		// should be OK.
+		<-peerConnection.ReadDone
+		peerConnection.PendingMessage = <-peerConnection.WriteDone
 	}
 
-	// NOTE(ross): Waiting for the reading and writing go routines to finish
-	// relies on the fact that closing the connection will cause blocked
-	// reads/writes to return, otherwise this will block the whole event loop.
-	// This behaviour is confirmed by the documentation for `Close`, so we
-	// should be OK.
-	if peerConnection.ReadDone != nil {
-		<-peerConnection.ReadDone
-		return <-peerConnection.WriteDone
-	} else {
-		return nil
-	}
 }
 
-func (peer *Peer2) StartConnection(peerConnection *PeerConnection, remote id.Signatory, firstMessage *wire.Msg) {
+func (peer *Peer2) StartConnection(peerConnection *PeerConnection, remote id.Signatory) {
 	peerConnection.ReadDone = make(chan struct{}, 1)
 	peerConnection.WriteDone = make(chan *wire.Msg, 1)
+
+	firstMessage := peerConnection.PendingMessage
+	peerConnection.PendingMessage = nil
 
 	go read(peerConnection.Connection, peerConnection.GCMSession, peer.Filter, peer.Events, remote, peer.Opts.ConnectionRateLimiterOptions, peerConnection.ReadDone)
 	go write(peerConnection.Connection, peerConnection.GCMSession, peer.Events, peerConnection.OutgoingMessages, peerConnection.WriteDone, remote, firstMessage)

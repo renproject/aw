@@ -60,17 +60,8 @@ var _ = FDescribe("Peer2", func() {
 			ConnectionRateLimiterOptions: connectionRateLimiterOptions,
 		}
 
-		privKey1 := id.NewPrivKey()
-		privKey2 := id.NewPrivKey()
-
-		peerTable1 := dht.NewInMemTable(privKey1.Signatory())
-		peerTable2 := dht.NewInMemTable(privKey2.Signatory())
-
-		contentResolver1 := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
-		contentResolver2 := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
-
-		peer1 := peer.New2(opts, privKey1, peerTable1, contentResolver1)
-		peer2 := peer.New2(opts, privKey2, peerTable2, contentResolver2)
+		peer1, peerTable1, contentResolver1 := newPeer(opts)
+		peer2, peerTable2, contentResolver2 := newPeer(opts)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -105,3 +96,12 @@ var _ = FDescribe("Peer2", func() {
 		Eventually(func() []byte { msg, _ := contentResolver2.QueryContent(contentID); return msg }, 999999999999).Should(Equal(data))
 	})
 })
+
+func newPeer(opts peer.Options2) (peer.Peer2, dht.Table, dht.ContentResolver) {
+	privKey := id.NewPrivKey()
+	peerTable := dht.NewInMemTable(privKey.Signatory())
+	contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
+	peer := peer.New2(opts, privKey, peerTable, contentResolver)
+
+	return peer, peerTable, contentResolver
+}
