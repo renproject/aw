@@ -176,7 +176,7 @@ type Peer2 struct {
 	Filter          *channel.SyncFilter
 }
 
-func New2(opts Options2, privKey *id.PrivKey, peerTable dht.Table, contentResolver dht.ContentResolver) Peer2 {
+func New2(opts Options2, privKey *id.PrivKey, peerTable dht.Table, contentResolver dht.ContentResolver) *Peer2 {
 	self := privKey.Signatory()
 
 	events := make(chan Event, opts.EventLoopBufferSize)
@@ -187,7 +187,7 @@ func New2(opts Options2, privKey *id.PrivKey, peerTable dht.Table, contentResolv
 
 	filter := channel.NewSyncFilter()
 
-	return Peer2{
+	return &Peer2{
 		Opts: opts,
 
 		Self:    self,
@@ -378,7 +378,7 @@ func (peer *Peer2) listenerHandler(conn net.Conn) {
 
 func (peer *Peer2) handleEvent(event Event) {
 	// fmt.Printf("%v %-15v %v\n", peer.Self.String()[:4], event.Type, event.Error)
-	peer.Opts.Logger.Debug("handling event", zap.String("self", peer.Self.String()), zap.String("type", event.Type.String()))
+	peer.Opts.Logger.Debug("handling event", zap.String("self", peer.Self.String()[:4]), zap.String("type", event.Type.String()))
 	remote := event.ID
 
 	switch event.Type {
@@ -410,6 +410,11 @@ func (peer *Peer2) handleEvent(event Event) {
 							peer.Opts.Logger.Warn("pulling", zap.String("peer", remote.String()), zap.String("id", base64.RawURLEncoding.EncodeToString(message.Data)), zap.Error(err))
 						}
 					}
+				} else {
+					// TODO(ross): In this case we certainly don't want to
+					// pull, but should we forward on the push anyway? It might
+					// be that a peer is regossiping the same message to try to
+					// increase network coverage.
 				}
 			}
 
@@ -456,8 +461,14 @@ func (peer *Peer2) handleEvent(event Event) {
 				}
 
 				if gossipSubnet, ok := peer.GossipSubnets[contentID]; ok {
-					message.To = gossipSubnet.Subnet
-					peer.gossip(message)
+					pushMessage := wire.Msg{
+						Version: wire.MsgVersion1,
+						To:      gossipSubnet.Subnet,
+						Type:    wire.MsgTypePush,
+						Data:    message.Data,
+					}
+
+					peer.gossip(pushMessage)
 
 					delete(peer.GossipSubnets, contentID)
 					peer.Filter.Deny(message.Data)
@@ -564,6 +575,7 @@ func (peer *Peer2) handleEvent(event Event) {
 		}
 
 	case ReaderDropped:
+		peer.Opts.Logger.Debug("reader dropped", zap.String("self", peer.Self.String()[:4]), zap.Error(event.Error))
 		// TODO(ross): If the error was malicious we should act accordingly.
 
 		if linkedPeer, ok := peer.LinkedPeers[remote]; ok {
@@ -623,7 +635,7 @@ func (peer *Peer2) handleEvent(event Event) {
 					decisionEncoded = encode.Encode([]byte{KeepAliveTrue}, decisionBuffer[:], event.GCMSession)
 
 					go func() {
-						peer.Opts.Logger.Debug("signalling to keep alive", zap.String("remote", remote.String()))
+						peer.Opts.Logger.Debug("signalling to keep alive", zap.String("self", peer.Self.String()[:4]), zap.String("remote", remote.String()[:4]))
 						_, err := event.Connection.Write(decisionEncoded[:])
 						if err != nil {
 							// TODO(ross): Dropped reader event?
@@ -638,7 +650,7 @@ func (peer *Peer2) handleEvent(event Event) {
 					decisionEncoded = encode.Encode([]byte{KeepAliveFalse}, decisionBuffer[:], event.GCMSession)
 
 					go func() {
-						peer.Opts.Logger.Debug("signalling to drop", zap.String("remote", remote.String()))
+						peer.Opts.Logger.Debug("signalling to drop", zap.String("self", peer.Self.String()[:4]), zap.String("remote", remote.String()[:4]))
 						event.Connection.Write(decisionEncoded[:])
 						event.Connection.Close()
 					}()
@@ -652,7 +664,7 @@ func (peer *Peer2) handleEvent(event Event) {
 					if err != nil {
 						fmt.Printf("%v decision error %v\n", peer.Self.String()[:4], err)
 					} else {
-						peer.Opts.Logger.Debug("received keep alive message", zap.String("remote", remote.String()), zap.Uint8("decision", decisionDecoded[0]))
+						peer.Opts.Logger.Debug("received keep alive message", zap.String("self", peer.Self.String()[:4]), zap.String("remote", remote.String()[:4]), zap.Uint8("decision", decisionDecoded[0]))
 					}
 
 					if err == nil && decisionDecoded[0] == KeepAliveTrue {
@@ -691,23 +703,26 @@ func (peer *Peer2) handleEvent(event Event) {
 	case DialTimeout:
 		// TODO(ross): Peer expiry.
 
-		if linkedPeer, ok := peer.LinkedPeers[remote]; ok {
-			// This can happen if an ephemeral connection that was still dialling
-			// was upgraded to a linked peer.
+		remote := event.ID
 
-			remote := event.ID
+		expired := peer.PeerTable.HandleExpired(remote)
+		if !expired {
+			if linkedPeer, ok := peer.LinkedPeers[remote]; ok {
+				// This can happen if an ephemeral connection that was still dialling
+				// was upgraded to a linked peer.
 
-			remoteAddr, ok := peer.PeerTable.PeerAddress(remote)
-			if ok && remoteAddr.Protocol == wire.TCP {
-				ctx, cancel := context.WithCancel(context.Background())
-				linkedPeer.Cancel = cancel
+				remoteAddr, ok := peer.PeerTable.PeerAddress(remote)
+				if ok && remoteAddr.Protocol == wire.TCP {
+					ctx, cancel := context.WithCancel(context.Background())
+					linkedPeer.Cancel = cancel
 
-				go peer.dialAndPublishEvent(ctx, remoteAddr.Value)
+					go peer.dialAndPublishEvent(ctx, remoteAddr.Value)
+				}
+			} else if _, ok := peer.EphemeralConnections[remote]; ok {
+				delete(peer.EphemeralConnections, remote)
+			} else {
+				// Do nothing.
 			}
-		} else if _, ok := peer.EphemeralConnections[remote]; ok {
-			delete(peer.EphemeralConnections, remote)
-		} else {
-			// Do nothing.
 		}
 
 	case LinkPeer:
