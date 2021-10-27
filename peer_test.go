@@ -18,7 +18,6 @@ import (
 /*
  * TODO(ross): Tests to write:
  *     - Fuzzing/malicious message data tests
- *     - Sync tests
  *     - Handshake tests?
  *     - Keep alive/unique connection tests?
  *     - Sending a message before a connection is established still send the message
@@ -51,8 +50,8 @@ func defaultOptions(logger *zap.Logger) aw.Options {
 	return aw.Options{
 		Logger: logger,
 
-		MaxLinkedPeers:               2,
-		MaxEphemeralConnections:      2,
+		MaxLinkedPeers:               10,
+		MaxEphemeralConnections:      10,
 		MaxPendingSyncs:              1,
 		MaxActiveSyncsForSameContent: 1,
 		MaxGossipSubnets:             10,
@@ -77,39 +76,30 @@ func defaultOptions(logger *zap.Logger) aw.Options {
 
 var _ = Describe("Peer", func() {
 	loggerConfig := zap.NewProductionConfig()
-	loggerConfig.Level.SetLevel(zap.DebugLevel)
+	loggerConfig.Level.SetLevel(zap.WarnLevel)
 	logger, err := loggerConfig.Build()
 	if err != nil {
 		panic(err)
 	}
 
-	It("linked peers should successfully gossip", func() {
+	Specify("linked peers should successfully gossip", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		opts := defaultOptions(logger)
 
-		peer1 := newPeerAndListen(ctx, opts)
-		peer2 := newPeerAndListen(ctx, opts)
-
-		connectAllPeers([]*aw.Peer{peer1, peer2})
-
-		go peer1.Run(ctx)
-		go peer2.Run(ctx)
-
 		contentID := []byte("id")
-		data := []byte("hello")
-		peer1.ContentResolver.InsertContent(contentID, data)
-
-		peer1.Link(peer2.Self)
-		peer2.Link(peer1.Self)
+		content := []byte("hello")
+		peers := manyConnectedPeersFirstHasContent(ctx, 2, opts, contentID, content)
+		peer1 := peers[0]
+		peer2 := peers[1]
 
 		peer1.Gossip(contentID, nil)
 
-		Eventually(func() []byte { msg, _ := peer2.ContentResolver.QueryContent(contentID); return msg }).Should(Equal(data))
+		Eventually(func() []byte { msg, _ := peer2.ContentResolver.QueryContent(contentID); return msg }).Should(Equal(content))
 	})
 
-	It("unlinked peers should successfully gossip", func() {
+	Specify("unlinked peers should successfully gossip", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -166,7 +156,7 @@ var _ = Describe("Peer", func() {
 		}
 	})
 
-	It("peers should discover eachother in a ring topology", func() {
+	Specify("peers should discover eachother in a ring topology", func() {
 		n := 10
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -209,7 +199,106 @@ var _ = Describe("Peer", func() {
 			Eventually(func() bool { return hasDiscoveredAllOthers(peer, peerIDs) }, 100).Should(BeTrue())
 		}
 	})
+
+	Context("syncing", func() {
+		It("should sync messages correctly with two peers", func() {
+			// NOTE: This test sometimes causes a warning about a reset
+			// connection during a handshake to be printed. This only seems to
+			// occur when this test is run as part of the whole suite; I don't
+			// see it when just this test is focused.
+			//
+			// I think what is happening is that when a context is cancelled it
+			// can be sort of random when and in what order anything selecting
+			// on that context will fall through and so we can have a
+			// handshaking go routine still alive and trying to read from a
+			// connection that is now closed. Doing such a read would cause a
+			// reset connection error.
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			opts := defaultOptions(logger)
+
+			contentID := []byte("id")
+			content := []byte("hello")
+			peers := manyConnectedPeersFirstHasContent(ctx, 2, opts, contentID, content)
+
+			syncCtx, cancel := context.WithTimeout(ctx, time.Second)
+			receivedData, err := peers[1].Sync(syncCtx, contentID, nil)
+			cancel()
+
+			Expect(err).To(BeNil())
+			Expect(receivedData).To(Equal(content))
+		})
+
+		Context("many peers and only one has the content", func() {
+			It("should sync the content with no hint", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+
+				n := 5
+				opts := defaultOptions(logger)
+				opts.GossipAlpha = n - 1
+
+				contentID := []byte("id")
+				content := []byte("hello")
+				peers := manyConnectedPeersFirstHasContent(ctx, n, opts, contentID, content)
+
+				for _, peer := range peers[1:] {
+					syncCtx, cancel := context.WithTimeout(ctx, time.Second)
+					receivedData, err := peer.Sync(syncCtx, contentID, nil)
+					cancel()
+
+					Expect(err).To(BeNil())
+					Expect(receivedData).To(Equal(content))
+				}
+			})
+
+			It("should sync the content with an accurate hint", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+
+				n := 10
+				opts := defaultOptions(logger)
+				opts.GossipAlpha = 0 // Ensure the sync will fail if the hint is wrong.
+
+				contentID := []byte("id")
+				content := []byte("hello")
+				peers := manyConnectedPeersFirstHasContent(ctx, n, opts, contentID, content)
+
+				hint := peers[0].Self
+
+				for _, peer := range peers[1:] {
+					syncCtx, cancel := context.WithTimeout(ctx, time.Second)
+					receivedData, err := peer.Sync(syncCtx, contentID, &hint)
+					cancel()
+
+					Expect(err).To(BeNil())
+					Expect(receivedData).To(Equal(content))
+				}
+			})
+		})
+	})
 })
+
+func manyConnectedPeersFirstHasContent(ctx context.Context, n int, opts aw.Options, contentID, content []byte) []*aw.Peer {
+	peers := make([]*aw.Peer, n)
+	for i := range peers {
+		peers[i] = newPeerAndListen(ctx, opts)
+	}
+
+	connectAllPeers(peers)
+
+	for _, peer := range peers {
+		go peer.Run(ctx)
+	}
+
+	linkAllPeers(peers)
+
+	peers[0].ContentResolver.InsertContent(contentID, content)
+
+	return peers
+}
 
 func newPeerAndListen(ctx context.Context, opts aw.Options) *aw.Peer {
 	privKey := id.NewPrivKey()
@@ -253,6 +342,17 @@ func connectPeersRing(peers []*aw.Peer) {
 		next := (i + 1) % n
 		peers[i].PeerTable.AddPeer(peers[next].Self, addresses[next])
 		peers[next].PeerTable.AddPeer(peers[i].Self, addresses[i])
+	}
+}
+
+func linkAllPeers(peers []*aw.Peer) {
+	for i := range peers {
+		for j := range peers {
+			if i != j {
+				peers[i].Link(peers[j].Self)
+				peers[j].Link(peers[i].Self)
+			}
+		}
 	}
 }
 

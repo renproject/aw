@@ -558,6 +558,8 @@ func (peer *Peer) handleEvent(event Event) {
 				pendingSync.Responders = append(pendingSync.Responders, event.MessageResponder)
 			}
 		} else {
+			peer.Filter.allow(contentID)
+
 			if uint(len(peer.PendingSyncs)) >= peer.Opts.MaxPendingSyncs {
 				event.ErrorResponder <- ErrTooManyPendingSyncs
 			} else {
