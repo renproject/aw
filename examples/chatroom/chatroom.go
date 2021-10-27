@@ -1,4 +1,0 @@
-package chatroom
-
-func main() {
-}
