@@ -1,4 +1,4 @@
-package encode
+package aw
 
 import (
 	"encoding/binary"
@@ -7,7 +7,7 @@ import (
 	"github.com/renproject/aw/session"
 )
 
-func Encode(src, dst []byte, session *session.GCMSession) []byte {
+func encode(src, dst []byte, session *session.GCMSession) []byte {
 	nonceBuf := session.GetWriteNonceAndIncrement()
 
 	// TODO(ross): It seems that you can give the plaintext buffer as the first
@@ -18,7 +18,7 @@ func Encode(src, dst []byte, session *session.GCMSession) []byte {
 	return dst[:4+len(sealed)]
 }
 
-func Decode(src, dst []byte, session *session.GCMSession) ([]byte, error) {
+func decode(src, dst []byte, session *session.GCMSession) ([]byte, error) {
 	nonceBuf := session.GetReadNonceAndIncrement()
 	decrypted, err := session.GCM.Open(dst[:0], nonceBuf[:], src, nil)
 	if err != nil {
