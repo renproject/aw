@@ -20,9 +20,7 @@ import (
  *     - Fuzzing/malicious message data tests
  *     - Handshake tests?
  *     - Keep alive/unique connection tests?
- *     - Sending a message before a connection is established still send the message
  *     - Changing the underlying connection doesn't drop messages (and will in fact be in the same order)
- *     - Peer expiry test
  *
  * Replace these exmaple programs?
  *     - Peers in a ring topology, all gossip a unique message over many
@@ -156,6 +154,45 @@ var _ = Describe("Peer", func() {
 			for _, peer := range peers {
 				Eventually(func() []byte { msg, _ := peer.ContentResolver.QueryContent(contentID); return msg }).Should(Equal(data))
 			}
+		})
+
+		Specify("messages sent before a connection is established should arrive", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			opts := defaultOptions(logger)
+			opts.DialRetryInterval = 100 * time.Millisecond
+			opts.PeerExpiryTimeout = time.Hour
+			opts.PeerDiscoveryInterval = time.Hour
+			opts.EphemeralConnectionTTL = time.Hour
+			peer1 := newPeer(opts)
+			peer2 := newPeer(opts)
+
+			contentID := []byte("id")
+			content := []byte("hello")
+			peer1.ContentResolver.InsertContent(contentID, content)
+
+			peer2Port := 3333
+			address2 := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", peer2Port), uint64(time.Now().UnixNano()))
+			peer1.PeerTable.AddPeer(peer2.Self, address2)
+
+			_, err = peer1.Listen(ctx, "localhost:0")
+			if err != nil {
+				panic(err)
+			}
+			go peer1.Run(ctx)
+
+			peer1.Gossip(contentID, nil)
+
+			time.Sleep(50 * time.Millisecond)
+
+			_, err = peer2.Listen(ctx, fmt.Sprintf("localhost:%v", peer2Port))
+			if err != nil {
+				panic(err)
+			}
+			go peer2.Run(ctx)
+
+			Eventually(func() []byte { msg, _ := peer2.ContentResolver.QueryContent(contentID); return msg }, 1000).Should(Equal(content))
 		})
 	})
 
@@ -332,11 +369,17 @@ func manyConnectedPeersFirstHasContent(ctx context.Context, n int, opts aw.Optio
 	return peers
 }
 
-func newPeerAndListen(ctx context.Context, opts aw.Options) *aw.Peer {
+func newPeer(opts aw.Options) *aw.Peer {
 	privKey := id.NewPrivKey()
 	peerTable := dht.NewInMemTable(privKey.Signatory())
 	contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
 	peer := aw.New(opts, privKey, peerTable, contentResolver)
+
+	return peer
+}
+
+func newPeerAndListen(ctx context.Context, opts aw.Options) *aw.Peer {
+	peer := newPeer(opts)
 
 	_, err := peer.Listen(ctx, "localhost:0")
 	if err != nil {
