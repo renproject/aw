@@ -596,7 +596,7 @@ func (peer *Peer) handleEvent(event Event) {
 				ctx, cancel := context.WithCancel(context.Background())
 				linkedPeer.Cancel = cancel
 
-				go peer.dialAndPublishEvent(ctx, remoteAddr.Value)
+				go peer.dialAndPublishEvent(ctx, event.ID, remoteAddr.Value)
 			}
 		} else if ephemeralConnection, ok := peer.EphemeralConnections[remote]; ok {
 			// TODO(ross): Maybe we should try to reestablish the connection if
@@ -616,7 +616,7 @@ func (peer *Peer) handleEvent(event Event) {
 				ctx, cancel := context.WithCancel(context.Background())
 				linkedPeer.Cancel = cancel
 
-				go peer.dialAndPublishEvent(ctx, remoteAddr.Value)
+				go peer.dialAndPublishEvent(ctx, event.ID, remoteAddr.Value)
 			}
 		} else if ephemeralConnection, ok := peer.EphemeralConnections[remote]; ok {
 			// TODO(ross): Maybe we should try to reestablish the connection if
@@ -759,7 +759,7 @@ func (peer *Peer) handleEvent(event Event) {
 					ctx, cancel := context.WithCancel(context.Background())
 					linkedPeer.Cancel = cancel
 
-					go peer.dialAndPublishEvent(ctx, remoteAddr.Value)
+					go peer.dialAndPublishEvent(ctx, remote, remoteAddr.Value)
 				}
 			} else if _, ok := peer.EphemeralConnections[remote]; ok {
 				delete(peer.EphemeralConnections, remote)
@@ -802,7 +802,7 @@ func (peer *Peer) handleEvent(event Event) {
 					ctx, cancel := context.WithCancel(context.Background())
 					peerConnection.Cancel = cancel
 
-					go peer.dialAndPublishEvent(ctx, remoteAddr.Value)
+					go peer.dialAndPublishEvent(ctx, remote, remoteAddr.Value)
 				}
 
 				peer.LinkedPeers[remote] = &peerConnection
@@ -919,7 +919,7 @@ func (peer *Peer) handleSendMessage(remote id.Signatory, message wire.Msg) error
 				ctx, cancel := context.WithTimeout(context.Background(), peer.Opts.EphemeralConnectionTTL)
 				ephemeralConnection.Cancel = cancel
 
-				go peer.dialAndPublishEvent(ctx, remoteAddr.Value)
+				go peer.dialAndPublishEvent(ctx, remote, remoteAddr.Value)
 			}
 
 			ephemeralConnection.OutgoingMessages <- message
@@ -975,24 +975,28 @@ func (peer *Peer) StartConnection(peerConnection *PeerConnection, remote id.Sign
 	go write(peerConnection.Connection, peerConnection.GCMSession, peer.Events, peerConnection.OutgoingMessages, peerConnection.WriteDone, remote, firstMessage)
 }
 
-func (peer *Peer) dialAndPublishEvent(ctx context.Context, remoteAddr string) {
+func (peer *Peer) dialAndPublishEvent(ctx context.Context, remote id.Signatory, remoteAddr string) {
 	conn, err := dial(ctx, remoteAddr, peer.Opts.DialRetryInterval)
 
 	var event Event
+	event.ID = remote
 	if err != nil {
 		event.Type = DialTimeout
 		event.Error = err
 	} else {
-		gcmSession, remote, err := handshake(peer.PrivKey, conn)
+		gcmSession, discoveredRemote, err := handshake(peer.PrivKey, conn)
+
 		if err != nil {
 			peer.Opts.Logger.Warn("handshake failed", zap.Error(err))
 			conn.Close()
 
 			event.Type = DialTimeout
 			event.Error = err
+		} else if !remote.Equal(&discoveredRemote) {
+			// TODO(ross): What to do here? This being an error probably relies
+			// on only using signed addresses during peer discovery.
 		} else {
 			event.Type = NewConnection
-			event.ID = remote
 			event.Connection = conn
 			event.GCMSession = gcmSession
 		}

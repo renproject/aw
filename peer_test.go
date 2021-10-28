@@ -22,6 +22,7 @@ import (
  *     - Keep alive/unique connection tests?
  *     - Sending a message before a connection is established still send the message
  *     - Changing the underlying connection doesn't drop messages (and will in fact be in the same order)
+ *     - Peer expiry test
  *
  * Replace these exmaple programs?
  *     - Peers in a ring topology, all gossip a unique message over many
@@ -82,122 +83,126 @@ var _ = Describe("Peer", func() {
 		panic(err)
 	}
 
-	Specify("linked peers should successfully gossip", func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+	Context("gossiping", func() {
+		Specify("linked peers should successfully gossip", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-		opts := defaultOptions(logger)
+			opts := defaultOptions(logger)
 
-		contentID := []byte("id")
-		content := []byte("hello")
-		peers := manyConnectedPeersFirstHasContent(ctx, 2, opts, contentID, content)
-		peer1 := peers[0]
-		peer2 := peers[1]
+			contentID := []byte("id")
+			content := []byte("hello")
+			peers := manyConnectedPeersFirstHasContent(ctx, 2, opts, contentID, content)
+			peer1 := peers[0]
+			peer2 := peers[1]
 
-		peer1.Gossip(contentID, nil)
+			peer1.Gossip(contentID, nil)
 
-		Eventually(func() []byte { msg, _ := peer2.ContentResolver.QueryContent(contentID); return msg }).Should(Equal(content))
-	})
+			Eventually(func() []byte { msg, _ := peer2.ContentResolver.QueryContent(contentID); return msg }).Should(Equal(content))
+		})
 
-	Specify("unlinked peers should successfully gossip", func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		Specify("unlinked peers should successfully gossip", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-		opts := defaultOptions(logger)
+			opts := defaultOptions(logger)
 
-		peer1 := newPeerAndListen(ctx, opts)
-		peer2 := newPeerAndListen(ctx, opts)
+			peer1 := newPeerAndListen(ctx, opts)
+			peer2 := newPeerAndListen(ctx, opts)
 
-		connectAllPeers([]*aw.Peer{peer1, peer2})
+			connectAllPeers([]*aw.Peer{peer1, peer2})
 
-		go peer1.Run(ctx)
-		go peer2.Run(ctx)
+			go peer1.Run(ctx)
+			go peer2.Run(ctx)
 
-		contentID := []byte("id")
-		data := []byte("hello")
-		peer1.ContentResolver.InsertContent(contentID, data)
+			contentID := []byte("id")
+			data := []byte("hello")
+			peer1.ContentResolver.InsertContent(contentID, data)
 
-		peer1.Gossip(contentID, nil)
+			peer1.Gossip(contentID, nil)
 
-		Eventually(func() []byte { msg, _ := peer2.ContentResolver.QueryContent(contentID); return msg }).Should(Equal(data))
-	})
+			Eventually(func() []byte { msg, _ := peer2.ContentResolver.QueryContent(contentID); return msg }).Should(Equal(data))
+		})
 
-	It("should gossip a message to everyone in a ring topology", func() {
-		n := 10
+		It("should gossip a message to everyone in a ring topology", func() {
+			n := 10
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-		opts := defaultOptions(logger)
+			opts := defaultOptions(logger)
 
-		assert(opts.GossipAlpha >= 2)
+			assert(opts.GossipAlpha >= 2)
 
-		peers := make([]*aw.Peer, n)
-		for i := range peers {
-			peers[i] = newPeerAndListen(ctx, opts)
-		}
-
-		connectPeersRing(peers)
-
-		for _, peer := range peers {
-			go peer.Run(ctx)
-		}
-
-		linkPeersRing(peers)
-
-		contentID := []byte("id")
-		data := []byte("hello")
-		peers[0].ContentResolver.InsertContent(contentID, data)
-
-		peers[0].Gossip(contentID, nil)
-
-		for _, peer := range peers {
-			Eventually(func() []byte { msg, _ := peer.ContentResolver.QueryContent(contentID); return msg }).Should(Equal(data))
-		}
-	})
-
-	Specify("peers should discover eachother in a ring topology", func() {
-		n := 10
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		opts := defaultOptions(logger)
-		opts.PeerDiscoveryInterval = 10 * time.Millisecond
-		opts.PingAlpha = 5
-		opts.PongAlpha = 5
-
-		peers := make([]*aw.Peer, n)
-		for i := range peers {
-			peers[i] = newPeerAndListen(ctx, opts)
-		}
-
-		connectPeersRing(peers)
-
-		for _, peer := range peers {
-			go peer.Run(ctx)
-		}
-
-		peerIDs := make([]id.Signatory, len(peers))
-		for i := range peers {
-			peerIDs[i] = peers[i].Self
-		}
-
-		hasDiscoveredAllOthers := func(peer *aw.Peer, ids []id.Signatory) bool {
-			for _, other := range ids {
-				if !other.Equal(&peer.Self) {
-					if _, ok := peer.PeerTable.PeerAddress(other); !ok {
-						return false
-					}
-				}
+			peers := make([]*aw.Peer, n)
+			for i := range peers {
+				peers[i] = newPeerAndListen(ctx, opts)
 			}
 
-			return true
-		}
+			connectPeersRing(peers)
 
-		for _, peer := range peers {
-			Eventually(func() bool { return hasDiscoveredAllOthers(peer, peerIDs) }, 100).Should(BeTrue())
-		}
+			for _, peer := range peers {
+				go peer.Run(ctx)
+			}
+
+			linkPeersRing(peers)
+
+			contentID := []byte("id")
+			data := []byte("hello")
+			peers[0].ContentResolver.InsertContent(contentID, data)
+
+			peers[0].Gossip(contentID, nil)
+
+			for _, peer := range peers {
+				Eventually(func() []byte { msg, _ := peer.ContentResolver.QueryContent(contentID); return msg }).Should(Equal(data))
+			}
+		})
+	})
+
+	Context("peer discovery", func() {
+		Specify("peers should discover eachother in a ring topology", func() {
+			n := 10
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			opts := defaultOptions(logger)
+			opts.PeerDiscoveryInterval = 10 * time.Millisecond
+			opts.PingAlpha = 5
+			opts.PongAlpha = 5
+
+			peers := make([]*aw.Peer, n)
+			for i := range peers {
+				peers[i] = newPeerAndListen(ctx, opts)
+			}
+
+			connectPeersRing(peers)
+
+			for _, peer := range peers {
+				go peer.Run(ctx)
+			}
+
+			peerIDs := make([]id.Signatory, len(peers))
+			for i := range peers {
+				peerIDs[i] = peers[i].Self
+			}
+
+			hasDiscoveredAllOthers := func(peer *aw.Peer, ids []id.Signatory) bool {
+				for _, other := range ids {
+					if !other.Equal(&peer.Self) {
+						if _, ok := peer.PeerTable.PeerAddress(other); !ok {
+							return false
+						}
+					}
+				}
+
+				return true
+			}
+
+			for _, peer := range peers {
+				Eventually(func() bool { return hasDiscoveredAllOthers(peer, peerIDs) }, 100).Should(BeTrue())
+			}
+		})
 	})
 
 	Context("syncing", func() {
@@ -213,6 +218,9 @@ var _ = Describe("Peer", func() {
 			// handshaking go routine still alive and trying to read from a
 			// connection that is now closed. Doing such a read would cause a
 			// reset connection error.
+			//
+			// It is curious that these errors don't occur during any other
+			// tests though.
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -277,6 +285,30 @@ var _ = Describe("Peer", func() {
 					Expect(receivedData).To(Equal(content))
 				}
 			})
+		})
+	})
+
+	Context("peer expiry", func() {
+		Specify("peers should be removed from the table after dialing fails after a timeout", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			opts := defaultOptions(logger)
+			opts.PeerExpiryTimeout = 10 * time.Millisecond
+			// opts.DialRetryInterval = 10 * time.Millisecond
+			opts.EphemeralConnectionTTL = 10 * time.Millisecond
+			opts.PeerDiscoveryInterval = 10 * time.Millisecond
+
+			peer := newPeerAndListen(ctx, opts)
+			signatory := id.NewPrivKey().Signatory()
+			address := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", 12345), uint64(time.Now().UnixNano()))
+			peer.PeerTable.AddPeer(signatory, address)
+
+			Expect(peer.PeerTable.NumPeers()).To(Equal(1))
+
+			go peer.Run(ctx)
+
+			Eventually(peer.PeerTable.NumPeers).Should(Equal(0))
 		})
 	})
 })
