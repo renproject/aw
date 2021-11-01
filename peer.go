@@ -21,7 +21,29 @@ import (
 )
 
 var (
-	DefaultSubnet = id.Hash{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+	DefaultSubnet = id.Hash{
+		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+	}
+
+	DefaultMaxLinkedPeers               uint          = 100
+	DefaultMaxEphemeralConnections      uint          = 20
+	DefaultMaxPendingSyncs              uint          = 100
+	DefaultMaxActiveSyncsForSameContent uint          = 10
+	DefaultMaxGossipSubnets             uint          = 100 // ?
+	DefaultOutgoingBufferSize           uint          = 10
+	DefaultEventLoopBufferSize          uint          = 10
+	DefaultDialRetryInterval            time.Duration = time.Second
+	DefaultEphemeralConnectionTTL       time.Duration = 5 * time.Second
+	DefaultMinimumConnectionExpiryAge   time.Duration = time.Minute
+	DefaultGossipAlpha                  int           = 5
+	DefaultGossipTimeout                time.Duration = 5 * time.Second // ?
+	DefaultPingAlpha                    int           = 5
+	DefaultPongAlpha                    int           = 10
+	DefaultPeerDiscoveryInterval        time.Duration = 30 * time.Second
+	DefaultPeerExpiryTimeout            time.Duration = 30 * time.Second
 )
 
 var (
@@ -161,6 +183,39 @@ type Options struct {
 	ConnectionRateLimiterOptions RateLimiterOptions
 }
 
+func DefaultOptions() Options {
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		panic(err)
+	}
+
+	return Options{
+		Logger: logger,
+
+		MaxLinkedPeers:               DefaultMaxLinkedPeers,
+		MaxEphemeralConnections:      DefaultMaxEphemeralConnections,
+		MaxPendingSyncs:              DefaultMaxPendingSyncs,
+		MaxActiveSyncsForSameContent: DefaultMaxActiveSyncsForSameContent,
+		MaxGossipSubnets:             DefaultMaxGossipSubnets,
+		OutgoingBufferSize:           DefaultOutgoingBufferSize,
+		EventLoopBufferSize:          DefaultEventLoopBufferSize,
+		DialRetryInterval:            DefaultDialRetryInterval,
+		EphemeralConnectionTTL:       DefaultEphemeralConnectionTTL,
+		MinimumConnectionExpiryAge:   DefaultMinimumConnectionExpiryAge,
+
+		GossipAlpha:   DefaultGossipAlpha,
+		GossipTimeout: DefaultGossipTimeout,
+
+		PingAlpha:             DefaultPingAlpha,
+		PongAlpha:             DefaultPongAlpha,
+		PeerDiscoveryInterval: DefaultPeerDiscoveryInterval,
+		PeerExpiryTimeout:     DefaultPeerExpiryTimeout,
+
+		ListenerOptions:              DefaultListenerOptions(),
+		ConnectionRateLimiterOptions: DefaultRateLimiterOptions(),
+	}
+}
+
 type Peer struct {
 	Opts Options
 
@@ -168,6 +223,7 @@ type Peer struct {
 	PrivKey *id.PrivKey
 	Port    uint16
 
+	Ctx                  context.Context
 	Events               chan Event
 	LinkedPeers          map[id.Signatory]*PeerConnection
 	EphemeralConnections map[id.Signatory]*EphemeralConnection
@@ -197,6 +253,7 @@ func New(opts Options, privKey *id.PrivKey, peerTable dht.Table, contentResolver
 		PrivKey: privKey,
 		Port:    0,
 
+		Ctx:                  nil,
 		Events:               events,
 		LinkedPeers:          linkedPeers,
 		EphemeralConnections: ephemeralConnections,
@@ -232,6 +289,8 @@ func (peer *Peer) Listen(ctx context.Context, address string) (uint16, error) {
 }
 
 func (peer *Peer) Run(ctx context.Context) error {
+	peer.Ctx = ctx
+
 	// Peer discovery.
 	go func() {
 		ticker := time.NewTicker(peer.Opts.PeerDiscoveryInterval)
@@ -251,10 +310,11 @@ func (peer *Peer) Run(ctx context.Context) error {
 			Message: message,
 		}
 
+	LOOP:
 		for {
 			select {
 			case <-ctx.Done():
-				break
+				break LOOP
 
 			case <-ticker.C:
 				peer.Events <- peerDiscoveryEvent
@@ -265,12 +325,23 @@ func (peer *Peer) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
+			for _, peerConnection := range peer.LinkedPeers {
+				close(peerConnection.OutgoingMessages)
+				if peerConnection.Connection != nil {
+					peerConnection.Connection.Close()
+				}
+			}
+			for _, ephemeralConnection := range peer.EphemeralConnections {
+				close(ephemeralConnection.OutgoingMessages)
+				if ephemeralConnection.Connection != nil {
+					ephemeralConnection.Connection.Close()
+				}
+			}
 			return ctx.Err()
 
 		case event := <-peer.Events:
 			peer.handleEvent(event)
 		}
-
 	}
 }
 
@@ -292,6 +363,32 @@ func (peer *Peer) Link(remote id.Signatory) error {
 }
 
 func (peer *Peer) Sync(ctx context.Context, contentID []byte, hint *id.Signatory) ([]byte, error) {
+	event, errResponder, responder := syncEvent(ctx, contentID, hint)
+
+	select {
+	case peer.Events <- event:
+
+	default:
+		return nil, ErrEventLoopFull
+	}
+
+	return syncResponse(ctx, errResponder, responder)
+}
+
+func (peer *Peer) SyncNonBlocking(ctx context.Context, contentID []byte, hint *id.Signatory) ([]byte, error) {
+	event, errResponder, responder := syncEvent(ctx, contentID, hint)
+
+	select {
+	case peer.Events <- event:
+
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	return syncResponse(ctx, errResponder, responder)
+}
+
+func syncEvent(ctx context.Context, contentID []byte, hint *id.Signatory) (Event, chan error, chan []byte) {
 	message := wire.Msg{
 		Version: wire.MsgVersion1,
 		Type:    wire.MsgTypePull,
@@ -309,15 +406,10 @@ func (peer *Peer) Sync(ctx context.Context, contentID []byte, hint *id.Signatory
 		ErrorResponder:   errResponder,
 	}
 
-	// TODO(ross): Maybe we want to block on writing to the event loop until
-	// the context has expired instead.
-	select {
-	case peer.Events <- event:
+	return event, errResponder, responder
+}
 
-	default:
-		return nil, ErrEventLoopFull
-	}
-
+func syncResponse(ctx context.Context, errResponder chan error, responder chan []byte) ([]byte, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -330,7 +422,31 @@ func (peer *Peer) Sync(ctx context.Context, contentID []byte, hint *id.Signatory
 	}
 }
 
-func (peer *Peer) Gossip(contentID []byte, subnet *id.Hash) error {
+func (peer *Peer) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash) error {
+	event := gossipEvent(contentID, subnet)
+
+	select {
+	case peer.Events <- event:
+		return nil
+
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (peer *Peer) GossipNonBlocking(contentID []byte, subnet *id.Hash) error {
+	event := gossipEvent(contentID, subnet)
+
+	select {
+	case peer.Events <- event:
+		return nil
+
+	default:
+		return ErrEventLoopFull
+	}
+}
+
+func gossipEvent(contentID []byte, subnet *id.Hash) Event {
 	if subnet == nil {
 		subnet = &DefaultSubnet
 	}
@@ -342,17 +458,9 @@ func (peer *Peer) Gossip(contentID []byte, subnet *id.Hash) error {
 		Data:    contentID,
 	}
 
-	event := Event{
+	return Event{
 		Type:    GossipMessage,
 		Message: gossipMessage,
-	}
-
-	select {
-	case peer.Events <- event:
-		return nil
-
-	default:
-		return ErrEventLoopFull
 	}
 }
 
@@ -878,13 +986,20 @@ func (peer *Peer) hasSpaceForNewGossipSubnet() bool {
 
 func (peer *Peer) handleSendMessage(remote id.Signatory, message wire.Msg) error {
 	if linkedPeer, ok := peer.LinkedPeers[remote]; ok {
-		select {
-		case linkedPeer.OutgoingMessages <- message:
-			return nil
+		// TODO(ross): Decide what to do to protect against a non responsive
+		// adversary that causes the event loop to stop.
+		linkedPeer.OutgoingMessages <- message
+		return nil
+		/*
+			select {
+			case linkedPeer.OutgoingMessages <- message:
+				return nil
 
-		default:
-			return ErrMessageBufferFull
-		}
+			default:
+				panic("")
+				return ErrMessageBufferFull
+			}
+		*/
 	} else if ephemeralConnection, ok := peer.EphemeralConnections[remote]; ok {
 		expiryDeadline := time.Now().Add(peer.Opts.EphemeralConnectionTTL)
 		ephemeralConnection.ExpiryDeadline = expiryDeadline
@@ -971,8 +1086,8 @@ func (peer *Peer) StartConnection(peerConnection *PeerConnection, remote id.Sign
 	firstMessage := peerConnection.PendingMessage
 	peerConnection.PendingMessage = nil
 
-	go read(peerConnection.Connection, peerConnection.GCMSession, peer.Filter, peer.Events, remote, peer.Opts.ConnectionRateLimiterOptions, peerConnection.ReadDone)
-	go write(peerConnection.Connection, peerConnection.GCMSession, peer.Events, peerConnection.OutgoingMessages, peerConnection.WriteDone, remote, firstMessage)
+	go read(peer.Ctx, peerConnection.Connection, peerConnection.GCMSession, peer.Filter, peer.Events, remote, peer.Opts.ConnectionRateLimiterOptions, peerConnection.ReadDone)
+	go write(peer.Ctx, peerConnection.Connection, peerConnection.GCMSession, peer.Events, peerConnection.OutgoingMessages, peerConnection.WriteDone, remote, firstMessage)
 }
 
 func (peer *Peer) dialAndPublishEvent(ctx context.Context, remote id.Signatory, remoteAddr string) {
@@ -1002,10 +1117,13 @@ func (peer *Peer) dialAndPublishEvent(ctx context.Context, remote id.Signatory, 
 		}
 	}
 
-	peer.Events <- event
+	select {
+	case <-peer.Ctx.Done():
+	case peer.Events <- event:
+	}
 }
 
-func read(conn net.Conn, gcmSession *session.GCMSession, filter *syncFilter, events chan<- Event, remote id.Signatory, rateLimiterOptions RateLimiterOptions, done chan<- struct{}) {
+func read(ctx context.Context, conn net.Conn, gcmSession *session.GCMSession, filter *syncFilter, events chan<- Event, remote id.Signatory, rateLimiterOptions RateLimiterOptions, done chan<- struct{}) {
 	// TODO(ross): configurable buffer sizes.
 	unmarshalBuffer := make([]byte, 1024)
 	decodeBuffer := make([]byte, 1024)
@@ -1017,11 +1135,17 @@ func read(conn net.Conn, gcmSession *session.GCMSession, filter *syncFilter, eve
 	for {
 		decodedMessage, err := readAndDecode(conn, gcmSession, rateLimiter, decodeBuffer, unmarshalBuffer)
 		if err != nil {
-			events <- Event{
+			event := Event{
 				Type:  ReaderDropped,
 				ID:    remote,
 				Error: err,
 			}
+
+			select {
+			case <-ctx.Done():
+			case events <- event:
+			}
+
 			close(done)
 			return
 		}
@@ -1029,32 +1153,50 @@ func read(conn net.Conn, gcmSession *session.GCMSession, filter *syncFilter, eve
 		msg := wire.Msg{}
 		_, _, err = msg.Unmarshal(decodedMessage, len(decodedMessage))
 		if err != nil {
-			events <- Event{
+			event := Event{
 				Type:  ReaderDropped,
 				ID:    remote,
 				Error: fmt.Errorf("unmarshalling message: %v", err),
 			}
+
+			select {
+			case <-ctx.Done():
+			case events <- event:
+			}
+
 			close(done)
 			return
 		} else {
 			if msg.Type == wire.MsgTypeSync {
 				if filter.filter(remote, msg) {
-					events <- Event{
+					event := Event{
 						Type:  ReaderDropped,
 						ID:    remote,
 						Error: fmt.Errorf("unexpected sync for content %v", base64.RawURLEncoding.EncodeToString(msg.Data)),
 					}
+
+					select {
+					case <-ctx.Done():
+					case events <- event:
+					}
+
 					close(done)
 					return
 				}
 
 				decodedSyncData, err := readAndDecode(conn, gcmSession, rateLimiter, decodeBuffer, unmarshalBuffer)
 				if err != nil {
-					events <- Event{
+					event := Event{
 						Type:  ReaderDropped,
 						ID:    remote,
 						Error: err,
 					}
+
+					select {
+					case <-ctx.Done():
+					case events <- event:
+					}
+
 					close(done)
 					return
 				}
@@ -1063,11 +1205,17 @@ func read(conn net.Conn, gcmSession *session.GCMSession, filter *syncFilter, eve
 				copy(msg.SyncData, decodedSyncData)
 			}
 
-			events <- Event{
+			event := Event{
 				Type:    IncomingMessage,
 				ID:      remote,
 				Message: msg,
 				Addr:    addr,
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+			case events <- event:
 			}
 		}
 	}
@@ -1106,7 +1254,7 @@ func readAndDecode(conn net.Conn, gcmSession *session.GCMSession, rateLimiter *r
 	return decodedMessage, nil
 }
 
-func write(conn net.Conn, gcmSession *session.GCMSession, events chan<- Event, outgoingMessages chan wire.Msg, done chan<- *wire.Msg, remote id.Signatory, firstMessage *wire.Msg) {
+func write(ctx context.Context, conn net.Conn, gcmSession *session.GCMSession, events chan<- Event, outgoingMessages chan wire.Msg, done chan<- *wire.Msg, remote id.Signatory, firstMessage *wire.Msg) {
 	// TODO(ross): configurable buffer sizes.
 	marshalBuffer := make([]byte, 1024)
 	encodeBuffer := make([]byte, 1024)
@@ -1118,7 +1266,11 @@ func write(conn net.Conn, gcmSession *session.GCMSession, events chan<- Event, o
 			msg, ok = *firstMessage, true
 			firstMessage = nil
 		} else {
-			msg, ok = <-outgoingMessages
+			select {
+			case <-ctx.Done():
+				return
+			case msg, ok = <-outgoingMessages:
+			}
 		}
 
 		if !ok {
@@ -1138,11 +1290,17 @@ func write(conn net.Conn, gcmSession *session.GCMSession, events chan<- Event, o
 
 			if err != nil || n != len(encodeBuffer) {
 				done <- &msg
-				events <- Event{
+				event := Event{
 					Type:  WriterDropped,
 					ID:    remote,
 					Error: err,
 				}
+
+				select {
+				case events <- event:
+				case <-ctx.Done():
+				}
+
 				close(done)
 				return
 			}
@@ -1154,11 +1312,17 @@ func write(conn net.Conn, gcmSession *session.GCMSession, events chan<- Event, o
 
 				if err != nil || n != len(encodeBuffer) {
 					done <- &msg
-					events <- Event{
+					event := Event{
 						Type:  WriterDropped,
 						ID:    remote,
 						Error: err,
 					}
+
+					select {
+					case events <- event:
+					case <-ctx.Done():
+					}
+
 					close(done)
 					return
 				}

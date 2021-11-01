@@ -34,43 +34,10 @@ import (
  */
 
 func defaultOptions(logger *zap.Logger) aw.Options {
-	listenerOptions := aw.ListenerOptions{
-		RateLimiterCapacity: 10,
-		RateLimiterOptions: aw.RateLimiterOptions{
-			Rate:  1,
-			Burst: 10,
-		},
-	}
-	connectionRateLimiterOptions := aw.RateLimiterOptions{
-		Rate:  1 * 1024 * 1024,
-		Burst: 1 * 1024 * 1024,
-	}
+	options := aw.DefaultOptions()
+	options.Logger = logger
 
-	return aw.Options{
-		Logger: logger,
-
-		MaxLinkedPeers:               10,
-		MaxEphemeralConnections:      10,
-		MaxPendingSyncs:              1,
-		MaxActiveSyncsForSameContent: 1,
-		MaxGossipSubnets:             10,
-		OutgoingBufferSize:           10,
-		EventLoopBufferSize:          10,
-		DialRetryInterval:            time.Second,
-		EphemeralConnectionTTL:       time.Second,
-		MinimumConnectionExpiryAge:   time.Second,
-
-		GossipAlpha:   2,
-		GossipTimeout: time.Second,
-
-		PingAlpha:             1,
-		PongAlpha:             1,
-		PeerDiscoveryInterval: time.Second,
-		PeerExpiryTimeout:     time.Second,
-
-		ListenerOptions:              listenerOptions,
-		ConnectionRateLimiterOptions: connectionRateLimiterOptions,
-	}
+	return options
 }
 
 var _ = Describe("Peer", func() {
@@ -94,7 +61,7 @@ var _ = Describe("Peer", func() {
 			peer1 := peers[0]
 			peer2 := peers[1]
 
-			peer1.Gossip(contentID, nil)
+			peer1.GossipNonBlocking(contentID, nil)
 
 			Eventually(func() []byte { msg, _ := peer2.ContentResolver.QueryContent(contentID); return msg }).Should(Equal(content))
 		})
@@ -117,7 +84,7 @@ var _ = Describe("Peer", func() {
 			data := []byte("hello")
 			peer1.ContentResolver.InsertContent(contentID, data)
 
-			peer1.Gossip(contentID, nil)
+			peer1.GossipNonBlocking(contentID, nil)
 
 			Eventually(func() []byte { msg, _ := peer2.ContentResolver.QueryContent(contentID); return msg }).Should(Equal(data))
 		})
@@ -149,7 +116,7 @@ var _ = Describe("Peer", func() {
 			data := []byte("hello")
 			peers[0].ContentResolver.InsertContent(contentID, data)
 
-			peers[0].Gossip(contentID, nil)
+			peers[0].GossipNonBlocking(contentID, nil)
 
 			for _, peer := range peers {
 				Eventually(func() []byte { msg, _ := peer.ContentResolver.QueryContent(contentID); return msg }).Should(Equal(data))
@@ -182,7 +149,7 @@ var _ = Describe("Peer", func() {
 			}
 			go peer1.Run(ctx)
 
-			peer1.Gossip(contentID, nil)
+			peer1.GossipNonBlocking(contentID, nil)
 
 			time.Sleep(50 * time.Millisecond)
 
@@ -268,9 +235,9 @@ var _ = Describe("Peer", func() {
 			content := []byte("hello")
 			peers := manyConnectedPeersFirstHasContent(ctx, 2, opts, contentID, content)
 
-			syncCtx, cancel := context.WithTimeout(ctx, time.Second)
+			syncCtx, syncCancel := context.WithTimeout(ctx, time.Second)
 			receivedData, err := peers[1].Sync(syncCtx, contentID, nil)
-			cancel()
+			syncCancel()
 
 			Expect(err).To(BeNil())
 			Expect(receivedData).To(Equal(content))

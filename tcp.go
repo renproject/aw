@@ -9,14 +9,35 @@ import (
 	"golang.org/x/time/rate"
 )
 
+var (
+	DefaultRateLimiterCapacity        int                = 10
+	DefaultListenerRateLimiterOptions RateLimiterOptions = RateLimiterOptions{Rate: 10, Burst: 20}
+	DefaultRate                       rate.Limit         = 1024 * 1024
+	DefaultBurst                      int                = 4 * 1024 * 1024
+)
+
 type ListenerOptions struct {
 	RateLimiterCapacity int
 	RateLimiterOptions
 }
 
+func DefaultListenerOptions() ListenerOptions {
+	return ListenerOptions{
+		RateLimiterCapacity: DefaultRateLimiterCapacity,
+		RateLimiterOptions:  DefaultListenerRateLimiterOptions,
+	}
+}
+
 type RateLimiterOptions struct {
 	Rate  rate.Limit
 	Burst int
+}
+
+func DefaultRateLimiterOptions() RateLimiterOptions {
+	return RateLimiterOptions{
+		Rate:  DefaultRate,
+		Burst: DefaultBurst,
+	}
 }
 
 func dial(ctx context.Context, remoteAddr string, retryInterval time.Duration) (net.Conn, error) {
