@@ -229,6 +229,8 @@ type Peer struct {
 	PrivKey *id.PrivKey
 	Port    uint16
 
+	Receive func(id.Signatory, []byte)
+
 	Ctx                  context.Context
 	Events               chan Event
 	LinkedPeers          map[id.Signatory]*PeerConnection
@@ -241,7 +243,7 @@ type Peer struct {
 	Filter          *syncFilter
 }
 
-func New(opts Options, privKey *id.PrivKey, peerTable dht.Table, contentResolver dht.ContentResolver) *Peer {
+func New(opts Options, privKey *id.PrivKey, peerTable dht.Table, contentResolver dht.ContentResolver, receive func(id.Signatory, []byte)) *Peer {
 	self := privKey.Signatory()
 
 	events := make(chan Event, opts.EventLoopBufferSize)
@@ -258,6 +260,8 @@ func New(opts Options, privKey *id.PrivKey, peerTable dht.Table, contentResolver
 		Self:    self,
 		PrivKey: privKey,
 		Port:    0,
+
+		Receive: receive,
 
 		Ctx:                  nil,
 		Events:               events,
@@ -489,6 +493,55 @@ func gossipEvent(contentID []byte, subnet *id.Hash) Event {
 	}
 }
 
+func (peer *Peer) Send(ctx context.Context, data []byte, remote id.Signatory) error {
+	event, errResponder := sendEvent(data, remote)
+
+	select {
+	case peer.Events <- event:
+
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+
+	case err := <-errResponder:
+		return err
+	}
+}
+
+func (peer *Peer) SendNonBlocking(data []byte, remote id.Signatory) error {
+	event, errResponder := sendEvent(data, remote)
+
+	select {
+	case peer.Events <- event:
+
+	default:
+		return ErrEventLoopFull
+	}
+
+	return <-errResponder
+}
+
+func sendEvent(data []byte, remote id.Signatory) (Event, chan error) {
+	sendMessage := wire.Msg{
+		Version: wire.MsgVersion1,
+		Type:    wire.MsgTypeSend,
+		To:      id.Hash(remote),
+		Data:    data,
+	}
+
+	errResponder := make(chan error, 1)
+	return Event{
+		Type:           SendMessage,
+		ID:             remote,
+		Message:        sendMessage,
+		ErrorResponder: errResponder,
+	}, errResponder
+}
+
 func (peer *Peer) listenerHandler(conn net.Conn) {
 	peer.Opts.Logger.Debug("incoming connection")
 
@@ -612,7 +665,9 @@ func (peer *Peer) handleEvent(event Event) {
 			}
 
 		case wire.MsgTypeSend:
-			// TODO(ross)
+			if peer.Receive != nil {
+				peer.Receive(event.ID, event.Message.Data)
+			}
 
 		case wire.MsgTypePing:
 			if dataLen := len(message.Data); dataLen != 2 {

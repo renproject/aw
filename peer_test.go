@@ -41,7 +41,7 @@ func defaultOptions(logger *zap.Logger) aw.Options {
 
 var _ = Describe("Peer", func() {
 	loggerConfig := zap.NewDevelopmentConfig()
-	loggerConfig.Level.SetLevel(zap.DebugLevel)
+	loggerConfig.Level.SetLevel(zap.WarnLevel)
 	logger, err := loggerConfig.Build()
 	if err != nil {
 		panic(err)
@@ -291,6 +291,56 @@ var _ = Describe("Peer", func() {
 		})
 	})
 
+	Context("direct messaging", func() {
+		Specify("peers should call the user defined receiver function for direct messages", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			opts := defaultOptions(logger)
+
+			type result struct {
+				remote id.Signatory
+				msg    []byte
+			}
+
+			resultCh := make(chan result, 1)
+			receive := func(remote id.Signatory, msg []byte) {
+				resultCh <- result{remote, msg}
+			}
+
+			peer1 := newPeerWithReceiver(opts, nil)
+			peer2 := newPeerWithReceiver(opts, receive)
+
+			_, err := peer1.Listen(ctx, "localhost:0")
+			if err != nil {
+				panic(err)
+			}
+			_, err = peer2.Listen(ctx, "localhost:0")
+			if err != nil {
+				panic(err)
+			}
+
+			addr1 := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", peer1.Port), uint64(time.Now().UnixNano()))
+			addr2 := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", peer2.Port), uint64(time.Now().UnixNano()))
+			peer1.PeerTable.AddPeer(peer2.Self, addr2)
+			peer2.PeerTable.AddPeer(peer1.Self, addr1)
+
+			go peer1.Run(ctx)
+			go peer2.Run(ctx)
+
+			peer1.Link(peer2.Self)
+			peer2.Link(peer1.Self)
+
+			msg := []byte("hello")
+			sendCtx, sendCancel := context.WithTimeout(ctx, time.Second)
+			err = peer1.Send(sendCtx, msg, peer2.Self)
+			sendCancel()
+
+			Expect(err).To(BeNil())
+			Eventually(resultCh).Should(Receive(Equal(result{peer1.Self, msg})))
+		})
+	})
+
 	Context("peer expiry", func() {
 		Specify("peers should be removed from the table after dialing fails after a timeout", func() {
 			ctx, cancel := context.WithCancel(context.Background())
@@ -396,10 +446,19 @@ func newPeer(opts aw.Options) *aw.Peer {
 	return newPeerWithPrivKey(opts, privKey)
 }
 
+func newPeerWithReceiver(opts aw.Options, receiver func(id.Signatory, []byte)) *aw.Peer {
+	privKey := id.NewPrivKey()
+	peerTable := dht.NewInMemTable(privKey.Signatory())
+	contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
+	peer := aw.New(opts, privKey, peerTable, contentResolver, receiver)
+
+	return peer
+}
+
 func newPeerWithPrivKey(opts aw.Options, privKey *id.PrivKey) *aw.Peer {
 	peerTable := dht.NewInMemTable(privKey.Signatory())
 	contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
-	peer := aw.New(opts, privKey, peerTable, contentResolver)
+	peer := aw.New(opts, privKey, peerTable, contentResolver, nil)
 
 	return peer
 }
