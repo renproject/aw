@@ -33,8 +33,10 @@ var (
 	DefaultMaxPendingSyncs              uint          = 100
 	DefaultMaxActiveSyncsForSameContent uint          = 10
 	DefaultMaxGossipSubnets             uint          = 100 // ?
-	DefaultOutgoingBufferSize           uint          = 10
-	DefaultEventLoopBufferSize          uint          = 10
+	DefaultOutgoingBufferSize           uint          = 100
+	DefaultEventLoopBufferSize          uint          = 100
+	DefaultOutgoingBufferTimeout        time.Duration = time.Second
+	DefaultWriteTimeout                 time.Duration = time.Second
 	DefaultDialRetryInterval            time.Duration = time.Second
 	DefaultEphemeralConnectionTTL       time.Duration = 5 * time.Second
 	DefaultMinimumConnectionExpiryAge   time.Duration = time.Minute
@@ -167,6 +169,8 @@ type Options struct {
 	MaxGossipSubnets             uint
 	OutgoingBufferSize           uint
 	EventLoopBufferSize          uint
+	OutgoingBufferTimeout        time.Duration
+	WriteTimeout                 time.Duration
 	DialRetryInterval            time.Duration
 	EphemeralConnectionTTL       time.Duration
 	MinimumConnectionExpiryAge   time.Duration
@@ -199,6 +203,8 @@ func DefaultOptions() Options {
 		MaxGossipSubnets:             DefaultMaxGossipSubnets,
 		OutgoingBufferSize:           DefaultOutgoingBufferSize,
 		EventLoopBufferSize:          DefaultEventLoopBufferSize,
+		OutgoingBufferTimeout:        DefaultOutgoingBufferTimeout,
+		WriteTimeout:                 DefaultWriteTimeout,
 		DialRetryInterval:            DefaultDialRetryInterval,
 		EphemeralConnectionTTL:       DefaultEphemeralConnectionTTL,
 		MinimumConnectionExpiryAge:   DefaultMinimumConnectionExpiryAge,
@@ -310,10 +316,12 @@ func (peer *Peer) Run(ctx context.Context) error {
 			Message: message,
 		}
 
+		peer.Opts.Logger.Debug("peer discovery starting", zap.String("self", peer.Self.String()[:4]))
 	LOOP:
 		for {
 			select {
 			case <-ctx.Done():
+				peer.Opts.Logger.Debug("peer discovery stopping", zap.String("self", peer.Self.String()[:4]))
 				break LOOP
 
 			case <-ticker.C:
@@ -322,9 +330,11 @@ func (peer *Peer) Run(ctx context.Context) error {
 		}
 	}()
 
+	peer.Opts.Logger.Debug("peer event loop starting", zap.String("self", peer.Self.String()[:4]))
 	for {
 		select {
 		case <-ctx.Done():
+			peer.Opts.Logger.Debug("peer event loop stopping", zap.String("self", peer.Self.String()[:4]))
 			for _, peerConnection := range peer.LinkedPeers {
 				close(peerConnection.OutgoingMessages)
 				if peerConnection.Connection != nil {
@@ -356,6 +366,21 @@ func (peer *Peer) Link(remote id.Signatory) error {
 	select {
 	case peer.Events <- event:
 		return <-responder
+
+	default:
+		return ErrEventLoopFull
+	}
+}
+
+func (peer *Peer) Unlink(remote id.Signatory) error {
+	event := Event{
+		Type: UnlinkPeer,
+		ID:   remote,
+	}
+
+	select {
+	case peer.Events <- event:
+		return nil
 
 	default:
 		return ErrEventLoopFull
@@ -488,7 +513,6 @@ func (peer *Peer) listenerHandler(conn net.Conn) {
 }
 
 func (peer *Peer) handleEvent(event Event) {
-	// fmt.Printf("%v %-15v %v\n", peer.Self.String()[:4], event.Type, event.Error)
 	peer.Opts.Logger.Debug("handling event", zap.String("self", peer.Self.String()[:4]), zap.String("type", event.Type.String()))
 	remote := event.ID
 
@@ -547,6 +571,7 @@ func (peer *Peer) handleEvent(event Event) {
 					err := peer.handleSendMessage(remote, syncMessage)
 					if err != nil {
 						peer.Opts.Logger.Warn("syncing", zap.String("peer", remote.String()), zap.String("id", base64.RawURLEncoding.EncodeToString(message.Data)), zap.Error(err))
+						panic("")
 					}
 				}
 			}
@@ -783,26 +808,43 @@ func (peer *Peer) handleEvent(event Event) {
 
 					decisionEncoded = encode([]byte{KeepAliveTrue}, decisionBuffer[:], event.GCMSession)
 
-					go func() {
-						peer.Opts.Logger.Debug("signalling to keep alive", zap.String("self", peer.Self.String()[:4]), zap.String("remote", remote.String()[:4]))
-						_, err := event.Connection.Write(decisionEncoded[:])
-						if err != nil {
-							// TODO(ross): Dropped reader event?
-						} else {
-							peer.StartConnection(peerConnection, remote)
-						}
-					}()
+					peer.Opts.Logger.Debug("signalling to keep alive", zap.String("self", peer.Self.String()[:4]), zap.String("remote", remote.String()[:4]))
+					// NOTE(ross): Normally whenever we write to a connection
+					// we do it in a separate go routine as it could
+					// potentially block. However, we don't do this here
+					// because theoretically this call should only block if the
+					// send buffer in the kernel is full. At this stage, it
+					// should be the case that this buffer is empty, and so
+					// since the message we are trying to send is very small
+					// then for any reasonably configured socket we should not
+					// block.
+					// NOTE(ross): If later it is decided to move the send into
+					// a go routine, make sure to not cause any races (i.e.
+					// don't call peer.StartConnection!)
+					_, err := event.Connection.Write(decisionEncoded[:])
+					if err != nil {
+						// TODO(ross): Dropped reader event?
+					} else {
+						peer.StartConnection(peerConnection, remote)
+					}
 				} else {
 					// TODO(ross): Should this timeout be configurable?
 					event.Connection.SetDeadline(time.Now().Add(5 * time.Second))
 
 					decisionEncoded = encode([]byte{KeepAliveFalse}, decisionBuffer[:], event.GCMSession)
 
-					go func() {
-						peer.Opts.Logger.Debug("signalling to drop", zap.String("self", peer.Self.String()[:4]), zap.String("remote", remote.String()[:4]))
-						event.Connection.Write(decisionEncoded[:])
-						event.Connection.Close()
-					}()
+					peer.Opts.Logger.Debug("signalling to drop", zap.String("self", peer.Self.String()[:4]), zap.String("remote", remote.String()[:4]))
+					// NOTE(ross): Normally whenever we write to a connection
+					// we do it in a separate go routine as it could
+					// potentially block. However, we don't do this here
+					// because theoretically this call should only block if the
+					// send buffer in the kernel is full. At this stage, it
+					// should be the case that this buffer is empty, and so
+					// since the message we are trying to send is very small
+					// then for any reasonably configured socket we should not
+					// block.
+					event.Connection.Write(decisionEncoded[:])
+					event.Connection.Close()
 				}
 			} else {
 				go func() {
@@ -986,20 +1028,21 @@ func (peer *Peer) hasSpaceForNewGossipSubnet() bool {
 
 func (peer *Peer) handleSendMessage(remote id.Signatory, message wire.Msg) error {
 	if linkedPeer, ok := peer.LinkedPeers[remote]; ok {
-		// TODO(ross): Decide what to do to protect against a non responsive
-		// adversary that causes the event loop to stop.
-		linkedPeer.OutgoingMessages <- message
-		return nil
-		/*
-			select {
-			case linkedPeer.OutgoingMessages <- message:
-				return nil
+		ctx, cancel := context.WithTimeout(peer.Ctx, peer.Opts.OutgoingBufferTimeout)
+		defer cancel()
 
-			default:
-				panic("")
+		select {
+		case linkedPeer.OutgoingMessages <- message:
+			return nil
+
+		case <-ctx.Done():
+			if peer.Ctx.Err() == nil {
+				peer.Opts.Logger.Warn("outgoing message buffer back pressure")
 				return ErrMessageBufferFull
+			} else {
+				return nil
 			}
-		*/
+		}
 	} else if ephemeralConnection, ok := peer.EphemeralConnections[remote]; ok {
 		expiryDeadline := time.Now().Add(peer.Opts.EphemeralConnectionTTL)
 		ephemeralConnection.ExpiryDeadline = expiryDeadline
@@ -1047,6 +1090,7 @@ func (peer *Peer) handleSendMessage(remote id.Signatory, message wire.Msg) error
 }
 
 func (peer *Peer) TearDownConnection(peerConnection *PeerConnection) {
+	peer.Opts.Logger.Debug("tearing down connection", zap.String("self", peer.Self.String()[:4]))
 	if peerConnection.Connection != nil {
 		peerConnection.Connection.Close()
 		peerConnection.Connection = nil
@@ -1080,6 +1124,7 @@ func (peer *Peer) TearDownConnection(peerConnection *PeerConnection) {
 }
 
 func (peer *Peer) StartConnection(peerConnection *PeerConnection, remote id.Signatory) {
+	peer.Opts.Logger.Debug("starting connection", zap.String("self", peer.Self.String()[:4]))
 	peerConnection.ReadDone = make(chan struct{}, 1)
 	peerConnection.WriteDone = make(chan *wire.Msg, 1)
 
@@ -1087,7 +1132,7 @@ func (peer *Peer) StartConnection(peerConnection *PeerConnection, remote id.Sign
 	peerConnection.PendingMessage = nil
 
 	go read(peer.Ctx, peerConnection.Connection, peerConnection.GCMSession, peer.Filter, peer.Events, remote, peer.Opts.ConnectionRateLimiterOptions, peerConnection.ReadDone)
-	go write(peer.Ctx, peerConnection.Connection, peerConnection.GCMSession, peer.Events, peerConnection.OutgoingMessages, peerConnection.WriteDone, remote, firstMessage)
+	go write(peer.Ctx, peer.Opts.WriteTimeout, peerConnection.Connection, peerConnection.GCMSession, peer.Events, peerConnection.OutgoingMessages, peerConnection.WriteDone, remote, firstMessage)
 }
 
 func (peer *Peer) dialAndPublishEvent(ctx context.Context, remote id.Signatory, remoteAddr string) {
@@ -1254,7 +1299,17 @@ func readAndDecode(conn net.Conn, gcmSession *session.GCMSession, rateLimiter *r
 	return decodedMessage, nil
 }
 
-func write(ctx context.Context, conn net.Conn, gcmSession *session.GCMSession, events chan<- Event, outgoingMessages chan wire.Msg, done chan<- *wire.Msg, remote id.Signatory, firstMessage *wire.Msg) {
+func write(
+	ctx context.Context,
+	writeTimeout time.Duration,
+	conn net.Conn,
+	gcmSession *session.GCMSession,
+	events chan<- Event,
+	outgoingMessages chan wire.Msg,
+	done chan<- *wire.Msg,
+	remote id.Signatory,
+	firstMessage *wire.Msg,
+) {
 	// TODO(ross): configurable buffer sizes.
 	marshalBuffer := make([]byte, 1024)
 	encodeBuffer := make([]byte, 1024)
@@ -1285,6 +1340,12 @@ func write(ctx context.Context, conn net.Conn, gcmSession *session.GCMSession, e
 			marshalBuffer = marshalBuffer[:len(marshalBuffer)-len(tail)]
 
 			encodeBuffer = encode(marshalBuffer, encodeBuffer, gcmSession)
+
+			// We set a write deadline here to account for malicious or
+			// otherwise peers that cause writing to block indefinitely. In any
+			// case, the right course of action for such blocking is probably
+			// dropping the peer.
+			conn.(*net.TCPConn).SetWriteDeadline(time.Now().Add(writeTimeout))
 
 			n, err := conn.Write(encodeBuffer)
 

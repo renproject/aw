@@ -20,7 +20,6 @@ import (
  *     - Fuzzing/malicious message data tests
  *     - Handshake tests?
  *     - Keep alive/unique connection tests?
- *     - Changing the underlying connection doesn't drop messages (and will in fact be in the same order)
  *
  * Replace these exmaple programs?
  *     - Peers in a ring topology, all gossip a unique message over many
@@ -41,8 +40,8 @@ func defaultOptions(logger *zap.Logger) aw.Options {
 }
 
 var _ = Describe("Peer", func() {
-	loggerConfig := zap.NewProductionConfig()
-	loggerConfig.Level.SetLevel(zap.WarnLevel)
+	loggerConfig := zap.NewDevelopmentConfig()
+	loggerConfig.Level.SetLevel(zap.DebugLevel)
 	logger, err := loggerConfig.Build()
 	if err != nil {
 		panic(err)
@@ -315,6 +314,62 @@ var _ = Describe("Peer", func() {
 			Eventually(peer.PeerTable.NumPeers).Should(Equal(0))
 		})
 	})
+
+	It("should not drop messages when the connection changes", func() {
+		opts := defaultOptions(logger)
+		opts.OutgoingBufferSize = 100
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		stablePeer := newPeerAndListen(ctx, opts)
+
+		crashPrivKey := id.NewPrivKey()
+		crashCtx, crashCancel := context.WithCancel(context.Background())
+		defer crashCancel()
+		crashPeer := newPeerAndListenWithPrivKey(crashCtx, opts, crashPrivKey)
+
+		stableAddress := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", stablePeer.Port), uint64(time.Now().UnixNano()))
+		crashAddress := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", crashPeer.Port), uint64(time.Now().UnixNano()))
+		stablePeer.PeerTable.AddPeer(crashPeer.Self, crashAddress)
+		crashPeer.PeerTable.AddPeer(stablePeer.Self, stableAddress)
+
+		go stablePeer.Run(ctx)
+		go crashPeer.Run(crashCtx)
+
+		stablePeer.Link(crashPeer.Self)
+		crashPeer.Link(stablePeer.Self)
+
+		numMessages := 20
+		for i := 0; i < numMessages; i++ {
+			contentID := []byte(fmt.Sprintf("%v", i))
+			content := []byte(fmt.Sprintf("message %v", i))
+			stablePeer.ContentResolver.InsertContent(contentID, content)
+			stablePeer.Gossip(ctx, contentID, nil)
+
+			// NOTE(ross): Doing the eventually check for the restart case
+			// seems to fail. I think this is completely possible as once a
+			// message has been written to the kernel buffer, if it fails to
+			// send we have no way of recovering it. In fact, the probaly more
+			// likely scenario is that the crashing peer restarts any time
+			// between between the stable peer sending the push and processing
+			// the eventual sync.
+			if i == numMessages/2 {
+				crashPeer.Unlink(stablePeer.Self)
+				crashCancel()
+
+				// Restart with a new address.
+				crashPeer = newPeerAndListenWithPrivKey(ctx, opts, crashPrivKey)
+				crashPeer.PeerTable.AddPeer(stablePeer.Self, stableAddress)
+				go crashPeer.Run(ctx)
+				crashPeer.Link(stablePeer.Self)
+			} else {
+				Eventually(func() bool {
+					_, ok := crashPeer.ContentResolver.QueryContent(contentID)
+					return ok
+				}).Should(BeTrue())
+			}
+		}
+	})
 })
 
 func manyConnectedPeersFirstHasContent(ctx context.Context, n int, opts aw.Options, contentID, content []byte) []*aw.Peer {
@@ -338,6 +393,10 @@ func manyConnectedPeersFirstHasContent(ctx context.Context, n int, opts aw.Optio
 
 func newPeer(opts aw.Options) *aw.Peer {
 	privKey := id.NewPrivKey()
+	return newPeerWithPrivKey(opts, privKey)
+}
+
+func newPeerWithPrivKey(opts aw.Options, privKey *id.PrivKey) *aw.Peer {
 	peerTable := dht.NewInMemTable(privKey.Signatory())
 	contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
 	peer := aw.New(opts, privKey, peerTable, contentResolver)
@@ -346,7 +405,12 @@ func newPeer(opts aw.Options) *aw.Peer {
 }
 
 func newPeerAndListen(ctx context.Context, opts aw.Options) *aw.Peer {
-	peer := newPeer(opts)
+	privKey := id.NewPrivKey()
+	return newPeerAndListenWithPrivKey(ctx, opts, privKey)
+}
+
+func newPeerAndListenWithPrivKey(ctx context.Context, opts aw.Options, privKey *id.PrivKey) *aw.Peer {
+	peer := newPeerWithPrivKey(opts, privKey)
 
 	_, err := peer.Listen(ctx, "localhost:0")
 	if err != nil {
