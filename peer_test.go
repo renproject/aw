@@ -366,12 +366,9 @@ var _ = Describe("Peer", func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		stablePeer := newPeerAndListen(ctx, opts)
 
-		crashPrivKey := id.NewPrivKey()
-		crashCtx, crashCancel := context.WithCancel(context.Background())
-		defer crashCancel()
-		crashPeer := newPeerAndListenWithPrivKey(crashCtx, opts, crashPrivKey)
+		stablePeer := newPeerAndListen(ctx, opts)
+		crashPeer := newPeerAndListen(ctx, opts)
 
 		stableAddress := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", stablePeer.Port), uint64(time.Now().UnixNano()))
 		crashAddress := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", crashPeer.Port), uint64(time.Now().UnixNano()))
@@ -379,7 +376,7 @@ var _ = Describe("Peer", func() {
 		crashPeer.PeerTable.AddPeer(stablePeer.Self, stableAddress)
 
 		go stablePeer.Run(ctx)
-		go crashPeer.Run(crashCtx)
+		go crashPeer.Run(ctx)
 
 		stablePeer.Link(crashPeer.Self)
 		crashPeer.Link(stablePeer.Self)
@@ -391,22 +388,21 @@ var _ = Describe("Peer", func() {
 			stablePeer.ContentResolver.InsertContent(contentID, content)
 			stablePeer.Gossip(ctx, contentID, nil)
 
-			// NOTE(ross): Doing the eventually check for the restart case
-			// seems to fail. I think this is completely possible as once a
-			// message has been written to the kernel buffer, if it fails to
-			// send we have no way of recovering it. In fact, the probaly more
-			// likely scenario is that the crashing peer restarts any time
-			// between between the stable peer sending the push and processing
-			// the eventual sync.
 			if i == numMessages/2 {
+				// NOTE(ross): We don't check that the content was received
+				// because there is always a chance that it won't be; this can
+				// happen if the connection is killed at any point after the
+				// stable peer sends the gossip and before the sync is handled
+				// by the crash peer.
 				crashPeer.Unlink(stablePeer.Self)
-				crashCancel()
-
-				// Restart with a new address.
-				crashPeer = newPeerAndListenWithPrivKey(ctx, opts, crashPrivKey)
-				crashPeer.PeerTable.AddPeer(stablePeer.Self, stableAddress)
-				go crashPeer.Run(ctx)
 				crashPeer.Link(stablePeer.Self)
+
+				// NOTE(ross): Due to scheduling, it is possible that the next
+				// loop can begin and the stable peer can have started
+				// gossiping before it sees the connection as closed. This
+				// would cause the test to fail. We sleep briefly here to make
+				// this much less likely.
+				time.Sleep(10 * time.Millisecond)
 			} else {
 				Eventually(func() bool {
 					_, ok := crashPeer.ContentResolver.QueryContent(contentID)
@@ -438,7 +434,11 @@ func manyConnectedPeersFirstHasContent(ctx context.Context, n int, opts aw.Optio
 
 func newPeer(opts aw.Options) *aw.Peer {
 	privKey := id.NewPrivKey()
-	return newPeerWithPrivKey(opts, privKey)
+	peerTable := dht.NewInMemTable(privKey.Signatory())
+	contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
+	peer := aw.New(opts, privKey, peerTable, contentResolver, nil)
+
+	return peer
 }
 
 func newPeerWithReceiver(opts aw.Options, receiver func(id.Signatory, []byte)) *aw.Peer {
@@ -450,21 +450,8 @@ func newPeerWithReceiver(opts aw.Options, receiver func(id.Signatory, []byte)) *
 	return peer
 }
 
-func newPeerWithPrivKey(opts aw.Options, privKey *id.PrivKey) *aw.Peer {
-	peerTable := dht.NewInMemTable(privKey.Signatory())
-	contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
-	peer := aw.New(opts, privKey, peerTable, contentResolver, nil)
-
-	return peer
-}
-
 func newPeerAndListen(ctx context.Context, opts aw.Options) *aw.Peer {
-	privKey := id.NewPrivKey()
-	return newPeerAndListenWithPrivKey(ctx, opts, privKey)
-}
-
-func newPeerAndListenWithPrivKey(ctx context.Context, opts aw.Options, privKey *id.PrivKey) *aw.Peer {
-	peer := newPeerWithPrivKey(opts, privKey)
+	peer := newPeer(opts)
 
 	_, err := peer.Listen(ctx, "localhost:0")
 	if err != nil {
