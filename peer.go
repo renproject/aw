@@ -623,7 +623,6 @@ func (peer *Peer) handleEvent(event Event) {
 					err := peer.handleSendMessage(remote, syncMessage)
 					if err != nil {
 						peer.Opts.Logger.Warn("syncing", zap.String("peer", remote.String()), zap.String("id", base64.RawURLEncoding.EncodeToString(message.Data)), zap.Error(err))
-						panic("")
 					}
 				}
 			}
