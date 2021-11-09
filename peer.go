@@ -33,6 +33,7 @@ var (
 	DefaultMaxPendingSyncs              uint          = 100
 	DefaultMaxActiveSyncsForSameContent uint          = 10
 	DefaultMaxGossipSubnets             uint          = 100 // ?
+	DefaultMaxMessageSize               uint          = 1024
 	DefaultOutgoingBufferSize           uint          = 100
 	DefaultEventLoopBufferSize          uint          = 100
 	DefaultOutgoingBufferTimeout        time.Duration = time.Second
@@ -57,10 +58,6 @@ var (
 	ErrTooManySyncsForSameContent  = errors.New("too many simultaneous syncs for the same content ID")
 )
 
-// TODO(ross): I decided to let handshaking happen elsewhere, so that incoming
-// connections are those that have already successfully completed a handshake.
-// Would there be any wins to making handhsaking part of the state machine? So
-// far I can't think of any.
 type EventType uint
 
 const (
@@ -140,7 +137,6 @@ type PeerConnection struct {
 	Timestamp        time.Time
 	OutgoingMessages chan wire.Msg
 	PendingMessage   *wire.Msg
-	Cancel           context.CancelFunc
 }
 
 type EphemeralConnection struct {
@@ -167,6 +163,7 @@ type Options struct {
 	MaxPendingSyncs              uint
 	MaxActiveSyncsForSameContent uint
 	MaxGossipSubnets             uint
+	MaxMessageSize               uint
 	OutgoingBufferSize           uint
 	EventLoopBufferSize          uint
 	OutgoingBufferTimeout        time.Duration
@@ -201,6 +198,7 @@ func DefaultOptions() Options {
 		MaxPendingSyncs:              DefaultMaxPendingSyncs,
 		MaxActiveSyncsForSameContent: DefaultMaxActiveSyncsForSameContent,
 		MaxGossipSubnets:             DefaultMaxGossipSubnets,
+		MaxMessageSize:               DefaultMaxMessageSize,
 		OutgoingBufferSize:           DefaultOutgoingBufferSize,
 		EventLoopBufferSize:          DefaultEventLoopBufferSize,
 		OutgoingBufferTimeout:        DefaultOutgoingBufferTimeout,
@@ -293,7 +291,7 @@ func (peer *Peer) Listen(ctx context.Context, address string) (uint16, error) {
 		listener.Close()
 	}()
 
-	go listen(ctx, listener, peer.listenerHandler, peer.Opts.ListenerOptions)
+	go listen(ctx, listener, peer.listenerHandler, peer.Opts.ListenerOptions, peer.Opts.Logger)
 
 	return peer.Port, nil
 }
@@ -545,8 +543,9 @@ func sendEvent(data []byte, remote id.Signatory) (Event, chan error) {
 func (peer *Peer) listenerHandler(conn net.Conn) {
 	peer.Opts.Logger.Debug("incoming connection")
 
-	// TODO(ross): Maybe the handshake should be part of the event loop to
-	// avoided unbounded go routine spawning.
+	// TODO(ross): This is a potential avenue for unbounded go routine being
+	// spawned. We have ip based rate limiting, but maybe we need to consider
+	// protection against attacks involving many ip addresses.
 	go func() {
 		gcmSession, remote, err := handshake(peer.PrivKey, conn)
 		if err != nil {
@@ -611,7 +610,7 @@ func (peer *Peer) handleEvent(event Event) {
 
 				content, contentOk := peer.ContentResolver.QueryContent(message.Data)
 				if !contentOk {
-					// TODO(ross): Logging.
+					peer.Opts.Logger.Debug("missing content", zap.String("peer", remote.String()), zap.String("id", base64.RawURLEncoding.EncodeToString(message.Data)))
 				} else {
 					syncMessage := wire.Msg{
 						Version:  wire.MsgVersion1,
@@ -671,8 +670,7 @@ func (peer *Peer) handleEvent(event Event) {
 
 		case wire.MsgTypePing:
 			if dataLen := len(message.Data); dataLen != 2 {
-				// TODO(ross): Logging?
-				// return fmt.Errorf("malformed port received in ping message. expected: 2 bytes, received: %v bytes", dataLen)
+				peer.Opts.Logger.Warn("malformed port", zap.String("peer", remote.String()), zap.Uint64("port byte size", uint64(dataLen)))
 			}
 			port := binary.LittleEndian.Uint16(message.Data)
 
@@ -686,8 +684,10 @@ func (peer *Peer) handleEvent(event Event) {
 			for _, sig := range peers {
 				addr, addrOk := peer.PeerTable.PeerAddress(sig)
 				if !addrOk {
-					// TODO(ross): Logging?
-					// dc.opts.Logger.DPanic("acking ping", zap.String("peer", "does not exist in table"))
+					// NOTE(ross): This is a DPanic because currently the
+					// assumption for the table is that it will only contain a
+					// peer if it also contains an address for that peer.
+					peer.Opts.Logger.DPanic("peer does not exist in table", zap.String("peer", sig.String()))
 					continue
 				}
 				sigAndAddr := wire.SignatoryAndAddress{Signatory: sig, Address: addr}
@@ -696,8 +696,7 @@ func (peer *Peer) handleEvent(event Event) {
 
 			addrAndSigBytes, err := surge.ToBinary(addrAndSig)
 			if err != nil {
-				// TODO(ross): Logging?
-				// return fmt.Errorf("bad ping ack: %v", err)
+				peer.Opts.Logger.DPanic("marshalling error", zap.Error(err))
 			}
 			response := wire.Msg{
 				Version: wire.MsgVersion1,
@@ -706,24 +705,20 @@ func (peer *Peer) handleEvent(event Event) {
 				Data:    addrAndSigBytes,
 			}
 			if err := peer.handleSendMessage(remote, response); err != nil {
-				// TODO(ross): Logging?
-				// dc.opts.Logger.Debug("acking ping", zap.Error(err))
+				peer.Opts.Logger.Warn("failed to send ping ack", zap.String("peer", remote.String()), zap.Error(err))
 			}
 
 		case wire.MsgTypePingAck:
 			signatoriesAndAddrs := []wire.SignatoryAndAddress{}
 			err := surge.FromBinary(&signatoriesAndAddrs, message.Data)
 			if err != nil {
-				// TODO(ross): Logging.
+				peer.Opts.Logger.Warn("unmarshaling ping ack", zap.String("peer", remote.String()), zap.Error(err))
 			}
 
 			for _, signatoryAndAddr := range signatoriesAndAddrs {
-				// TODO(ross): The peer table currently already checks that the
-				// given peer is not self, so one of these duplicate checks
-				// should be removed.
-				if !signatoryAndAddr.Signatory.Equal(&peer.Self) {
-					peer.PeerTable.AddPeer(signatoryAndAddr.Signatory, signatoryAndAddr.Address)
-				}
+				// NOTE(ross): We rely on the fact that the peer table won't
+				// add itself.
+				peer.PeerTable.AddPeer(signatoryAndAddr.Signatory, signatoryAndAddr.Address)
 			}
 
 		default:
@@ -766,10 +761,19 @@ func (peer *Peer) handleEvent(event Event) {
 		}
 
 		message := event.Message
+		warnThreshold := len(peers) / 2
+		numErrors := 0
 		for _, recipient := range peers {
-			// TODO(ross): Should we report an error if a certain threshold of
-			// the sends failed?
-			_ = peer.handleSendMessage(recipient, message)
+			if err := peer.handleSendMessage(recipient, message); err != nil {
+				if recipient.Equal(event.Hint) {
+					peer.Opts.Logger.Warn("unable to sync from hinted peer", zap.String("peer", recipient.String()), zap.Error(err))
+				}
+				numErrors++
+			}
+		}
+
+		if numErrors > warnThreshold {
+			peer.Opts.Logger.Warn("low sync gossip success rate", zap.String("proportion of successful sends", fmt.Sprintf("%v/%v", len(peers)-numErrors, len(peers))))
 		}
 
 	case ReaderDropped:
@@ -781,15 +785,13 @@ func (peer *Peer) handleEvent(event Event) {
 
 			remoteAddr, ok := peer.PeerTable.PeerAddress(event.ID)
 			if ok && remoteAddr.Protocol == wire.TCP {
-				ctx, cancel := context.WithCancel(context.Background())
-				linkedPeer.Cancel = cancel
-
-				go peer.dialAndPublishEvent(ctx, event.ID, remoteAddr.Value)
+				go dialAndPublishEvent(peer.Ctx, peer.Ctx, peer.Events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, event.ID, remoteAddr.Value)
 			}
 		} else if ephemeralConnection, ok := peer.EphemeralConnections[remote]; ok {
-			// TODO(ross): Maybe we should try to reestablish the connection if
-			// there is a pending message.
 			peer.TearDownConnection(&ephemeralConnection.PeerConnection)
+			if ephemeralConnection.PendingMessage != nil {
+				peer.Opts.Logger.Warn("ephemeral connection dropped with unsent message", zap.String("peer", remote.String()))
+			}
 			delete(peer.EphemeralConnections, remote)
 		} else {
 			// Do nothing.
@@ -801,15 +803,13 @@ func (peer *Peer) handleEvent(event Event) {
 
 			remoteAddr, ok := peer.PeerTable.PeerAddress(event.ID)
 			if ok && remoteAddr.Protocol == wire.TCP {
-				ctx, cancel := context.WithCancel(context.Background())
-				linkedPeer.Cancel = cancel
-
-				go peer.dialAndPublishEvent(ctx, event.ID, remoteAddr.Value)
+				go dialAndPublishEvent(peer.Ctx, peer.Ctx, peer.Events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, event.ID, remoteAddr.Value)
 			}
 		} else if ephemeralConnection, ok := peer.EphemeralConnections[remote]; ok {
-			// TODO(ross): Maybe we should try to reestablish the connection if
-			// there is a pending message.
 			peer.TearDownConnection(&ephemeralConnection.PeerConnection)
+			if ephemeralConnection.PendingMessage != nil {
+				peer.Opts.Logger.Warn("ephemeral connection dropped with unsent message", zap.String("peer", remote.String()))
+			}
 			delete(peer.EphemeralConnections, remote)
 		} else {
 			// Do nothing.
@@ -818,7 +818,9 @@ func (peer *Peer) handleEvent(event Event) {
 	case NewConnection:
 		var peerConnection *PeerConnection
 		var wouldKeepAlive bool
+		isLinked := false
 		if linkedPeer, ok := peer.LinkedPeers[remote]; ok {
+			isLinked = true
 			peerConnection = linkedPeer
 			wouldKeepAlive = linkedPeer.Connection == nil || time.Now().Sub(linkedPeer.Timestamp) > peer.Opts.MinimumConnectionExpiryAge
 		} else if ephemeralConnection, ok := peer.EphemeralConnections[remote]; ok {
@@ -832,9 +834,8 @@ func (peer *Peer) handleEvent(event Event) {
 					PeerConnection: PeerConnection{
 						Connection:       nil,
 						OutgoingMessages: make(chan wire.Msg, peer.Opts.OutgoingBufferSize),
-						Cancel:           nil,
 					},
-					ExpiryDeadline: expiryDeadline, // TODO(ross): Is this field needed?
+					ExpiryDeadline: expiryDeadline,
 				}
 
 				peer.EphemeralConnections[remote] = ephemeralConnection
@@ -850,7 +851,7 @@ func (peer *Peer) handleEvent(event Event) {
 		if peerConnection != nil {
 			cmp := bytes.Compare(peer.Self[:], remote[:])
 			if cmp == 0 {
-				// TODO(ross): Logging? Logically this shouldn't occur.
+				peer.Opts.Logger.DPanic("connection to self", zap.String("self", peer.Self.String()))
 			} else if cmp > 0 {
 				decisionBuffer := [128]byte{}
 				var decisionEncoded []byte
@@ -873,12 +874,20 @@ func (peer *Peer) handleEvent(event Event) {
 					// since the message we are trying to send is very small
 					// then for any reasonably configured socket we should not
 					// block.
-					// NOTE(ross): If later it is decided to move the send into
-					// a go routine, make sure to not cause any races (i.e.
-					// don't call peer.StartConnection!)
+					// NOTE(ross): If later it is decided to move the write
+					// into a go routine, make sure to not cause any races
+					// (i.e.  don't call peer.StartConnection!)
 					_, err := event.Connection.Write(decisionEncoded[:])
 					if err != nil {
-						// TODO(ross): Dropped reader event?
+						peerConnection.Connection.Close()
+						peerConnection.Connection = nil
+
+						if isLinked {
+							remoteAddr, ok := peer.PeerTable.PeerAddress(remote)
+							if ok && remoteAddr.Protocol == wire.TCP {
+								go dialAndPublishEvent(peer.Ctx, peer.Ctx, peer.Events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, event.ID, remoteAddr.Value)
+							}
+						}
 					} else {
 						peer.StartConnection(peerConnection, remote)
 					}
@@ -955,16 +964,13 @@ func (peer *Peer) handleEvent(event Event) {
 
 		expired := peer.PeerTable.HandleExpired(remote)
 		if !expired {
-			if linkedPeer, ok := peer.LinkedPeers[remote]; ok {
+			if _, ok := peer.LinkedPeers[remote]; ok {
 				// This can happen if an ephemeral connection that was still dialling
 				// was upgraded to a linked peer.
 
 				remoteAddr, ok := peer.PeerTable.PeerAddress(remote)
 				if ok && remoteAddr.Protocol == wire.TCP {
-					ctx, cancel := context.WithCancel(context.Background())
-					linkedPeer.Cancel = cancel
-
-					go peer.dialAndPublishEvent(ctx, remote, remoteAddr.Value)
+					go dialAndPublishEvent(peer.Ctx, peer.Ctx, peer.Events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, event.ID, remoteAddr.Value)
 				}
 			} else if _, ok := peer.EphemeralConnections[remote]; ok {
 				delete(peer.EphemeralConnections, remote)
@@ -999,15 +1005,11 @@ func (peer *Peer) handleEvent(event Event) {
 				peerConnection := PeerConnection{
 					Connection:       nil,
 					OutgoingMessages: make(chan wire.Msg, peer.Opts.OutgoingBufferSize),
-					Cancel:           nil,
 				}
 
 				remoteAddr, ok := peer.PeerTable.PeerAddress(remote)
 				if ok && remoteAddr.Protocol == wire.TCP {
-					ctx, cancel := context.WithCancel(context.Background())
-					peerConnection.Cancel = cancel
-
-					go peer.dialAndPublishEvent(ctx, remote, remoteAddr.Value)
+					go dialAndPublishEvent(peer.Ctx, peer.Ctx, peer.Events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, remote, remoteAddr.Value)
 				}
 
 				peer.LinkedPeers[remote] = &peerConnection
@@ -1017,23 +1019,23 @@ func (peer *Peer) handleEvent(event Event) {
 		}
 
 	case DiscoverPeers:
-		// TODO(ross): The old version got a selection of peers using the
-		// `Peers` method, which returns the closest peers. I think it makes
-		// more sense to send to random peers, but think some more about this.
-		for _, signatory := range peer.PeerTable.RandomPeers(peer.Opts.PingAlpha) {
-			// TODO(ross): Should we report an error if a certain threshold of
-			// the sends failed?
-			_ = peer.handleSendMessage(signatory, event.Message)
+		recipients := peer.PeerTable.RandomPeers(peer.Opts.PingAlpha)
+		warnThreshold := len(recipients) / 2
+		numErrors := 0
+		for _, recipient := range recipients {
+			if err := peer.handleSendMessage(recipient, event.Message); err != nil {
+				numErrors++
+			}
+		}
+
+		if numErrors > warnThreshold {
+			peer.Opts.Logger.Warn("low ping gossip success rate", zap.String("proportion of successful sends", fmt.Sprintf("%v/%v", len(recipients)-numErrors, len(recipients))))
 		}
 
 	case UnlinkPeer:
 		if linkedPeer, ok := peer.LinkedPeers[remote]; ok {
 			if linkedPeer.Connection != nil {
 				linkedPeer.Connection.Close()
-			}
-
-			if linkedPeer.Cancel != nil {
-				linkedPeer.Cancel()
 			}
 
 			delete(peer.LinkedPeers, event.ID)
@@ -1057,10 +1059,16 @@ func (peer *Peer) gossip(message wire.Msg) {
 		}
 	}
 
+	warnThreshold := len(recipients) / 2
+	numErrors := 0
 	for _, recipient := range recipients {
-		// TODO(ross): Should we report an error if a certain threshold of
-		// the sends failed?
-		_ = peer.handleSendMessage(recipient, message)
+		if err := peer.handleSendMessage(recipient, message); err != nil {
+			numErrors++
+		}
+	}
+
+	if numErrors > warnThreshold {
+		peer.Opts.Logger.Warn("low gossip success rate", zap.String("proportion of successful sends", fmt.Sprintf("%v/%v", len(recipients)-numErrors, len(recipients))))
 	}
 }
 
@@ -1122,17 +1130,17 @@ func (peer *Peer) handleSendMessage(remote id.Signatory, message wire.Msg) error
 				PeerConnection: PeerConnection{
 					Connection:       nil,
 					OutgoingMessages: make(chan wire.Msg, peer.Opts.OutgoingBufferSize),
-					Cancel:           nil,
 				},
-				ExpiryDeadline: expiryDeadline, // TODO(ross): Is this field needed?
+				ExpiryDeadline: expiryDeadline,
 			}
 
 			remoteAddr, ok := peer.PeerTable.PeerAddress(remote)
 			if ok && remoteAddr.Protocol == wire.TCP {
-				ctx, cancel := context.WithTimeout(context.Background(), peer.Opts.EphemeralConnectionTTL)
-				ephemeralConnection.Cancel = cancel
-
-				go peer.dialAndPublishEvent(ctx, remote, remoteAddr.Value)
+				ctx, cancel := context.WithTimeout(peer.Ctx, peer.Opts.EphemeralConnectionTTL)
+				go func() {
+					dialAndPublishEvent(ctx, peer.Ctx, peer.Events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, remote, remoteAddr.Value)
+					cancel()
+				}()
 			}
 
 			ephemeralConnection.OutgoingMessages <- message
@@ -1150,9 +1158,9 @@ func (peer *Peer) TearDownConnection(peerConnection *PeerConnection) {
 		peerConnection.Connection.Close()
 		peerConnection.Connection = nil
 
-		// TODO(ross): Is there a better way to do this? We currently need to
-		// so that we can signal to the writer to finish if it is blocking on
-		// reading from the outgoing message channel.
+		// We create a new channel so that we can signal to the writer to
+		// finish if it is blocking on reading from the outgoing message
+		// channel.
 		newOutgoingBuffer := make(chan wire.Msg, peer.Opts.OutgoingBufferSize)
 	LOOP:
 		for {
@@ -1186,12 +1194,41 @@ func (peer *Peer) StartConnection(peerConnection *PeerConnection, remote id.Sign
 	firstMessage := peerConnection.PendingMessage
 	peerConnection.PendingMessage = nil
 
-	go read(peer.Ctx, peerConnection.Connection, peerConnection.GCMSession, peer.Filter, peer.Events, remote, peer.Opts.ConnectionRateLimiterOptions, peerConnection.ReadDone)
-	go write(peer.Ctx, peer.Opts.WriteTimeout, peerConnection.Connection, peerConnection.GCMSession, peer.Events, peerConnection.OutgoingMessages, peerConnection.WriteDone, remote, firstMessage)
+	go read(
+		peer.Ctx,
+		peerConnection.Connection,
+		peerConnection.GCMSession,
+		peer.Filter,
+		peer.Events,
+		remote,
+		peer.Opts.ConnectionRateLimiterOptions,
+		peer.Opts.MaxMessageSize,
+		peerConnection.ReadDone,
+	)
+	go write(
+		peer.Ctx,
+		peer.Opts.WriteTimeout,
+		peerConnection.Connection,
+		peerConnection.GCMSession,
+		peer.Events,
+		peerConnection.OutgoingMessages,
+		peer.Opts.MaxMessageSize,
+		peerConnection.WriteDone,
+		remote,
+		firstMessage,
+	)
 }
 
-func (peer *Peer) dialAndPublishEvent(ctx context.Context, remote id.Signatory, remoteAddr string) {
-	conn, err := dial(ctx, remoteAddr, peer.Opts.DialRetryInterval)
+func dialAndPublishEvent(
+	ctx, peerCtx context.Context,
+	events chan Event,
+	privKey *id.PrivKey,
+	logger *zap.Logger,
+	dialRetryInterval time.Duration,
+	remote id.Signatory,
+	remoteAddr string,
+) {
+	conn, err := dial(ctx, remoteAddr, dialRetryInterval, logger)
 
 	var event Event
 	event.ID = remote
@@ -1199,10 +1236,10 @@ func (peer *Peer) dialAndPublishEvent(ctx context.Context, remote id.Signatory, 
 		event.Type = DialTimeout
 		event.Error = err
 	} else {
-		gcmSession, discoveredRemote, err := handshake(peer.PrivKey, conn)
+		gcmSession, discoveredRemote, err := handshake(privKey, conn)
 
 		if err != nil {
-			peer.Opts.Logger.Warn("handshake failed", zap.Error(err))
+			logger.Warn("handshake failed", zap.Error(err))
 			conn.Close()
 
 			event.Type = DialTimeout
@@ -1218,15 +1255,24 @@ func (peer *Peer) dialAndPublishEvent(ctx context.Context, remote id.Signatory, 
 	}
 
 	select {
-	case <-peer.Ctx.Done():
-	case peer.Events <- event:
+	case <-peerCtx.Done():
+	case events <- event:
 	}
 }
 
-func read(ctx context.Context, conn net.Conn, gcmSession *session.GCMSession, filter *syncFilter, events chan<- Event, remote id.Signatory, rateLimiterOptions RateLimiterOptions, done chan<- struct{}) {
-	// TODO(ross): configurable buffer sizes.
-	unmarshalBuffer := make([]byte, 1024)
-	decodeBuffer := make([]byte, 1024)
+func read(
+	ctx context.Context,
+	conn net.Conn,
+	gcmSession *session.GCMSession,
+	filter *syncFilter,
+	events chan<- Event,
+	remote id.Signatory,
+	rateLimiterOptions RateLimiterOptions,
+	maxMessageSize uint,
+	done chan<- struct{},
+) {
+	unmarshalBuffer := make([]byte, maxMessageSize)
+	decodeBuffer := make([]byte, maxMessageSize)
 
 	rateLimiter := rate.NewLimiter(rateLimiterOptions.Rate, rateLimiterOptions.Burst)
 
@@ -1361,13 +1407,13 @@ func write(
 	gcmSession *session.GCMSession,
 	events chan<- Event,
 	outgoingMessages chan wire.Msg,
+	maxMessageSize uint,
 	done chan<- *wire.Msg,
 	remote id.Signatory,
 	firstMessage *wire.Msg,
 ) {
-	// TODO(ross): configurable buffer sizes.
-	marshalBuffer := make([]byte, 1024)
-	encodeBuffer := make([]byte, 1024)
+	marshalBuffer := make([]byte, maxMessageSize)
+	encodeBuffer := make([]byte, maxMessageSize)
 
 	var msg wire.Msg
 	var ok bool
@@ -1390,8 +1436,10 @@ func write(
 			marshalBuffer = marshalBuffer[:cap(marshalBuffer)]
 			encodeBuffer = encodeBuffer[:cap(encodeBuffer)]
 
-			// TODO(ross): DPanic on this error?
 			tail, _, err := msg.Marshal(marshalBuffer, len(marshalBuffer))
+			if err != nil {
+				panic("marshalling outgoing message")
+			}
 			marshalBuffer = marshalBuffer[:len(marshalBuffer)-len(tail)]
 
 			encodeBuffer = encode(marshalBuffer, encodeBuffer, gcmSession)

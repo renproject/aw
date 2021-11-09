@@ -19,17 +19,12 @@ import (
  * TODO(ross): Tests to write:
  *     - Fuzzing/malicious message data tests
  *     - Handshake tests?
- *     - Keep alive/unique connection tests?
  *
  * Replace these exmaple programs?
  *     - Peers in a ring topology, all gossip a unique message over many
  *       rounds; track throughput and make sure all messages are received
- *     - Existing peers that know about eachother, and then a new peer that the
- *       existing peers don't know about joins and is eventually discovered by
- *       the others too
  *     - Many rounds of syncing a message from a peer (hint is given) and
  *       success and throughput is checked
- *     - Peers sending messages to eachother but randomly crashing/restarting
  */
 
 func defaultOptions(logger *zap.Logger) aw.Options {

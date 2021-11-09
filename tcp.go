@@ -6,6 +6,7 @@ import (
 	"net"
 	"time"
 
+	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
 
@@ -40,7 +41,7 @@ func DefaultRateLimiterOptions() RateLimiterOptions {
 	}
 }
 
-func dial(ctx context.Context, remoteAddr string, retryInterval time.Duration) (net.Conn, error) {
+func dial(ctx context.Context, remoteAddr string, retryInterval time.Duration, logger *zap.Logger) (net.Conn, error) {
 	dialer := new(net.Dialer)
 
 	for {
@@ -54,8 +55,7 @@ func dial(ctx context.Context, remoteAddr string, retryInterval time.Duration) (
 		dialCtx, dialCancel := context.WithTimeout(ctx, retryInterval)
 		conn, err := dialer.DialContext(dialCtx, "tcp", remoteAddr)
 		if err != nil {
-			// TODO(ross): I don't think we care about this error. Do we?
-			// Should it be logged?
+			logger.Debug("dial attempt failed", zap.Error(err))
 
 			<-dialCtx.Done()
 			dialCancel()
@@ -67,7 +67,7 @@ func dial(ctx context.Context, remoteAddr string, retryInterval time.Duration) (
 	}
 }
 
-func listen(ctx context.Context, listener net.Listener, handle func(net.Conn), rateLimiterOptions ListenerOptions) {
+func listen(ctx context.Context, listener net.Listener, handle func(net.Conn), rateLimiterOptions ListenerOptions, logger *zap.Logger) {
 	mapCap := rateLimiterOptions.RateLimiterCapacity / 2
 	frontMap := make(map[string]*rate.Limiter, mapCap)
 	backMap := make(map[string]*rate.Limiter, mapCap)
@@ -83,7 +83,7 @@ func listen(ctx context.Context, listener net.Listener, handle func(net.Conn), r
 
 		conn, err := listener.Accept()
 		if err != nil {
-			// TODO(ross): Do we want to do something other than logging here?
+			logger.Debug("accept failed", zap.Error(err))
 		} else {
 			// Rate limiting.
 			remoteAddr := ""
@@ -113,7 +113,7 @@ func listen(ctx context.Context, listener net.Listener, handle func(net.Conn), r
 				}()
 			} else {
 				conn.Close()
-				// TODO(ross): Logging?
+				logger.Warn("connection rate limited", zap.String("address", remoteAddr))
 			}
 		}
 	}
