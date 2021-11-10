@@ -147,7 +147,7 @@ var _ = Describe("Peer", func() {
 
 			peer2Port := 3333
 			address2 := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", peer2Port), uint64(time.Now().UnixNano()))
-			peer1.PeerTable.AddPeer(peer2.Self, address2)
+			peer1.PeerTable.AddPeer(peer2.ID, address2)
 
 			_, err = peer1.Listen(ctx, "localhost:0")
 			if err != nil {
@@ -194,12 +194,12 @@ var _ = Describe("Peer", func() {
 
 			peerIDs := make([]id.Signatory, len(peers))
 			for i := range peers {
-				peerIDs[i] = peers[i].Self
+				peerIDs[i] = peers[i].ID
 			}
 
 			hasDiscoveredAllOthers := func(peer *aw.Peer, ids []id.Signatory) bool {
 				for _, other := range ids {
-					if !other.Equal(&peer.Self) {
+					if !other.Equal(&peer.ID) {
 						if _, ok := peer.PeerTable.PeerAddress(other); !ok {
 							return false
 						}
@@ -284,7 +284,7 @@ var _ = Describe("Peer", func() {
 				content := []byte("hello")
 				peers := manyConnectedPeersFirstHasContent(ctx, n, opts, contentID, content)
 
-				hint := peers[0].Self
+				hint := peers[0].ID
 
 				for _, peer := range peers[1:] {
 					syncCtx, cancel := context.WithTimeout(ctx, time.Second)
@@ -329,22 +329,22 @@ var _ = Describe("Peer", func() {
 
 			addr1 := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", peer1.Port), uint64(time.Now().UnixNano()))
 			addr2 := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", peer2.Port), uint64(time.Now().UnixNano()))
-			peer1.PeerTable.AddPeer(peer2.Self, addr2)
-			peer2.PeerTable.AddPeer(peer1.Self, addr1)
+			peer1.PeerTable.AddPeer(peer2.ID, addr2)
+			peer2.PeerTable.AddPeer(peer1.ID, addr1)
 
 			go peer1.Run(ctx)
 			go peer2.Run(ctx)
 
-			peer1.Link(peer2.Self)
-			peer2.Link(peer1.Self)
+			peer1.Link(peer2.ID)
+			peer2.Link(peer1.ID)
 
 			msg := []byte("hello")
 			sendCtx, sendCancel := context.WithTimeout(ctx, time.Second)
-			err = peer1.Send(sendCtx, msg, peer2.Self)
+			err = peer1.Send(sendCtx, msg, peer2.ID)
 			sendCancel()
 
 			Expect(err).To(BeNil())
-			Eventually(resultCh).Should(Receive(Equal(result{peer1.Self, msg})))
+			Eventually(resultCh).Should(Receive(Equal(result{peer1.ID, msg})))
 		})
 	})
 
@@ -384,14 +384,14 @@ var _ = Describe("Peer", func() {
 
 		stableAddress := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", stablePeer.Port), uint64(time.Now().UnixNano()))
 		crashAddress := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", crashPeer.Port), uint64(time.Now().UnixNano()))
-		stablePeer.PeerTable.AddPeer(crashPeer.Self, crashAddress)
-		crashPeer.PeerTable.AddPeer(stablePeer.Self, stableAddress)
+		stablePeer.PeerTable.AddPeer(crashPeer.ID, crashAddress)
+		crashPeer.PeerTable.AddPeer(stablePeer.ID, stableAddress)
 
 		go stablePeer.Run(ctx)
 		go crashPeer.Run(ctx)
 
-		stablePeer.Link(crashPeer.Self)
-		crashPeer.Link(stablePeer.Self)
+		stablePeer.Link(crashPeer.ID)
+		crashPeer.Link(stablePeer.ID)
 
 		numMessages := 20
 		for i := 0; i < numMessages; i++ {
@@ -406,8 +406,8 @@ var _ = Describe("Peer", func() {
 				// happen if the connection is killed at any point after the
 				// stable peer sends the gossip and before the sync is handled
 				// by the crash peer.
-				crashPeer.Unlink(stablePeer.Self)
-				crashPeer.Link(stablePeer.Self)
+				crashPeer.Unlink(stablePeer.ID)
+				crashPeer.Link(stablePeer.ID)
 
 				// NOTE(ross): Due to scheduling, it is possible that the next
 				// loop can begin and the stable peer can have started
@@ -482,8 +482,8 @@ func connectAllPeers(peers []*aw.Peer) {
 	for i := range peers {
 		for j := range peers {
 			if j != i {
-				peers[i].PeerTable.AddPeer(peers[j].Self, addresses[j])
-				peers[j].PeerTable.AddPeer(peers[i].Self, addresses[i])
+				peers[i].PeerTable.AddPeer(peers[j].ID, addresses[j])
+				peers[j].PeerTable.AddPeer(peers[i].ID, addresses[i])
 			}
 		}
 	}
@@ -499,8 +499,8 @@ func connectPeersRing(peers []*aw.Peer) {
 
 	for i := range peers {
 		next := (i + 1) % n
-		peers[i].PeerTable.AddPeer(peers[next].Self, addresses[next])
-		peers[next].PeerTable.AddPeer(peers[i].Self, addresses[i])
+		peers[i].PeerTable.AddPeer(peers[next].ID, addresses[next])
+		peers[next].PeerTable.AddPeer(peers[i].ID, addresses[i])
 	}
 }
 
@@ -508,8 +508,8 @@ func linkAllPeers(peers []*aw.Peer) {
 	for i := range peers {
 		for j := range peers {
 			if i != j {
-				peers[i].Link(peers[j].Self)
-				peers[j].Link(peers[i].Self)
+				peers[i].Link(peers[j].ID)
+				peers[j].Link(peers[i].ID)
 			}
 		}
 	}
@@ -520,8 +520,8 @@ func linkPeersRing(peers []*aw.Peer) {
 
 	for i := range peers {
 		next := (i + 1) % n
-		peers[i].Link(peers[next].Self)
-		peers[next].Link(peers[i].Self)
+		peers[i].Link(peers[next].ID)
+		peers[next].Link(peers[i].ID)
 	}
 }
 

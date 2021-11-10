@@ -227,7 +227,7 @@ func DefaultOptions() Options {
 type Peer struct {
 	Opts Options
 
-	Self    id.Signatory
+	ID      id.Signatory
 	PrivKey *id.PrivKey
 	Port    uint16
 
@@ -239,10 +239,10 @@ type Peer struct {
 	ephemeralConnections map[id.Signatory]*ephemeralConnection
 	pendingSyncs         map[string]pendingSync
 	gossipSubnets        map[string]gossipSubnet
+	filter               *syncFilter
 
 	PeerTable       dht.Table
 	ContentResolver dht.ContentResolver
-	filter          *syncFilter
 }
 
 func New(opts Options, privKey *id.PrivKey, peerTable dht.Table, contentResolver dht.ContentResolver, receive func(id.Signatory, []byte)) *Peer {
@@ -259,7 +259,7 @@ func New(opts Options, privKey *id.PrivKey, peerTable dht.Table, contentResolver
 	return &Peer{
 		Opts: opts,
 
-		Self:    self,
+		ID:      self,
 		PrivKey: privKey,
 		Port:    0,
 
@@ -322,12 +322,12 @@ func (peer *Peer) Run(ctx context.Context) error {
 			message: message,
 		}
 
-		peer.Opts.Logger.Debug("peer discovery starting", zap.String("self", peer.Self.String()[:4]))
+		peer.Opts.Logger.Debug("peer discovery starting", zap.String("self", peer.ID.String()[:4]))
 	LOOP:
 		for {
 			select {
 			case <-ctx.Done():
-				peer.Opts.Logger.Debug("peer discovery stopping", zap.String("self", peer.Self.String()[:4]))
+				peer.Opts.Logger.Debug("peer discovery stopping", zap.String("self", peer.ID.String()[:4]))
 				break LOOP
 
 			case <-ticker.C:
@@ -336,11 +336,11 @@ func (peer *Peer) Run(ctx context.Context) error {
 		}
 	}()
 
-	peer.Opts.Logger.Debug("peer event loop starting", zap.String("self", peer.Self.String()[:4]))
+	peer.Opts.Logger.Debug("peer event loop starting", zap.String("self", peer.ID.String()[:4]))
 	for {
 		select {
 		case <-ctx.Done():
-			peer.Opts.Logger.Debug("peer event loop stopping", zap.String("self", peer.Self.String()[:4]))
+			peer.Opts.Logger.Debug("peer event loop stopping", zap.String("self", peer.ID.String()[:4]))
 			for _, peerConnection := range peer.linkedPeers {
 				close(peerConnection.outgoingMessages)
 				if peerConnection.connection != nil {
@@ -569,7 +569,7 @@ func (peer *Peer) listenerHandler(conn net.Conn) {
 }
 
 func (peer *Peer) handleEvent(e event) {
-	peer.Opts.Logger.Debug("handling event", zap.String("self", peer.Self.String()[:4]), zap.String("type", e.ty.String()))
+	peer.Opts.Logger.Debug("handling event", zap.String("self", peer.ID.String()[:4]), zap.String("type", e.ty.String()))
 	remote := e.id
 
 	switch e.ty {
@@ -668,7 +668,7 @@ func (peer *Peer) handleEvent(e event) {
 
 		case wire.MsgTypeSend:
 			if peer.receive != nil {
-				peer.receive(e.id, e.message.Data)
+				peer.receive(remote, e.message.Data)
 			}
 
 		case wire.MsgTypePing:
@@ -780,15 +780,15 @@ func (peer *Peer) handleEvent(e event) {
 		}
 
 	case readerDropped:
-		peer.Opts.Logger.Debug("reader dropped", zap.String("self", peer.Self.String()[:4]), zap.Error(e.err))
+		peer.Opts.Logger.Debug("reader dropped", zap.String("self", peer.ID.String()[:4]), zap.Error(e.err))
 		// TODO(ross): If the error was malicious we should act accordingly.
 
 		if linkedPeer, ok := peer.linkedPeers[remote]; ok {
 			peer.tearDownConnection(linkedPeer)
 
-			remoteAddr, ok := peer.PeerTable.PeerAddress(e.id)
+			remoteAddr, ok := peer.PeerTable.PeerAddress(remote)
 			if ok && remoteAddr.Protocol == wire.TCP {
-				go dialAndPublishEvent(peer.ctx, peer.ctx, peer.events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, e.id, remoteAddr.Value)
+				go dialAndPublishEvent(peer.ctx, peer.ctx, peer.events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, remote, remoteAddr.Value)
 			}
 		} else if ephemeralConnection, ok := peer.ephemeralConnections[remote]; ok {
 			peer.tearDownConnection(&ephemeralConnection.peerConnection)
@@ -804,9 +804,9 @@ func (peer *Peer) handleEvent(e event) {
 		if linkedPeer, ok := peer.linkedPeers[remote]; ok {
 			peer.tearDownConnection(linkedPeer)
 
-			remoteAddr, ok := peer.PeerTable.PeerAddress(e.id)
+			remoteAddr, ok := peer.PeerTable.PeerAddress(remote)
 			if ok && remoteAddr.Protocol == wire.TCP {
-				go dialAndPublishEvent(peer.ctx, peer.ctx, peer.events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, e.id, remoteAddr.Value)
+				go dialAndPublishEvent(peer.ctx, peer.ctx, peer.events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, remote, remoteAddr.Value)
 			}
 		} else if ephemeralConnection, ok := peer.ephemeralConnections[remote]; ok {
 			peer.tearDownConnection(&ephemeralConnection.peerConnection)
@@ -852,9 +852,9 @@ func (peer *Peer) handleEvent(e event) {
 		}
 
 		if peerConn != nil {
-			cmp := bytes.Compare(peer.Self[:], remote[:])
+			cmp := bytes.Compare(peer.ID[:], remote[:])
 			if cmp == 0 {
-				peer.Opts.Logger.DPanic("connection to self", zap.String("self", peer.Self.String()))
+				peer.Opts.Logger.DPanic("connection to self", zap.String("self", peer.ID.String()))
 			} else if cmp > 0 {
 				decisionBuffer := [128]byte{}
 				var decisionEncoded []byte
@@ -867,7 +867,7 @@ func (peer *Peer) handleEvent(e event) {
 
 					decisionEncoded = encode([]byte{keepAliveTrue}, decisionBuffer[:], e.gcmSession)
 
-					peer.Opts.Logger.Debug("signalling to keep alive", zap.String("self", peer.Self.String()[:4]), zap.String("remote", remote.String()[:4]))
+					peer.Opts.Logger.Debug("signalling to keep alive", zap.String("self", peer.ID.String()[:4]), zap.String("remote", remote.String()[:4]))
 					// NOTE(ross): Normally whenever we write to a connection
 					// we do it in a separate go routine as it could
 					// potentially block. However, we don't do this here
@@ -888,7 +888,7 @@ func (peer *Peer) handleEvent(e event) {
 						if isLinked {
 							remoteAddr, ok := peer.PeerTable.PeerAddress(remote)
 							if ok && remoteAddr.Protocol == wire.TCP {
-								go dialAndPublishEvent(peer.ctx, peer.ctx, peer.events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, e.id, remoteAddr.Value)
+								go dialAndPublishEvent(peer.ctx, peer.ctx, peer.events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, remote, remoteAddr.Value)
 							}
 						}
 					} else {
@@ -900,7 +900,7 @@ func (peer *Peer) handleEvent(e event) {
 
 					decisionEncoded = encode([]byte{keepAliveFalse}, decisionBuffer[:], e.gcmSession)
 
-					peer.Opts.Logger.Debug("signalling to drop", zap.String("self", peer.Self.String()[:4]), zap.String("remote", remote.String()[:4]))
+					peer.Opts.Logger.Debug("signalling to drop", zap.String("self", peer.ID.String()[:4]), zap.String("remote", remote.String()[:4]))
 					// NOTE(ross): Normally whenever we write to a connection
 					// we do it in a separate go routine as it could
 					// potentially block. However, we don't do this here
@@ -920,7 +920,7 @@ func (peer *Peer) handleEvent(e event) {
 					decisionDecoded, err := readAndDecode(e.connection, e.gcmSession, nil, readBuffer[:], decisionBuffer[:])
 					if err != nil {
 					} else {
-						peer.Opts.Logger.Debug("received keep alive message", zap.String("self", peer.Self.String()[:4]), zap.String("remote", remote.String()[:4]), zap.Uint8("decision", decisionDecoded[0]))
+						peer.Opts.Logger.Debug("received keep alive message", zap.String("self", peer.ID.String()[:4]), zap.String("remote", remote.String()[:4]), zap.Uint8("decision", decisionDecoded[0]))
 					}
 
 					if err == nil && decisionDecoded[0] == keepAliveTrue {
@@ -950,7 +950,6 @@ func (peer *Peer) handleEvent(e event) {
 		}
 
 		if peerConn != nil {
-			remote := e.id
 			peer.tearDownConnection(peerConn)
 
 			peerConn.connection = e.connection
@@ -961,8 +960,6 @@ func (peer *Peer) handleEvent(e event) {
 		}
 
 	case dialTimeout:
-		remote := e.id
-
 		peer.PeerTable.AddExpiry(remote, peer.Opts.PeerExpiryTimeout)
 
 		expired := peer.PeerTable.HandleExpired(remote)
@@ -973,7 +970,7 @@ func (peer *Peer) handleEvent(e event) {
 
 				remoteAddr, ok := peer.PeerTable.PeerAddress(remote)
 				if ok && remoteAddr.Protocol == wire.TCP {
-					go dialAndPublishEvent(peer.ctx, peer.ctx, peer.events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, e.id, remoteAddr.Value)
+					go dialAndPublishEvent(peer.ctx, peer.ctx, peer.events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, remote, remoteAddr.Value)
 				}
 			} else if _, ok := peer.ephemeralConnections[remote]; ok {
 				delete(peer.ephemeralConnections, remote)
@@ -988,8 +985,6 @@ func (peer *Peer) handleEvent(e event) {
 			e.errorResponder <- nil
 		} else if ephemeralConnection, ok := peer.ephemeralConnections[remote]; ok {
 			// Upgrade to a linked peer.
-
-			remote := e.id
 
 			if len(peer.linkedPeers) >= int(peer.Opts.MaxLinkedPeers) {
 				e.errorResponder <- ErrTooManyLinkedPeers
@@ -1041,7 +1036,7 @@ func (peer *Peer) handleEvent(e event) {
 				linkedPeer.connection.Close()
 			}
 
-			delete(peer.linkedPeers, e.id)
+			delete(peer.linkedPeers, remote)
 		} else {
 			// Do nothing.
 		}
@@ -1156,7 +1151,7 @@ func (peer *Peer) handleSendMessage(remote id.Signatory, message wire.Msg) error
 }
 
 func (peer *Peer) tearDownConnection(peerConn *peerConnection) {
-	peer.Opts.Logger.Debug("tearing down connection", zap.String("self", peer.Self.String()[:4]))
+	peer.Opts.Logger.Debug("tearing down connection", zap.String("self", peer.ID.String()[:4]))
 	if peerConn.connection != nil {
 		peerConn.connection.Close()
 		peerConn.connection = nil
@@ -1190,7 +1185,7 @@ func (peer *Peer) tearDownConnection(peerConn *peerConnection) {
 }
 
 func (peer *Peer) startConnection(peerConn *peerConnection, remote id.Signatory) {
-	peer.Opts.Logger.Debug("starting connection", zap.String("self", peer.Self.String()[:4]))
+	peer.Opts.Logger.Debug("starting connection", zap.String("self", peer.ID.String()[:4]))
 	peerConn.readDone = make(chan struct{}, 1)
 	peerConn.writeDone = make(chan *wire.Msg, 1)
 
