@@ -31,7 +31,6 @@ import (
  *     - Too many linked peers/ephemeral connections
  *     - Upgrading an ephemeral connection to a linked peer
  *     - Tear down connection when in the process of sending a message
- *     - Rate limiting/filtering
  *
  * Replace these exmaple programs?
  *     - Peers in a ring topology, all gossip a unique message over many
@@ -474,41 +473,82 @@ var _ = Describe("Peer", func() {
 		}
 	})
 
-	It("should rate limit incoming connections", func() {
-		opts := defaultOptions(logger)
+	Context("rate limiting", func() {
+		It("should rate limit incoming connections", func() {
+			opts := defaultOptions(logger)
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-		peer := newPeerAndListen(ctx, opts)
-		go peer.Run(ctx)
+			peer := newPeerAndListen(ctx, opts)
+			go peer.Run(ctx)
 
-		buf := [1]byte{}
-		addr := fmt.Sprintf("%v:%v", "localhost", peer.Port)
-		deadline := time.Now().Add(time.Second)
-		for {
-			if time.Now().After(deadline) {
-				Fail("connections were not rate limited")
-			} else {
-				dialer := new(net.Dialer)
+			buf := [1]byte{}
+			addr := fmt.Sprintf("%v:%v", "localhost", peer.Port)
+			deadline := time.Now().Add(time.Second)
+			for {
+				if time.Now().After(deadline) {
+					Fail("connections were not rate limited")
+				} else {
+					dialer := new(net.Dialer)
 
-				conn, err := dialer.DialContext(ctx, "tcp", addr)
-				if err != nil {
-					// NOTE(ross): A smarter implementation might actually
-					// cause a dial error when the address is rate limited, so
-					// this might need to change in the future.
-					panic(err)
-				}
+					conn, err := dialer.DialContext(ctx, "tcp", addr)
+					if err != nil {
+						// NOTE(ross): A smarter implementation might actually
+						// cause a dial error when the address is rate limited, so
+						// this might need to change in the future.
+						panic(err)
+					}
 
-				// Once a new connection has been accepted, the handshake
-				// should start. There should therefore be some data sent if
-				// the connection attempt was not rate limited.
-				_, err = io.ReadFull(conn, buf[:])
-				if err != nil {
-					break
+					// Once a new connection has been accepted, the handshake
+					// should start. There should therefore be some data sent if
+					// the connection attempt was not rate limited.
+					_, err = io.ReadFull(conn, buf[:])
+					if err != nil {
+						break
+					}
 				}
 			}
-		}
+		})
+
+		It("should rate limit incoming data for a given connection", func() {
+			opts := defaultOptions(logger)
+			opts.MaxMessageSize = 2 * 1024
+			opts.ConnectionRateLimiterOptions.Rate = 1024
+			opts.ConnectionRateLimiterOptions.Burst = 2 * 1024
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			writePeer := newPeerAndListen(ctx, opts)
+
+			received := make(chan struct{}, 1)
+			readPeer := newPeerWithReceiver(opts, func(_ id.Signatory, _ []byte) {
+				received <- struct{}{}
+			})
+			_, err := readPeer.Listen(ctx, "localhost:0")
+			if err != nil {
+				panic(err)
+			}
+
+			writeAddress := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", writePeer.Port), uint64(time.Now().UnixNano()))
+			readAddress := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", readPeer.Port), uint64(time.Now().UnixNano()))
+			writePeer.PeerTable.AddPeer(readPeer.ID(), readAddress)
+			readPeer.PeerTable.AddPeer(writePeer.ID(), writeAddress)
+
+			go writePeer.Run(ctx)
+			go readPeer.Run(ctx)
+
+			writePeer.Link(readPeer.ID())
+			readPeer.Link(writePeer.ID())
+
+			data := make([]byte, int(opts.ConnectionRateLimiterOptions.Rate))
+
+			writePeer.Send(ctx, data, readPeer.ID())
+			Eventually(received).Should(Receive())
+			writePeer.Send(ctx, data, readPeer.ID())
+			Consistently(received).ShouldNot(Receive())
+		})
 	})
 })
 

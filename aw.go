@@ -1440,7 +1440,7 @@ func write(
 
 			tail, _, err := msg.Marshal(marshalBuffer, len(marshalBuffer))
 			if err != nil {
-				panic("marshalling outgoing message")
+				panic(fmt.Sprintf("marshalling outgoing message: %v", err))
 			}
 			marshalBuffer = marshalBuffer[:len(marshalBuffer)-len(tail)]
 
