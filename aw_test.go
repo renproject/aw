@@ -28,7 +28,6 @@ import (
  *     - Dropped writer
  *     - Too many linked peers/ephemeral connections
  *     - Upgrading an ephemeral connection to a linked peer
- *     - Gossiping to a particular subnet
  *     - Tear down connection when in the process of sending a message
  *     - Rate limiting/filtering
  *
@@ -121,7 +120,6 @@ var _ = Describe("Peer", func() {
 			contentID := []byte("id")
 			data := []byte("hello")
 			peers[0].ContentResolver.InsertContent(contentID, data)
-
 			peers[0].GossipNonBlocking(contentID, nil)
 
 			for _, peer := range peers {
@@ -166,6 +164,56 @@ var _ = Describe("Peer", func() {
 			go peer2.Run(ctx)
 
 			Eventually(func() []byte { msg, _ := peer2.ContentResolver.QueryContent(contentID); return msg }, 1000).Should(Equal(content))
+		})
+
+		Specify("only peers in a given subnet should receive content when gossiping to that subnet", func() {
+			n := 10
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			opts := defaultOptions(logger)
+
+			peers := make([]*aw.Peer, n)
+			for i := range peers {
+				peers[i] = newPeerAndListen(ctx, opts)
+			}
+
+			connectAllPeers(peers)
+
+			for _, peer := range peers {
+				go peer.Run(ctx)
+			}
+
+			linkAllPeers(peers)
+
+			// Subnet that consists of the first half of the peers.
+			subnetPeers := make([]id.Signatory, n/2)
+			for i := range subnetPeers {
+				subnetPeers[i] = peers[i].ID()
+			}
+
+			var subnet id.Hash
+			for i := range subnetPeers {
+				subnet = peers[i].PeerTable.AddSubnet(subnetPeers)
+			}
+
+			contentID := []byte("id")
+			data := []byte("hello")
+			peers[0].ContentResolver.InsertContent(contentID, data)
+			peers[0].GossipNonBlocking(contentID, &subnet)
+
+			// Give more of an opportunity for the gossip to reach everyone.
+			time.Sleep(50 * time.Millisecond)
+
+			for i, peer := range peers {
+				if i < len(subnetPeers) {
+					Eventually(func() []byte { msg, _ := peer.ContentResolver.QueryContent(contentID); return msg }).Should(Equal(data))
+				} else {
+					_, exists := peer.ContentResolver.QueryContent(contentID)
+					Expect(exists).To(BeFalse())
+				}
+			}
 		})
 	})
 
