@@ -16,11 +16,6 @@ var _ Table = &InMemTable{}
 // A Table is responsible for keeping tack of peers, their network addresses,
 // and the subnet to which they belong.
 type Table interface {
-	// Self returns the local peer. It does not return the network address of
-	// the local peer, because it can change frequently, and is not guaranteed
-	// to exist.
-	Self() id.Signatory
-
 	// AddPeer to the table with an associate network address.
 	AddPeer(id.Signatory, wire.Address)
 	// DeletePeer from the table.
@@ -95,10 +90,6 @@ func NewInMemTable(self id.Signatory) *InMemTable {
 
 		randObj: rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
-}
-
-func (table *InMemTable) Self() id.Signatory {
-	return table.self
 }
 
 func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr wire.Address) {
