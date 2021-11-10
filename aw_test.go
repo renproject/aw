@@ -28,7 +28,6 @@ import (
  *     - Failed calls to `handleSendMessage`
  *     - Dropped reader for ephemeral connections
  *     - Dropped writer
- *     - Too many linked peers/ephemeral connections
  *     - Upgrading an ephemeral connection to a linked peer
  *     - Tear down connection when in the process of sending a message
  *
@@ -547,6 +546,69 @@ var _ = Describe("Peer", func() {
 			writePeer.Send(ctx, data, readPeer.ID())
 			Eventually(received).Should(Receive())
 			writePeer.Send(ctx, data, readPeer.ID())
+			Consistently(received).ShouldNot(Receive())
+		})
+	})
+
+	Context("peer management", func() {
+		It("should limit the number of concurrent linked peers", func() {
+			opts := defaultOptions(logger)
+			opts.MaxLinkedPeers = 10
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			peer := newPeer(opts)
+			go peer.Run(ctx)
+
+			for i := uint(0); i < opts.MaxLinkedPeers; i++ {
+				privKey := id.NewPrivKey()
+				Expect(peer.Link(privKey.Signatory())).To(Succeed())
+			}
+
+			privKey := id.NewPrivKey()
+			Expect(peer.Link(privKey.Signatory())).ToNot(Succeed())
+		})
+
+		It("should limit the number of ephemeral connections", func() {
+			opts := defaultOptions(logger)
+			opts.MaxEphemeralConnections = 10
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			received := make(chan struct{}, 1)
+			peer := newPeerWithReceiver(opts, func(_ id.Signatory, _ []byte) {
+				received <- struct{}{}
+			})
+			_, err := peer.Listen(ctx, "localhost:0")
+			if err != nil {
+				panic(err)
+			}
+			go peer.Run(ctx)
+
+			addr := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", peer.Port), uint64(time.Now().UnixNano()))
+
+			otherPeers := make([]*aw.Peer, opts.MaxEphemeralConnections)
+			for i := range otherPeers {
+				otherPeers[i] = newPeerAndListen(ctx, opts)
+				otherPeers[i].PeerTable.AddPeer(peer.ID(), addr)
+				go otherPeers[i].Run(ctx)
+			}
+
+			lastPeer := newPeerAndListen(ctx, opts)
+			lastPeer.PeerTable.AddPeer(peer.ID(), addr)
+			go lastPeer.Run(ctx)
+
+			for _, otherPeer := range otherPeers {
+				otherPeer.Link(peer.ID())
+			}
+
+			// Give some time for the other peers to finish linking.
+			time.Sleep(50 * time.Millisecond)
+
+			lastPeer.Send(ctx, []byte{0}, peer.ID())
+
 			Consistently(received).ShouldNot(Receive())
 		})
 	})
