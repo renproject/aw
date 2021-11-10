@@ -1,5 +1,9 @@
 package aw
 
+/* TODO(ross): Features
+ *    - Use signed addresses for peer discovery security
+ */
+
 import (
 	"bytes"
 	"context"
@@ -58,101 +62,101 @@ var (
 	ErrTooManySyncsForSameContent  = errors.New("too many simultaneous syncs for the same content ID")
 )
 
-type EventType uint
+type eventType uint
 
 const (
-	IncomingMessage EventType = iota
-	SendMessage
-	GossipMessage
-	SyncRequest
-	ReaderDropped
-	WriterDropped
-	NewConnection
-	KeepAlive
-	DialTimeout
-	LinkPeer
-	DiscoverPeers
-	UnlinkPeer
+	incomingMessage eventType = iota
+	sendMessage
+	gossipMessage
+	syncRequest
+	readerDropped
+	writerDropped
+	newConnection
+	keepAlive
+	dialTimeout
+	linkPeer
+	discoverPeers
+	unlinkPeer
 )
 
 const (
-	KeepAliveFalse byte = 0x00
-	KeepAliveTrue  byte = 0x01
+	keepAliveFalse byte = 0x00
+	keepAliveTrue  byte = 0x01
 )
 
-func (ty EventType) String() string {
+func (ty eventType) String() string {
 	switch ty {
-	case IncomingMessage:
+	case incomingMessage:
 		return "IncomingMessage"
-	case SendMessage:
+	case sendMessage:
 		return "SendMessage"
-	case GossipMessage:
+	case gossipMessage:
 		return "GossipMessage"
-	case SyncRequest:
+	case syncRequest:
 		return "SyncRequest"
-	case ReaderDropped:
+	case readerDropped:
 		return "ReaderDropped"
-	case WriterDropped:
+	case writerDropped:
 		return "WriterDropped"
-	case NewConnection:
+	case newConnection:
 		return "NewConnection"
-	case KeepAlive:
+	case keepAlive:
 		return "KeepAlive"
-	case DialTimeout:
+	case dialTimeout:
 		return "DialTimeout"
-	case LinkPeer:
+	case linkPeer:
 		return "LinkPeer"
-	case DiscoverPeers:
+	case discoverPeers:
 		return "DiscoverPeers"
-	case UnlinkPeer:
+	case unlinkPeer:
 		return "UnlinkPeer"
 	default:
 		return fmt.Sprintf("unknown(%v)", uint(ty))
 	}
 }
 
-type Event struct {
-	Type EventType
+type event struct {
+	ty eventType
 
-	ID         id.Signatory
-	Subnet     id.Hash
-	Hint       *id.Signatory
-	Message    wire.Msg
-	Addr       net.Addr
-	Connection net.Conn
-	GCMSession *session.GCMSession
-	Ctx        context.Context
-	Error      error
+	id         id.Signatory
+	subnet     id.Hash
+	hint       *id.Signatory
+	message    wire.Msg
+	addr       net.Addr
+	connection net.Conn
+	gcmSession *session.GCMSession
+	ctx        context.Context
+	err        error
 
-	MessageResponder chan<- []byte
-	ErrorResponder   chan<- error
+	messageResponder chan<- []byte
+	errorResponder   chan<- error
 }
 
-type PeerConnection struct {
-	ReadDone  chan struct{}
-	WriteDone chan *wire.Msg
+type peerConnection struct {
+	readDone  chan struct{}
+	writeDone chan *wire.Msg
 
-	Connection       net.Conn
-	GCMSession       *session.GCMSession
-	Timestamp        time.Time
-	OutgoingMessages chan wire.Msg
-	PendingMessage   *wire.Msg
+	connection       net.Conn
+	gcmSession       *session.GCMSession
+	timestamp        time.Time
+	outgoingMessages chan wire.Msg
+	pendingMessage   *wire.Msg
 }
 
-type EphemeralConnection struct {
-	PeerConnection
+type ephemeralConnection struct {
+	peerConnection
 
-	ExpiryDeadline time.Time
+	expiryDeadline time.Time
 }
 
-type PendingSync struct {
-	Ctx        context.Context
-	Responders []chan<- []byte
+type pendingSync struct {
+	ctx        context.Context
+	responders []chan<- []byte
 }
 
-type GossipSubnet struct {
-	Subnet id.Hash
-	Expiry time.Time
+type gossipSubnet struct {
+	subnet id.Hash
+	expiry time.Time
 }
 
 type Options struct {
@@ -227,28 +231,28 @@ type Peer struct {
 	PrivKey *id.PrivKey
 	Port    uint16
 
-	Receive func(id.Signatory, []byte)
+	receive func(id.Signatory, []byte)
 
-	Ctx                  context.Context
-	Events               chan Event
-	LinkedPeers          map[id.Signatory]*PeerConnection
-	EphemeralConnections map[id.Signatory]*EphemeralConnection
-	PendingSyncs         map[string]PendingSync
-	GossipSubnets        map[string]GossipSubnet
+	ctx                  context.Context
+	events               chan event
+	linkedPeers          map[id.Signatory]*peerConnection
+	ephemeralConnections map[id.Signatory]*ephemeralConnection
+	pendingSyncs         map[string]pendingSync
+	gossipSubnets        map[string]gossipSubnet
 
 	PeerTable       dht.Table
 	ContentResolver dht.ContentResolver
-	Filter          *syncFilter
+	filter          *syncFilter
 }
 
 func New(opts Options, privKey *id.PrivKey, peerTable dht.Table, contentResolver dht.ContentResolver, receive func(id.Signatory, []byte)) *Peer {
 	self := privKey.Signatory()
 
-	events := make(chan Event, opts.EventLoopBufferSize)
-	linkedPeers := make(map[id.Signatory]*PeerConnection, opts.MaxLinkedPeers)
-	ephemeralConnections := make(map[id.Signatory]*EphemeralConnection, opts.MaxEphemeralConnections)
-	pendingSyncs := make(map[string]PendingSync, opts.MaxPendingSyncs)
-	gossipSubnets := make(map[string]GossipSubnet, opts.MaxGossipSubnets)
+	events := make(chan event, opts.EventLoopBufferSize)
+	linkedPeers := make(map[id.Signatory]*peerConnection, opts.MaxLinkedPeers)
+	ephemeralConnections := make(map[id.Signatory]*ephemeralConnection, opts.MaxEphemeralConnections)
+	pendingSyncs := make(map[string]pendingSync, opts.MaxPendingSyncs)
+	gossipSubnets := make(map[string]gossipSubnet, opts.MaxGossipSubnets)
 
 	filter := newSyncFilter()
 
@@ -259,18 +263,18 @@ func New(opts Options, privKey *id.PrivKey, peerTable dht.Table, contentResolver
 		PrivKey: privKey,
 		Port:    0,
 
-		Receive: receive,
+		receive: receive,
 
-		Ctx:                  nil,
-		Events:               events,
-		LinkedPeers:          linkedPeers,
-		EphemeralConnections: ephemeralConnections,
-		PendingSyncs:         pendingSyncs,
-		GossipSubnets:        gossipSubnets,
+		ctx:                  nil,
+		events:               events,
+		linkedPeers:          linkedPeers,
+		ephemeralConnections: ephemeralConnections,
+		pendingSyncs:         pendingSyncs,
+		gossipSubnets:        gossipSubnets,
 
 		PeerTable:       peerTable,
 		ContentResolver: contentResolver,
-		Filter:          filter,
+		filter:          filter,
 	}
 }
 
@@ -297,7 +301,7 @@ func (peer *Peer) Listen(ctx context.Context, address string) (uint16, error) {
 }
 
 func (peer *Peer) Run(ctx context.Context) error {
-	peer.Ctx = ctx
+	peer.ctx = ctx
 
 	// Peer discovery.
 	go func() {
@@ -313,9 +317,9 @@ func (peer *Peer) Run(ctx context.Context) error {
 			Data:    pingData[:],
 		}
 
-		peerDiscoveryEvent := Event{
-			Type:    DiscoverPeers,
-			Message: message,
+		peerDiscoveryEvent := event{
+			ty:      discoverPeers,
+			message: message,
 		}
 
 		peer.Opts.Logger.Debug("peer discovery starting", zap.String("self", peer.Self.String()[:4]))
@@ -327,7 +331,7 @@ func (peer *Peer) Run(ctx context.Context) error {
 				break LOOP
 
 			case <-ticker.C:
-				peer.Events <- peerDiscoveryEvent
+				peer.events <- peerDiscoveryEvent
 			}
 		}
 	}()
@@ -337,21 +341,21 @@ func (peer *Peer) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			peer.Opts.Logger.Debug("peer event loop stopping", zap.String("self", peer.Self.String()[:4]))
-			for _, peerConnection := range peer.LinkedPeers {
-				close(peerConnection.OutgoingMessages)
-				if peerConnection.Connection != nil {
-					peerConnection.Connection.Close()
+			for _, peerConnection := range peer.linkedPeers {
+				close(peerConnection.outgoingMessages)
+				if peerConnection.connection != nil {
+					peerConnection.connection.Close()
 				}
 			}
-			for _, ephemeralConnection := range peer.EphemeralConnections {
-				close(ephemeralConnection.OutgoingMessages)
-				if ephemeralConnection.Connection != nil {
-					ephemeralConnection.Connection.Close()
+			for _, ephemeralConnection := range peer.ephemeralConnections {
+				close(ephemeralConnection.outgoingMessages)
+				if ephemeralConnection.connection != nil {
+					ephemeralConnection.connection.Close()
 				}
 			}
 			return ctx.Err()
 
-		case event := <-peer.Events:
+		case event := <-peer.events:
 			peer.handleEvent(event)
 		}
 	}
@@ -359,14 +363,14 @@ func (peer *Peer) Run(ctx context.Context) error {
 
 func (peer *Peer) Link(remote id.Signatory) error {
 	responder := make(chan error, 1)
-	event := Event{
-		Type:           LinkPeer,
-		ID:             remote,
-		ErrorResponder: responder,
+	event := event{
+		ty:             linkPeer,
+		id:             remote,
+		errorResponder: responder,
 	}
 
 	select {
-	case peer.Events <- event:
+	case peer.events <- event:
 		return <-responder
 
 	default:
@@ -375,13 +379,13 @@ func (peer *Peer) Link(remote id.Signatory) error {
 }
 
 func (peer *Peer) Unlink(remote id.Signatory) error {
-	event := Event{
-		Type: UnlinkPeer,
-		ID:   remote,
+	event := event{
+		ty: unlinkPeer,
+		id: remote,
 	}
 
 	select {
-	case peer.Events <- event:
+	case peer.events <- event:
 		return nil
 
 	default:
@@ -393,7 +397,7 @@ func (peer *Peer) Sync(ctx context.Context, contentID []byte, hint *id.Signatory
 	event, errResponder, responder := syncEvent(ctx, contentID, hint)
 
 	select {
-	case peer.Events <- event:
+	case peer.events <- event:
 
 	default:
 		return nil, ErrEventLoopFull
@@ -406,7 +410,7 @@ func (peer *Peer) SyncNonBlocking(ctx context.Context, contentID []byte, hint *i
 	event, errResponder, responder := syncEvent(ctx, contentID, hint)
 
 	select {
-	case peer.Events <- event:
+	case peer.events <- event:
 
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -415,7 +419,7 @@ func (peer *Peer) SyncNonBlocking(ctx context.Context, contentID []byte, hint *i
 	return syncResponse(ctx, errResponder, responder)
 }
 
-func syncEvent(ctx context.Context, contentID []byte, hint *id.Signatory) (Event, chan error, chan []byte) {
+func syncEvent(ctx context.Context, contentID []byte, hint *id.Signatory) (event, chan error, chan []byte) {
 	message := wire.Msg{
 		Version: wire.MsgVersion1,
 		Type:    wire.MsgTypePull,
@@ -424,13 +428,13 @@ func syncEvent(ctx context.Context, contentID []byte, hint *id.Signatory) (Event
 
 	responder := make(chan []byte, 1)
 	errResponder := make(chan error, 1)
-	event := Event{
-		Type:             SyncRequest,
-		Message:          message,
-		Hint:             hint,
-		Ctx:              ctx,
-		MessageResponder: responder,
-		ErrorResponder:   errResponder,
+	event := event{
+		ty:               syncRequest,
+		message:          message,
+		hint:             hint,
+		ctx:              ctx,
+		messageResponder: responder,
+		errorResponder:   errResponder,
 	}
 
 	return event, errResponder, responder
@@ -453,7 +457,7 @@ func (peer *Peer) Gossip(ctx context.Context, contentID []byte, subnet *id.Hash)
 	event := gossipEvent(contentID, subnet)
 
 	select {
-	case peer.Events <- event:
+	case peer.events <- event:
 		return nil
 
 	case <-ctx.Done():
@@ -465,7 +469,7 @@ func (peer *Peer) GossipNonBlocking(contentID []byte, subnet *id.Hash) error {
 	event := gossipEvent(contentID, subnet)
 
 	select {
-	case peer.Events <- event:
+	case peer.events <- event:
 		return nil
 
 	default:
@@ -473,21 +477,21 @@ func (peer *Peer) GossipNonBlocking(contentID []byte, subnet *id.Hash) error {
 	}
 }
 
-func gossipEvent(contentID []byte, subnet *id.Hash) Event {
+func gossipEvent(contentID []byte, subnet *id.Hash) event {
 	if subnet == nil {
 		subnet = &DefaultSubnet
 	}
 
-	gossipMessage := wire.Msg{
+	msg := wire.Msg{
 		Version: wire.MsgVersion1,
 		Type:    wire.MsgTypePush,
 		To:      *subnet,
 		Data:    contentID,
 	}
 
-	return Event{
-		Type:    GossipMessage,
-		Message: gossipMessage,
+	return event{
+		ty:      gossipMessage,
+		message: msg,
 	}
 }
 
@@ -495,7 +499,7 @@ func (peer *Peer) Send(ctx context.Context, data []byte, remote id.Signatory) er
 	event, errResponder := sendEvent(data, remote)
 
 	select {
-	case peer.Events <- event:
+	case peer.events <- event:
 
 	case <-ctx.Done():
 		return ctx.Err()
@@ -514,7 +518,7 @@ func (peer *Peer) SendNonBlocking(data []byte, remote id.Signatory) error {
 	event, errResponder := sendEvent(data, remote)
 
 	select {
-	case peer.Events <- event:
+	case peer.events <- event:
 
 	default:
 		return ErrEventLoopFull
@@ -523,8 +527,8 @@ func (peer *Peer) SendNonBlocking(data []byte, remote id.Signatory) error {
 	return <-errResponder
 }
 
-func sendEvent(data []byte, remote id.Signatory) (Event, chan error) {
-	sendMessage := wire.Msg{
+func sendEvent(data []byte, remote id.Signatory) (event, chan error) {
+	msg := wire.Msg{
 		Version: wire.MsgVersion1,
 		Type:    wire.MsgTypeSend,
 		To:      id.Hash(remote),
@@ -532,11 +536,11 @@ func sendEvent(data []byte, remote id.Signatory) (Event, chan error) {
 	}
 
 	errResponder := make(chan error, 1)
-	return Event{
-		Type:           SendMessage,
-		ID:             remote,
-		Message:        sendMessage,
-		ErrorResponder: errResponder,
+	return event{
+		ty:             sendMessage,
+		id:             remote,
+		message:        msg,
+		errorResponder: errResponder,
 	}, errResponder
 }
 
@@ -554,36 +558,36 @@ func (peer *Peer) listenerHandler(conn net.Conn) {
 			return
 		}
 
-		newConnectionEvent := Event{
-			Type:       NewConnection,
-			ID:         remote,
-			Connection: conn,
-			GCMSession: gcmSession,
+		newConnectionEvent := event{
+			ty:         newConnection,
+			id:         remote,
+			connection: conn,
+			gcmSession: gcmSession,
 		}
-		peer.Events <- newConnectionEvent
+		peer.events <- newConnectionEvent
 	}()
 }
 
-func (peer *Peer) handleEvent(event Event) {
-	peer.Opts.Logger.Debug("handling event", zap.String("self", peer.Self.String()[:4]), zap.String("type", event.Type.String()))
-	remote := event.ID
+func (peer *Peer) handleEvent(e event) {
+	peer.Opts.Logger.Debug("handling event", zap.String("self", peer.Self.String()[:4]), zap.String("type", e.ty.String()))
+	remote := e.id
 
-	switch event.Type {
-	case IncomingMessage:
-		message := event.Message
+	switch e.ty {
+	case incomingMessage:
+		message := e.message
 
-		switch event.Message.Type {
+		switch e.message.Type {
 		case wire.MsgTypePush:
 			if len(message.Data) != 0 {
 				if _, ok := peer.ContentResolver.QueryContent(message.Data); !ok {
 					if peer.hasSpaceForNewGossipSubnet() {
 						expiry := time.Now().Add(peer.Opts.GossipTimeout)
-						peer.GossipSubnets[string(message.Data)] = GossipSubnet{
-							Subnet: message.To,
-							Expiry: expiry,
+						peer.gossipSubnets[string(message.Data)] = gossipSubnet{
+							subnet: message.To,
+							expiry: expiry,
 						}
 
-						peer.Filter.allow(message.Data)
+						peer.filter.allow(message.Data)
 
 						pullMessage := wire.Msg{
 							Version: wire.MsgVersion1,
@@ -630,13 +634,13 @@ func (peer *Peer) handleEvent(event Event) {
 		case wire.MsgTypeSync:
 			contentID := string(message.Data)
 
-			if !peer.Filter.filter(remote, message) {
-				if pendingSync, ok := peer.PendingSyncs[contentID]; ok {
-					for _, responder := range pendingSync.Responders {
+			if !peer.filter.filter(remote, message) {
+				if pendingSync, ok := peer.pendingSyncs[contentID]; ok {
+					for _, responder := range pendingSync.responders {
 						responder <- message.SyncData
 					}
 
-					delete(peer.PendingSyncs, contentID)
+					delete(peer.pendingSyncs, contentID)
 				}
 
 				if len(message.Data) != 0 && len(message.SyncData) != 0 {
@@ -647,24 +651,24 @@ func (peer *Peer) handleEvent(event Event) {
 					}
 				}
 
-				if gossipSubnet, ok := peer.GossipSubnets[contentID]; ok {
+				if gossipSubnet, ok := peer.gossipSubnets[contentID]; ok {
 					pushMessage := wire.Msg{
 						Version: wire.MsgVersion1,
-						To:      gossipSubnet.Subnet,
+						To:      gossipSubnet.subnet,
 						Type:    wire.MsgTypePush,
 						Data:    message.Data,
 					}
 
 					peer.gossip(pushMessage)
 
-					delete(peer.GossipSubnets, contentID)
-					peer.Filter.deny(message.Data)
+					delete(peer.gossipSubnets, contentID)
+					peer.filter.deny(message.Data)
 				}
 			}
 
 		case wire.MsgTypeSend:
-			if peer.Receive != nil {
-				peer.Receive(event.ID, event.Message.Data)
+			if peer.receive != nil {
+				peer.receive(e.id, e.message.Data)
 			}
 
 		case wire.MsgTypePing:
@@ -675,7 +679,7 @@ func (peer *Peer) handleEvent(event Event) {
 
 			peer.PeerTable.AddPeer(
 				remote,
-				wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", event.Addr.(*net.TCPAddr).IP.String(), port), uint64(time.Now().UnixNano())),
+				wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", e.addr.(*net.TCPAddr).IP.String(), port), uint64(time.Now().UnixNano())),
 			)
 
 			peers := peer.PeerTable.RandomPeers(peer.Opts.PongAlpha)
@@ -712,59 +716,59 @@ func (peer *Peer) handleEvent(event Event) {
 			err := surge.FromBinary(&signatoriesAndAddrs, message.Data)
 			if err != nil {
 				peer.Opts.Logger.Warn("unmarshaling ping ack", zap.String("peer", remote.String()), zap.Error(err))
-			}
-
-			for _, signatoryAndAddr := range signatoriesAndAddrs {
-				// NOTE(ross): We rely on the fact that the peer table won't
-				// add itself.
-				peer.PeerTable.AddPeer(signatoryAndAddr.Signatory, signatoryAndAddr.Address)
+			} else {
+				for _, signatoryAndAddr := range signatoriesAndAddrs {
+					// NOTE(ross): We rely on the fact that the peer table won't
+					// add itself.
+					peer.PeerTable.AddPeer(signatoryAndAddr.Signatory, signatoryAndAddr.Address)
+				}
 			}
 
 		default:
 			peer.Opts.Logger.Warn("unsupported messge type", zap.Uint16("type", message.Type))
 		}
 
-	case SendMessage:
-		event.ErrorResponder <- peer.handleSendMessage(remote, event.Message)
+	case sendMessage:
+		e.errorResponder <- peer.handleSendMessage(remote, e.message)
 
-	case GossipMessage:
-		peer.gossip(event.Message)
+	case gossipMessage:
+		peer.gossip(e.message)
 
-	case SyncRequest:
-		contentID := event.Message.Data
+	case syncRequest:
+		contentID := e.message.Data
 
-		if pendingSync, ok := peer.PendingSyncs[string(contentID)]; ok {
-			if uint(len(pendingSync.Responders)) >= peer.Opts.MaxActiveSyncsForSameContent {
-				event.ErrorResponder <- ErrTooManySyncsForSameContent
+		if pending, ok := peer.pendingSyncs[string(contentID)]; ok {
+			if uint(len(pending.responders)) >= peer.Opts.MaxActiveSyncsForSameContent {
+				e.errorResponder <- ErrTooManySyncsForSameContent
 			} else {
-				pendingSync.Responders = append(pendingSync.Responders, event.MessageResponder)
+				pending.responders = append(pending.responders, e.messageResponder)
 			}
 		} else {
-			peer.Filter.allow(contentID)
+			peer.filter.allow(contentID)
 
-			if uint(len(peer.PendingSyncs)) >= peer.Opts.MaxPendingSyncs {
-				event.ErrorResponder <- ErrTooManyPendingSyncs
+			if uint(len(peer.pendingSyncs)) >= peer.Opts.MaxPendingSyncs {
+				e.errorResponder <- ErrTooManyPendingSyncs
 			} else {
-				pendingSync := PendingSync{
-					Ctx:        event.Ctx,
-					Responders: []chan<- []byte{event.MessageResponder},
+				pending := pendingSync{
+					ctx:        e.ctx,
+					responders: []chan<- []byte{e.messageResponder},
 				}
 
-				peer.PendingSyncs[string(contentID)] = pendingSync
+				peer.pendingSyncs[string(contentID)] = pending
 			}
 		}
 
 		peers := peer.PeerTable.RandomPeers(peer.Opts.GossipAlpha)
-		if event.Hint != nil {
-			peers = append([]id.Signatory{*event.Hint}, peers...)
+		if e.hint != nil {
+			peers = append([]id.Signatory{*e.hint}, peers...)
 		}
 
-		message := event.Message
+		message := e.message
 		warnThreshold := len(peers) / 2
 		numErrors := 0
 		for _, recipient := range peers {
 			if err := peer.handleSendMessage(recipient, message); err != nil {
-				if recipient.Equal(event.Hint) {
+				if recipient.Equal(e.hint) {
 					peer.Opts.Logger.Warn("unable to sync from hinted peer", zap.String("peer", recipient.String()), zap.Error(err))
 				}
 				numErrors++
@@ -775,79 +779,79 @@ func (peer *Peer) handleEvent(event Event) {
 			peer.Opts.Logger.Warn("low sync gossip success rate", zap.String("proportion of successful sends", fmt.Sprintf("%v/%v", len(peers)-numErrors, len(peers))))
 		}
 
-	case ReaderDropped:
-		peer.Opts.Logger.Debug("reader dropped", zap.String("self", peer.Self.String()[:4]), zap.Error(event.Error))
+	case readerDropped:
+		peer.Opts.Logger.Debug("reader dropped", zap.String("self", peer.Self.String()[:4]), zap.Error(e.err))
 		// TODO(ross): If the error was malicious we should act accordingly.
 
-		if linkedPeer, ok := peer.LinkedPeers[remote]; ok {
-			peer.TearDownConnection(linkedPeer)
+		if linkedPeer, ok := peer.linkedPeers[remote]; ok {
+			peer.tearDownConnection(linkedPeer)
 
-			remoteAddr, ok := peer.PeerTable.PeerAddress(event.ID)
+			remoteAddr, ok := peer.PeerTable.PeerAddress(e.id)
 			if ok && remoteAddr.Protocol == wire.TCP {
-				go dialAndPublishEvent(peer.Ctx, peer.Ctx, peer.Events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, event.ID, remoteAddr.Value)
+				go dialAndPublishEvent(peer.ctx, peer.ctx, peer.events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, e.id, remoteAddr.Value)
 			}
-		} else if ephemeralConnection, ok := peer.EphemeralConnections[remote]; ok {
-			peer.TearDownConnection(&ephemeralConnection.PeerConnection)
-			if ephemeralConnection.PendingMessage != nil {
+		} else if ephemeralConnection, ok := peer.ephemeralConnections[remote]; ok {
+			peer.tearDownConnection(&ephemeralConnection.peerConnection)
+			if ephemeralConnection.pendingMessage != nil {
 				peer.Opts.Logger.Warn("ephemeral connection dropped with unsent message", zap.String("peer", remote.String()))
 			}
-			delete(peer.EphemeralConnections, remote)
+			delete(peer.ephemeralConnections, remote)
 		} else {
 			// Do nothing.
 		}
 
-	case WriterDropped:
-		if linkedPeer, ok := peer.LinkedPeers[remote]; ok {
-			peer.TearDownConnection(linkedPeer)
+	case writerDropped:
+		if linkedPeer, ok := peer.linkedPeers[remote]; ok {
+			peer.tearDownConnection(linkedPeer)
 
-			remoteAddr, ok := peer.PeerTable.PeerAddress(event.ID)
+			remoteAddr, ok := peer.PeerTable.PeerAddress(e.id)
 			if ok && remoteAddr.Protocol == wire.TCP {
-				go dialAndPublishEvent(peer.Ctx, peer.Ctx, peer.Events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, event.ID, remoteAddr.Value)
+				go dialAndPublishEvent(peer.ctx, peer.ctx, peer.events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, e.id, remoteAddr.Value)
 			}
-		} else if ephemeralConnection, ok := peer.EphemeralConnections[remote]; ok {
-			peer.TearDownConnection(&ephemeralConnection.PeerConnection)
-			if ephemeralConnection.PendingMessage != nil {
+		} else if ephemeralConnection, ok := peer.ephemeralConnections[remote]; ok {
+			peer.tearDownConnection(&ephemeralConnection.peerConnection)
+			if ephemeralConnection.pendingMessage != nil {
 				peer.Opts.Logger.Warn("ephemeral connection dropped with unsent message", zap.String("peer", remote.String()))
 			}
-			delete(peer.EphemeralConnections, remote)
+			delete(peer.ephemeralConnections, remote)
 		} else {
 			// Do nothing.
 		}
 
-	case NewConnection:
-		var peerConnection *PeerConnection
+	case newConnection:
+		var peerConn *peerConnection
 		var wouldKeepAlive bool
 		isLinked := false
-		if linkedPeer, ok := peer.LinkedPeers[remote]; ok {
+		if linkedPeer, ok := peer.linkedPeers[remote]; ok {
 			isLinked = true
-			peerConnection = linkedPeer
-			wouldKeepAlive = linkedPeer.Connection == nil || time.Now().Sub(linkedPeer.Timestamp) > peer.Opts.MinimumConnectionExpiryAge
-		} else if ephemeralConnection, ok := peer.EphemeralConnections[remote]; ok {
-			peerConnection = &ephemeralConnection.PeerConnection
-			wouldKeepAlive = ephemeralConnection.Connection == nil && time.Now().Before(ephemeralConnection.ExpiryDeadline)
+			peerConn = linkedPeer
+			wouldKeepAlive = linkedPeer.connection == nil || time.Since(linkedPeer.timestamp) > peer.Opts.MinimumConnectionExpiryAge
+		} else if eConn, ok := peer.ephemeralConnections[remote]; ok {
+			peerConn = &eConn.peerConnection
+			wouldKeepAlive = eConn.connection == nil && time.Now().Before(eConn.expiryDeadline)
 		} else {
-			if uint(len(peer.EphemeralConnections)) < peer.Opts.MaxEphemeralConnections {
+			if uint(len(peer.ephemeralConnections)) < peer.Opts.MaxEphemeralConnections {
 				expiryDeadline := time.Now().Add(peer.Opts.EphemeralConnectionTTL)
 
-				ephemeralConnection := &EphemeralConnection{
-					PeerConnection: PeerConnection{
-						Connection:       nil,
-						OutgoingMessages: make(chan wire.Msg, peer.Opts.OutgoingBufferSize),
+				eConn := &ephemeralConnection{
+					peerConnection: peerConnection{
+						connection:       nil,
+						outgoingMessages: make(chan wire.Msg, peer.Opts.OutgoingBufferSize),
 					},
-					ExpiryDeadline: expiryDeadline,
+					expiryDeadline: expiryDeadline,
 				}
 
-				peer.EphemeralConnections[remote] = ephemeralConnection
+				peer.ephemeralConnections[remote] = eConn
 
-				peerConnection = &ephemeralConnection.PeerConnection
+				peerConn = &eConn.peerConnection
 				wouldKeepAlive = true
 			} else {
-				peerConnection = nil
+				peerConn = nil
 				wouldKeepAlive = false
 			}
 		}
 
-		if peerConnection != nil {
+		if peerConn != nil {
 			cmp := bytes.Compare(peer.Self[:], remote[:])
 			if cmp == 0 {
 				peer.Opts.Logger.DPanic("connection to self", zap.String("self", peer.Self.String()))
@@ -855,13 +859,13 @@ func (peer *Peer) handleEvent(event Event) {
 				decisionBuffer := [128]byte{}
 				var decisionEncoded []byte
 				if wouldKeepAlive {
-					peer.TearDownConnection(peerConnection)
+					peer.tearDownConnection(peerConn)
 
-					peerConnection.Connection = event.Connection
-					peerConnection.GCMSession = event.GCMSession
-					peerConnection.Timestamp = time.Now()
+					peerConn.connection = e.connection
+					peerConn.gcmSession = e.gcmSession
+					peerConn.timestamp = time.Now()
 
-					decisionEncoded = encode([]byte{KeepAliveTrue}, decisionBuffer[:], event.GCMSession)
+					decisionEncoded = encode([]byte{keepAliveTrue}, decisionBuffer[:], e.gcmSession)
 
 					peer.Opts.Logger.Debug("signalling to keep alive", zap.String("self", peer.Self.String()[:4]), zap.String("remote", remote.String()[:4]))
 					// NOTE(ross): Normally whenever we write to a connection
@@ -876,25 +880,25 @@ func (peer *Peer) handleEvent(event Event) {
 					// NOTE(ross): If later it is decided to move the write
 					// into a go routine, make sure to not cause any races
 					// (i.e.  don't call peer.StartConnection!)
-					_, err := event.Connection.Write(decisionEncoded[:])
+					_, err := e.connection.Write(decisionEncoded[:])
 					if err != nil {
-						peerConnection.Connection.Close()
-						peerConnection.Connection = nil
+						peerConn.connection.Close()
+						peerConn.connection = nil
 
 						if isLinked {
 							remoteAddr, ok := peer.PeerTable.PeerAddress(remote)
 							if ok && remoteAddr.Protocol == wire.TCP {
-								go dialAndPublishEvent(peer.Ctx, peer.Ctx, peer.Events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, event.ID, remoteAddr.Value)
+								go dialAndPublishEvent(peer.ctx, peer.ctx, peer.events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, e.id, remoteAddr.Value)
 							}
 						}
 					} else {
-						peer.StartConnection(peerConnection, remote)
+						peer.startConnection(peerConn, remote)
 					}
 				} else {
 					// TODO(ross): Should this timeout be configurable?
-					event.Connection.SetDeadline(time.Now().Add(5 * time.Second))
+					e.connection.SetDeadline(time.Now().Add(5 * time.Second))
 
-					decisionEncoded = encode([]byte{KeepAliveFalse}, decisionBuffer[:], event.GCMSession)
+					decisionEncoded = encode([]byte{keepAliveFalse}, decisionBuffer[:], e.gcmSession)
 
 					peer.Opts.Logger.Debug("signalling to drop", zap.String("self", peer.Self.String()[:4]), zap.String("remote", remote.String()[:4]))
 					// NOTE(ross): Normally whenever we write to a connection
@@ -906,123 +910,123 @@ func (peer *Peer) handleEvent(event Event) {
 					// since the message we are trying to send is very small
 					// then for any reasonably configured socket we should not
 					// block.
-					event.Connection.Write(decisionEncoded[:])
-					event.Connection.Close()
+					e.connection.Write(decisionEncoded[:])
+					e.connection.Close()
 				}
 			} else {
 				go func() {
 					readBuffer := [128]byte{}
 					decisionBuffer := [1]byte{}
-					decisionDecoded, err := readAndDecode(event.Connection, event.GCMSession, nil, readBuffer[:], decisionBuffer[:])
+					decisionDecoded, err := readAndDecode(e.connection, e.gcmSession, nil, readBuffer[:], decisionBuffer[:])
 					if err != nil {
 					} else {
 						peer.Opts.Logger.Debug("received keep alive message", zap.String("self", peer.Self.String()[:4]), zap.String("remote", remote.String()[:4]), zap.Uint8("decision", decisionDecoded[0]))
 					}
 
-					if err == nil && decisionDecoded[0] == KeepAliveTrue {
-						peer.Events <- Event{
-							Type:       KeepAlive,
-							ID:         remote,
-							Connection: event.Connection,
-							GCMSession: event.GCMSession,
+					if err == nil && decisionDecoded[0] == keepAliveTrue {
+						peer.events <- event{
+							ty:         keepAlive,
+							id:         remote,
+							connection: e.connection,
+							gcmSession: e.gcmSession,
 						}
 					}
 				}()
 			}
 		}
 
-	case KeepAlive:
-		var peerConnection *PeerConnection
-		if linkedPeer, ok := peer.LinkedPeers[remote]; ok {
-			peerConnection = linkedPeer
-		} else if ephemeralConnection, ok := peer.EphemeralConnections[remote]; ok {
-			if time.Now().Before(ephemeralConnection.ExpiryDeadline) {
-				peerConnection = &ephemeralConnection.PeerConnection
+	case keepAlive:
+		var peerConn *peerConnection
+		if linkedPeer, ok := peer.linkedPeers[remote]; ok {
+			peerConn = linkedPeer
+		} else if ephemeralConnection, ok := peer.ephemeralConnections[remote]; ok {
+			if time.Now().Before(ephemeralConnection.expiryDeadline) {
+				peerConn = &ephemeralConnection.peerConnection
 			} else {
-				peerConnection = nil
+				peerConn = nil
 			}
 		} else {
-			peerConnection = nil
+			peerConn = nil
 		}
 
-		if peerConnection != nil {
-			remote := event.ID
-			peer.TearDownConnection(peerConnection)
+		if peerConn != nil {
+			remote := e.id
+			peer.tearDownConnection(peerConn)
 
-			peerConnection.Connection = event.Connection
-			peerConnection.GCMSession = event.GCMSession
-			peerConnection.Timestamp = time.Now()
+			peerConn.connection = e.connection
+			peerConn.gcmSession = e.gcmSession
+			peerConn.timestamp = time.Now()
 
-			peer.StartConnection(peerConnection, remote)
+			peer.startConnection(peerConn, remote)
 		}
 
-	case DialTimeout:
-		remote := event.ID
+	case dialTimeout:
+		remote := e.id
 
 		peer.PeerTable.AddExpiry(remote, peer.Opts.PeerExpiryTimeout)
 
 		expired := peer.PeerTable.HandleExpired(remote)
 		if !expired {
-			if _, ok := peer.LinkedPeers[remote]; ok {
+			if _, ok := peer.linkedPeers[remote]; ok {
 				// This can happen if an ephemeral connection that was still dialling
 				// was upgraded to a linked peer.
 
 				remoteAddr, ok := peer.PeerTable.PeerAddress(remote)
 				if ok && remoteAddr.Protocol == wire.TCP {
-					go dialAndPublishEvent(peer.Ctx, peer.Ctx, peer.Events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, event.ID, remoteAddr.Value)
+					go dialAndPublishEvent(peer.ctx, peer.ctx, peer.events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, e.id, remoteAddr.Value)
 				}
-			} else if _, ok := peer.EphemeralConnections[remote]; ok {
-				delete(peer.EphemeralConnections, remote)
+			} else if _, ok := peer.ephemeralConnections[remote]; ok {
+				delete(peer.ephemeralConnections, remote)
 			} else {
 				// Do nothing.
 			}
 		}
 
-	case LinkPeer:
-		if _, ok := peer.LinkedPeers[remote]; ok {
+	case linkPeer:
+		if _, ok := peer.linkedPeers[remote]; ok {
 			// Do nothing.
-			event.ErrorResponder <- nil
-		} else if ephemeralConnection, ok := peer.EphemeralConnections[remote]; ok {
+			e.errorResponder <- nil
+		} else if ephemeralConnection, ok := peer.ephemeralConnections[remote]; ok {
 			// Upgrade to a linked peer.
 
-			remote := event.ID
+			remote := e.id
 
-			if len(peer.LinkedPeers) >= int(peer.Opts.MaxLinkedPeers) {
-				event.ErrorResponder <- ErrTooManyLinkedPeers
+			if len(peer.linkedPeers) >= int(peer.Opts.MaxLinkedPeers) {
+				e.errorResponder <- ErrTooManyLinkedPeers
 			} else {
-				peerConnection := ephemeralConnection.PeerConnection
-				delete(peer.EphemeralConnections, remote)
-				peer.LinkedPeers[remote] = &peerConnection
+				peerConnection := ephemeralConnection.peerConnection
+				delete(peer.ephemeralConnections, remote)
+				peer.linkedPeers[remote] = &peerConnection
 
-				event.ErrorResponder <- nil
+				e.errorResponder <- nil
 			}
 		} else {
 			// Create a new linked peer.
-			if len(peer.LinkedPeers) >= int(peer.Opts.MaxLinkedPeers) {
-				event.ErrorResponder <- ErrTooManyLinkedPeers
+			if len(peer.linkedPeers) >= int(peer.Opts.MaxLinkedPeers) {
+				e.errorResponder <- ErrTooManyLinkedPeers
 			} else {
-				peerConnection := PeerConnection{
-					Connection:       nil,
-					OutgoingMessages: make(chan wire.Msg, peer.Opts.OutgoingBufferSize),
+				peerConnection := peerConnection{
+					connection:       nil,
+					outgoingMessages: make(chan wire.Msg, peer.Opts.OutgoingBufferSize),
 				}
 
 				remoteAddr, ok := peer.PeerTable.PeerAddress(remote)
 				if ok && remoteAddr.Protocol == wire.TCP {
-					go dialAndPublishEvent(peer.Ctx, peer.Ctx, peer.Events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, remote, remoteAddr.Value)
+					go dialAndPublishEvent(peer.ctx, peer.ctx, peer.events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, remote, remoteAddr.Value)
 				}
 
-				peer.LinkedPeers[remote] = &peerConnection
+				peer.linkedPeers[remote] = &peerConnection
 
-				event.ErrorResponder <- nil
+				e.errorResponder <- nil
 			}
 		}
 
-	case DiscoverPeers:
+	case discoverPeers:
 		recipients := peer.PeerTable.RandomPeers(peer.Opts.PingAlpha)
 		warnThreshold := len(recipients) / 2
 		numErrors := 0
 		for _, recipient := range recipients {
-			if err := peer.handleSendMessage(recipient, event.Message); err != nil {
+			if err := peer.handleSendMessage(recipient, e.message); err != nil {
 				numErrors++
 			}
 		}
@@ -1031,25 +1035,25 @@ func (peer *Peer) handleEvent(event Event) {
 			peer.Opts.Logger.Warn("low ping gossip success rate", zap.String("proportion of successful sends", fmt.Sprintf("%v/%v", len(recipients)-numErrors, len(recipients))))
 		}
 
-	case UnlinkPeer:
-		if linkedPeer, ok := peer.LinkedPeers[remote]; ok {
-			if linkedPeer.Connection != nil {
-				linkedPeer.Connection.Close()
+	case unlinkPeer:
+		if linkedPeer, ok := peer.linkedPeers[remote]; ok {
+			if linkedPeer.connection != nil {
+				linkedPeer.connection.Close()
 			}
 
-			delete(peer.LinkedPeers, event.ID)
+			delete(peer.linkedPeers, e.id)
 		} else {
 			// Do nothing.
 		}
 
 	default:
-		panic(fmt.Sprintf("unexpected variant: %v", event.Type))
+		panic(fmt.Sprintf("unexpected variant: %v", e.ty))
 	}
 }
 
 func (peer *Peer) gossip(message wire.Msg) {
 	subnet := id.Hash(message.To)
-	recipients := []id.Signatory{}
+	var recipients []id.Signatory
 	if subnet.Equal(&DefaultSubnet) {
 		recipients = peer.PeerTable.Peers(peer.Opts.GossipAlpha)
 	} else {
@@ -1072,90 +1076,90 @@ func (peer *Peer) gossip(message wire.Msg) {
 }
 
 func (peer *Peer) hasSpaceForNewGossipSubnet() bool {
-	if uint(len(peer.GossipSubnets)) < peer.Opts.MaxGossipSubnets {
+	if uint(len(peer.gossipSubnets)) < peer.Opts.MaxGossipSubnets {
 		return true
 	} else {
 		now := time.Now()
 
-		for contentID, gossipSubnet := range peer.GossipSubnets {
-			if now.After(gossipSubnet.Expiry) {
-				delete(peer.GossipSubnets, contentID)
-				peer.Filter.deny([]byte(contentID))
+		for contentID, gossipSubnet := range peer.gossipSubnets {
+			if now.After(gossipSubnet.expiry) {
+				delete(peer.gossipSubnets, contentID)
+				peer.filter.deny([]byte(contentID))
 			}
 		}
 
-		return uint(len(peer.GossipSubnets)) < peer.Opts.MaxGossipSubnets
+		return uint(len(peer.gossipSubnets)) < peer.Opts.MaxGossipSubnets
 	}
 }
 
 func (peer *Peer) handleSendMessage(remote id.Signatory, message wire.Msg) error {
-	if linkedPeer, ok := peer.LinkedPeers[remote]; ok {
-		ctx, cancel := context.WithTimeout(peer.Ctx, peer.Opts.OutgoingBufferTimeout)
+	if linkedPeer, ok := peer.linkedPeers[remote]; ok {
+		ctx, cancel := context.WithTimeout(peer.ctx, peer.Opts.OutgoingBufferTimeout)
 		defer cancel()
 
 		select {
-		case linkedPeer.OutgoingMessages <- message:
+		case linkedPeer.outgoingMessages <- message:
 			return nil
 
 		case <-ctx.Done():
-			if peer.Ctx.Err() == nil {
+			if peer.ctx.Err() == nil {
 				peer.Opts.Logger.Warn("outgoing message buffer back pressure")
 				return ErrMessageBufferFull
 			} else {
 				return nil
 			}
 		}
-	} else if ephemeralConnection, ok := peer.EphemeralConnections[remote]; ok {
+	} else if eConn, ok := peer.ephemeralConnections[remote]; ok {
 		expiryDeadline := time.Now().Add(peer.Opts.EphemeralConnectionTTL)
-		ephemeralConnection.ExpiryDeadline = expiryDeadline
-		if ephemeralConnection.Connection != nil {
-			ephemeralConnection.Connection.SetDeadline(ephemeralConnection.ExpiryDeadline)
+		eConn.expiryDeadline = expiryDeadline
+		if eConn.connection != nil {
+			eConn.connection.SetDeadline(eConn.expiryDeadline)
 		}
 
 		select {
-		case ephemeralConnection.OutgoingMessages <- message:
+		case eConn.outgoingMessages <- message:
 			return nil
 
 		default:
 			return ErrMessageBufferFull
 		}
 	} else {
-		if len(peer.EphemeralConnections) >= int(peer.Opts.MaxEphemeralConnections) {
+		if len(peer.ephemeralConnections) >= int(peer.Opts.MaxEphemeralConnections) {
 			return ErrTooManyEphemeralConnections
 		} else {
 			expiryDeadline := time.Now().Add(peer.Opts.EphemeralConnectionTTL)
 
-			ephemeralConnection := &EphemeralConnection{
-				PeerConnection: PeerConnection{
-					Connection:       nil,
-					OutgoingMessages: make(chan wire.Msg, peer.Opts.OutgoingBufferSize),
+			eConn := &ephemeralConnection{
+				peerConnection: peerConnection{
+					connection:       nil,
+					outgoingMessages: make(chan wire.Msg, peer.Opts.OutgoingBufferSize),
 				},
-				ExpiryDeadline: expiryDeadline,
+				expiryDeadline: expiryDeadline,
 			}
 
 			remoteAddr, ok := peer.PeerTable.PeerAddress(remote)
 			if ok && remoteAddr.Protocol == wire.TCP {
-				ctx, cancel := context.WithTimeout(peer.Ctx, peer.Opts.EphemeralConnectionTTL)
+				ctx, cancel := context.WithTimeout(peer.ctx, peer.Opts.EphemeralConnectionTTL)
 				go func() {
-					dialAndPublishEvent(ctx, peer.Ctx, peer.Events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, remote, remoteAddr.Value)
+					dialAndPublishEvent(ctx, peer.ctx, peer.events, peer.PrivKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, remote, remoteAddr.Value)
 					cancel()
 				}()
 			}
 
-			ephemeralConnection.OutgoingMessages <- message
+			eConn.outgoingMessages <- message
 
-			peer.EphemeralConnections[remote] = ephemeralConnection
+			peer.ephemeralConnections[remote] = eConn
 
 			return nil
 		}
 	}
 }
 
-func (peer *Peer) TearDownConnection(peerConnection *PeerConnection) {
+func (peer *Peer) tearDownConnection(peerConn *peerConnection) {
 	peer.Opts.Logger.Debug("tearing down connection", zap.String("self", peer.Self.String()[:4]))
-	if peerConnection.Connection != nil {
-		peerConnection.Connection.Close()
-		peerConnection.Connection = nil
+	if peerConn.connection != nil {
+		peerConn.connection.Close()
+		peerConn.connection = nil
 
 		// We create a new channel so that we can signal to the writer to
 		// finish if it is blocking on reading from the outgoing message
@@ -1164,55 +1168,55 @@ func (peer *Peer) TearDownConnection(peerConnection *PeerConnection) {
 	LOOP:
 		for {
 			select {
-			case msg := <-peerConnection.OutgoingMessages:
+			case msg := <-peerConn.outgoingMessages:
 				newOutgoingBuffer <- msg
 
 			default:
 				break LOOP
 			}
 		}
-		close(peerConnection.OutgoingMessages)
-		peerConnection.OutgoingMessages = newOutgoingBuffer
+		close(peerConn.outgoingMessages)
+		peerConn.outgoingMessages = newOutgoingBuffer
 
 		// NOTE(ross): Waiting for the reading and writing go routines to finish
 		// relies on the fact that closing the connection will cause blocked
 		// reads/writes to return, otherwise this will block the whole event loop.
 		// This behaviour is sepcified by the documentation for `Close`, so we
 		// should be OK.
-		<-peerConnection.ReadDone
-		peerConnection.PendingMessage = <-peerConnection.WriteDone
+		<-peerConn.readDone
+		peerConn.pendingMessage = <-peerConn.writeDone
 	}
 
 }
 
-func (peer *Peer) StartConnection(peerConnection *PeerConnection, remote id.Signatory) {
+func (peer *Peer) startConnection(peerConn *peerConnection, remote id.Signatory) {
 	peer.Opts.Logger.Debug("starting connection", zap.String("self", peer.Self.String()[:4]))
-	peerConnection.ReadDone = make(chan struct{}, 1)
-	peerConnection.WriteDone = make(chan *wire.Msg, 1)
+	peerConn.readDone = make(chan struct{}, 1)
+	peerConn.writeDone = make(chan *wire.Msg, 1)
 
-	firstMessage := peerConnection.PendingMessage
-	peerConnection.PendingMessage = nil
+	firstMessage := peerConn.pendingMessage
+	peerConn.pendingMessage = nil
 
 	go read(
-		peer.Ctx,
-		peerConnection.Connection,
-		peerConnection.GCMSession,
-		peer.Filter,
-		peer.Events,
+		peer.ctx,
+		peerConn.connection,
+		peerConn.gcmSession,
+		peer.filter,
+		peer.events,
 		remote,
 		peer.Opts.ConnectionRateLimiterOptions,
 		peer.Opts.MaxMessageSize,
-		peerConnection.ReadDone,
+		peerConn.readDone,
 	)
 	go write(
-		peer.Ctx,
+		peer.ctx,
 		peer.Opts.WriteTimeout,
-		peerConnection.Connection,
-		peerConnection.GCMSession,
-		peer.Events,
-		peerConnection.OutgoingMessages,
+		peerConn.connection,
+		peerConn.gcmSession,
+		peer.events,
+		peerConn.outgoingMessages,
 		peer.Opts.MaxMessageSize,
-		peerConnection.WriteDone,
+		peerConn.writeDone,
 		remote,
 		firstMessage,
 	)
@@ -1220,7 +1224,7 @@ func (peer *Peer) StartConnection(peerConnection *PeerConnection, remote id.Sign
 
 func dialAndPublishEvent(
 	ctx, peerCtx context.Context,
-	events chan Event,
+	events chan event,
 	privKey *id.PrivKey,
 	logger *zap.Logger,
 	dialRetryInterval time.Duration,
@@ -1229,11 +1233,11 @@ func dialAndPublishEvent(
 ) {
 	conn, err := dial(ctx, remoteAddr, dialRetryInterval, logger)
 
-	var event Event
-	event.ID = remote
+	var e event
+	e.id = remote
 	if err != nil {
-		event.Type = DialTimeout
-		event.Error = err
+		e.ty = dialTimeout
+		e.err = err
 	} else {
 		gcmSession, discoveredRemote, err := handshake(privKey, conn)
 
@@ -1241,21 +1245,21 @@ func dialAndPublishEvent(
 			logger.Warn("handshake failed", zap.Error(err))
 			conn.Close()
 
-			event.Type = DialTimeout
-			event.Error = err
+			e.ty = dialTimeout
+			e.err = err
 		} else if !remote.Equal(&discoveredRemote) {
 			// TODO(ross): What to do here? This being an error probably relies
 			// on only using signed addresses during peer discovery.
 		} else {
-			event.Type = NewConnection
-			event.Connection = conn
-			event.GCMSession = gcmSession
+			e.ty = newConnection
+			e.connection = conn
+			e.gcmSession = gcmSession
 		}
 	}
 
 	select {
 	case <-peerCtx.Done():
-	case events <- event:
+	case events <- e:
 	}
 }
 
@@ -1264,7 +1268,7 @@ func read(
 	conn net.Conn,
 	gcmSession *session.GCMSession,
 	filter *syncFilter,
-	events chan<- Event,
+	events chan<- event,
 	remote id.Signatory,
 	rateLimiterOptions RateLimiterOptions,
 	maxMessageSize uint,
@@ -1280,15 +1284,15 @@ func read(
 	for {
 		decodedMessage, err := readAndDecode(conn, gcmSession, rateLimiter, decodeBuffer, unmarshalBuffer)
 		if err != nil {
-			event := Event{
-				Type:  ReaderDropped,
-				ID:    remote,
-				Error: err,
+			e := event{
+				ty:  readerDropped,
+				id:  remote,
+				err: err,
 			}
 
 			select {
 			case <-ctx.Done():
-			case events <- event:
+			case events <- e:
 			}
 
 			close(done)
@@ -1298,15 +1302,15 @@ func read(
 		msg := wire.Msg{}
 		_, _, err = msg.Unmarshal(decodedMessage, len(decodedMessage))
 		if err != nil {
-			event := Event{
-				Type:  ReaderDropped,
-				ID:    remote,
-				Error: fmt.Errorf("unmarshalling message: %v", err),
+			e := event{
+				ty:  readerDropped,
+				id:  remote,
+				err: fmt.Errorf("unmarshalling message: %v", err),
 			}
 
 			select {
 			case <-ctx.Done():
-			case events <- event:
+			case events <- e:
 			}
 
 			close(done)
@@ -1314,15 +1318,15 @@ func read(
 		} else {
 			if msg.Type == wire.MsgTypeSync {
 				if filter.filter(remote, msg) {
-					event := Event{
-						Type:  ReaderDropped,
-						ID:    remote,
-						Error: fmt.Errorf("unexpected sync for content %v", base64.RawURLEncoding.EncodeToString(msg.Data)),
+					e := event{
+						ty:  readerDropped,
+						id:  remote,
+						err: fmt.Errorf("unexpected sync for content %v", base64.RawURLEncoding.EncodeToString(msg.Data)),
 					}
 
 					select {
 					case <-ctx.Done():
-					case events <- event:
+					case events <- e:
 					}
 
 					close(done)
@@ -1331,15 +1335,15 @@ func read(
 
 				decodedSyncData, err := readAndDecode(conn, gcmSession, rateLimiter, decodeBuffer, unmarshalBuffer)
 				if err != nil {
-					event := Event{
-						Type:  ReaderDropped,
-						ID:    remote,
-						Error: err,
+					e := event{
+						ty:  readerDropped,
+						id:  remote,
+						err: err,
 					}
 
 					select {
 					case <-ctx.Done():
-					case events <- event:
+					case events <- e:
 					}
 
 					close(done)
@@ -1350,17 +1354,17 @@ func read(
 				copy(msg.SyncData, decodedSyncData)
 			}
 
-			event := Event{
-				Type:    IncomingMessage,
-				ID:      remote,
-				Message: msg,
-				Addr:    addr,
+			e := event{
+				ty:      incomingMessage,
+				id:      remote,
+				message: msg,
+				addr:    addr,
 			}
 
 			select {
 			case <-ctx.Done():
 				return
-			case events <- event:
+			case events <- e:
 			}
 		}
 	}
@@ -1404,7 +1408,7 @@ func write(
 	writeTimeout time.Duration,
 	conn net.Conn,
 	gcmSession *session.GCMSession,
-	events chan<- Event,
+	events chan<- event,
 	outgoingMessages chan wire.Msg,
 	maxMessageSize uint,
 	done chan<- *wire.Msg,
@@ -1453,10 +1457,10 @@ func write(
 
 			if err != nil || n != len(encodeBuffer) {
 				done <- &msg
-				event := Event{
-					Type:  WriterDropped,
-					ID:    remote,
-					Error: err,
+				event := event{
+					ty:  writerDropped,
+					id:  remote,
+					err: err,
 				}
 
 				select {
@@ -1475,10 +1479,10 @@ func write(
 
 				if err != nil || n != len(encodeBuffer) {
 					done <- &msg
-					event := Event{
-						Type:  WriterDropped,
-						ID:    remote,
-						Error: err,
+					event := event{
+						ty:  writerDropped,
+						id:  remote,
+						err: err,
 					}
 
 					select {

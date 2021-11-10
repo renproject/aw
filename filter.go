@@ -60,8 +60,5 @@ func (f *syncFilter) filter(from id.Signatory, msg wire.Msg) bool {
 	defer f.expectingMu.RUnlock()
 
 	_, ok := f.expecting[string(msg.Data)]
-	if !ok {
-		return true
-	}
-	return false
+	return !ok
 }

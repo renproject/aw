@@ -20,6 +20,18 @@ import (
  *     - Fuzzing/malicious message data tests
  *     - Handshake tests?
  *
+ * Cases missing in coverage report:
+ *     - Bad message data
+ *     - Multiple syncs outstanding for the same content
+ *     - Failed calls to `handleSendMessage`
+ *     - Dropped reader for ephemeral connections
+ *     - Dropped writer
+ *     - Too many linked peers/ephemeral connections
+ *     - Upgrading an ephemeral connection to a linked peer
+ *     - Gossiping to a particular subnet
+ *     - Tear down connection when in the process of sending a message
+ *     - Rate limiting/filtering
+ *
  * Replace these exmaple programs?
  *     - Peers in a ring topology, all gossip a unique message over many
  *       rounds; track throughput and make sure all messages are received
