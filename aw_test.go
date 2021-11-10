@@ -3,6 +3,8 @@ package aw_test
 import (
 	"context"
 	"fmt"
+	"io"
+	"net"
 	"time"
 
 	"github.com/renproject/aw"
@@ -423,7 +425,6 @@ var _ = Describe("Peer", func() {
 
 	It("should not drop messages when the connection changes", func() {
 		opts := defaultOptions(logger)
-		opts.OutgoingBufferSize = 100
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -469,6 +470,43 @@ var _ = Describe("Peer", func() {
 					_, ok := crashPeer.ContentResolver.QueryContent(contentID)
 					return ok
 				}).Should(BeTrue())
+			}
+		}
+	})
+
+	It("should rate limit incoming connections", func() {
+		opts := defaultOptions(logger)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		peer := newPeerAndListen(ctx, opts)
+		go peer.Run(ctx)
+
+		buf := [1]byte{}
+		addr := fmt.Sprintf("%v:%v", "localhost", peer.Port)
+		deadline := time.Now().Add(time.Second)
+		for {
+			if time.Now().After(deadline) {
+				Fail("connections were not rate limited")
+			} else {
+				dialer := new(net.Dialer)
+
+				conn, err := dialer.DialContext(ctx, "tcp", addr)
+				if err != nil {
+					// NOTE(ross): A smarter implementation might actually
+					// cause a dial error when the address is rate limited, so
+					// this might need to change in the future.
+					panic(err)
+				}
+
+				// Once a new connection has been accepted, the handshake
+				// should start. There should therefore be some data sent if
+				// the connection attempt was not rate limited.
+				_, err = io.ReadFull(conn, buf[:])
+				if err != nil {
+					break
+				}
 			}
 		}
 	})
