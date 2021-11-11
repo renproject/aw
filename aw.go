@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/renproject/aw/dht"
+	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/session"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
@@ -555,7 +556,7 @@ func (peer *Peer) listenerHandler(conn net.Conn) {
 	// spawned. We have ip based rate limiting, but maybe we need to consider
 	// protection against attacks involving many ip addresses.
 	go func() {
-		gcmSession, remote, err := handshake(peer.privKey, conn)
+		gcmSession, remote, err := handshake.Handshake(peer.privKey, conn)
 		if err != nil {
 			peer.Opts.Logger.Warn("handshake failed", zap.Error(err))
 			conn.Close()
@@ -1238,7 +1239,7 @@ func dialAndPublishEvent(
 		e.ty = dialTimeout
 		e.err = err
 	} else {
-		gcmSession, discoveredRemote, err := handshake(privKey, conn)
+		gcmSession, discoveredRemote, err := handshake.Handshake(privKey, conn)
 
 		if err != nil {
 			logger.Warn("handshake failed", zap.Error(err))

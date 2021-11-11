@@ -1,4 +1,4 @@
-package aw
+package handshake
 
 import (
 	"bytes"
@@ -18,7 +18,7 @@ import (
 const sizeOfSecretKey = 32
 const sizeOfEncryptedSecretKey = 145 // 113-byte encryption header + 32-byte secret key
 
-func handshake(privKey *id.PrivKey, conn net.Conn) (*session.GCMSession, id.Signatory, error) {
+func Handshake(privKey *id.PrivKey, conn net.Conn) (*session.GCMSession, id.Signatory, error) {
 	// Channel for passing errors from the writing goroutine to the reading
 	// goroutine (which has the ability to return the error).
 	errCh := make(chan error, 1)
@@ -33,23 +33,17 @@ func handshake(privKey *id.PrivKey, conn net.Conn) (*session.GCMSession, id.Sign
 	remoteSecretKeyCh := make(chan []byte, 1)
 	defer close(remoteSecretKeyCh)
 
-	// A pointer to the pubKey contained in the privKey struct
 	localPubKey := privKey.PubKey()
-
-	// Generate a local secret key. We do it here, because it is needed by
-	// the writing and reading goroutine.
 	localSecretKey := [sizeOfSecretKey]byte{}
 	if _, err := rand.Read(localSecretKey[:]); err != nil {
 		return nil, id.Signatory{}, fmt.Errorf("generate local secret key: %v", err)
 	}
 
-	// Begin background goroutine for writing information to the network
-	// connection.
+	// Writer.
 	go func() {
 		defer close(errCh)
 
-		// Write local pubkey so that the remote peer knows how to encrypt
-		// its secret key and send it back to the local peer.
+		// Write local pubkey.
 		xBuf := paddedTo32(localPubKey.X)
 		yBuf := paddedTo32(localPubKey.Y)
 		if _, err := conn.Write(xBuf[:]); err != nil {
@@ -78,10 +72,8 @@ func handshake(privKey *id.PrivKey, conn net.Conn) (*session.GCMSession, id.Sign
 			return
 		}
 
-		// Encrypted the remote secret key using the remote pubkey and write
-		// it to the remote peer. This allows the remote peer to verify that
-		// the local peer does have access to the previous asserted local
-		// pubkey.
+		// Encrypt the remote secret key using the remote pubkey and write it
+		// to the remote peer.
 		remoteSecretKey, ok := <-remoteSecretKeyCh
 		if !ok {
 			return
@@ -96,6 +88,8 @@ func handshake(privKey *id.PrivKey, conn net.Conn) (*session.GCMSession, id.Sign
 			return
 		}
 	}()
+
+	// Reader.
 
 	// Read the remote pubkey.
 	remotePubKeyBuf := [64]byte{}
@@ -120,9 +114,7 @@ func handshake(privKey *id.PrivKey, conn net.Conn) (*session.GCMSession, id.Sign
 	}
 	remoteSecretKeyCh <- remoteSecretKey
 
-	// Read the encrypted local secret back from the remote peer. This
-	// proves to the local peer that the remote peer has access to its
-	// previously asserted pubkey.
+	// Read the encrypted local secret back from the remote peer.
 	encryptedLocalSecretKeyCheck := [sizeOfEncryptedSecretKey]byte{}
 	if _, err := io.ReadFull(conn, encryptedLocalSecretKeyCheck[:]); err != nil {
 		return nil, id.Signatory{}, fmt.Errorf("read local secret key: %v", err)

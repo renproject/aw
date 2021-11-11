@@ -20,7 +20,6 @@ import (
 /*
  * TODO(ross): Tests to write:
  *     - Fuzzing/malicious message data tests
- *     - Handshake tests?
  *
  * Cases missing in coverage report:
  *     - Bad message data
