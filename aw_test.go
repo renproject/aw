@@ -1,7 +1,10 @@
 package aw_test
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -9,8 +12,10 @@ import (
 
 	"github.com/renproject/aw"
 	"github.com/renproject/aw/dht"
+	"github.com/renproject/aw/handshake"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
+	"github.com/renproject/surge"
 	"go.uber.org/zap"
 
 	. "github.com/onsi/ginkgo"
@@ -18,11 +23,9 @@ import (
 )
 
 /*
- * TODO(ross): Tests to write:
- *     - Fuzzing/malicious message data tests
+ * TODO(ross):
  *
  * Cases missing in coverage report:
- *     - Bad message data
  *     - Multiple syncs outstanding for the same content
  *     - Failed calls to `handleSendMessage`
  *     - Dropped reader for ephemeral connections
@@ -609,6 +612,172 @@ var _ = Describe("Peer", func() {
 			lastPeer.Send(ctx, []byte{0}, peer.ID())
 
 			Consistently(received).ShouldNot(Receive())
+		})
+	})
+
+	Context("invalid message handling", func() {
+		It("should not receive invalid messages", func() {
+			// NOTE(ross): There is no good way of testing if the peer is
+			// correctly discarding the bad messages, so the following mostly
+			// serves to get some coverage of these branches that will
+			// hopefully catch any particularly egregious problems.
+
+			opts := defaultOptions(logger)
+			opts.MaxEphemeralConnections = 10
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			received := make(chan struct{}, 1)
+			peer := newPeerWithReceiver(opts, func(_ id.Signatory, _ []byte) {
+				received <- struct{}{}
+			})
+			_, err := peer.Listen(ctx, "localhost:0")
+			if err != nil {
+				panic(err)
+			}
+			go peer.Run(ctx)
+
+			peerSignatory := peer.ID()
+
+			// Make sure we are not the keep alive decider.
+			var dialerPrivKey *id.PrivKey
+			for {
+				dialerPrivKey = id.NewPrivKey()
+				dialerSignatory := dialerPrivKey.Signatory()
+				if bytes.Compare(dialerSignatory[:], peerSignatory[:]) < 0 {
+					break
+				}
+			}
+			dialer := new(net.Dialer)
+			conn, err := dialer.Dial("tcp", fmt.Sprintf("localhost:%v", peer.Port))
+			if err != nil {
+				panic(err)
+			}
+
+			_, _, err = handshake.Handshake(dialerPrivKey, conn)
+			Expect(err).ToNot(HaveOccurred())
+			buf := make([]byte, 1024)
+
+			// Completely random message.
+			_, err = rand.Read(buf)
+			if err != nil {
+				panic(err)
+			}
+			_, err = conn.Write(buf)
+			Expect(err).ToNot(HaveOccurred())
+
+			time.Sleep(10 * time.Millisecond)
+
+			// Valid length prefix.
+			conn, err = dialer.Dial("tcp", fmt.Sprintf("localhost:%v", peer.Port))
+			if err != nil {
+				panic(err)
+			}
+			_, _, err = handshake.Handshake(dialerPrivKey, conn)
+			Expect(err).ToNot(HaveOccurred())
+
+			binary.BigEndian.PutUint32(buf, 100)
+			_, err = conn.Write(buf)
+			Expect(err).ToNot(HaveOccurred())
+
+			time.Sleep(10 * time.Millisecond)
+
+			// Valid encoding of random data.
+			conn, err = dialer.Dial("tcp", fmt.Sprintf("localhost:%v", peer.Port))
+			if err != nil {
+				panic(err)
+			}
+			session, _, err := handshake.Handshake(dialerPrivKey, conn)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = rand.Read(buf)
+			if err != nil {
+				panic(err)
+			}
+			nonceBuf := session.GetWriteNonceAndIncrement()
+			sealed := session.GCM.Seal(buf[4:4], nonceBuf[:], buf[4:10], nil)
+			binary.BigEndian.PutUint32(buf, uint32(len(sealed)))
+			_, err = conn.Write(buf[:4+len(sealed)])
+			Expect(err).ToNot(HaveOccurred())
+
+			time.Sleep(10 * time.Millisecond)
+
+			// Valid encoding of unexpected sync.
+			conn, err = dialer.Dial("tcp", fmt.Sprintf("localhost:%v", peer.Port))
+			if err != nil {
+				panic(err)
+			}
+			session, _, err = handshake.Handshake(dialerPrivKey, conn)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = rand.Read(buf)
+			if err != nil {
+				panic(err)
+			}
+			msg := wire.Msg{
+				Version: wire.MsgVersion1,
+				Type:    wire.MsgTypeSync,
+				Data:    buf[:32],
+			}
+			bs, err := surge.ToBinary(msg)
+			nonceBuf = session.GetWriteNonceAndIncrement()
+			sealed = session.GCM.Seal(buf[4:4], nonceBuf[:], bs, nil)
+			binary.BigEndian.PutUint32(buf, uint32(len(sealed)))
+			_, err = conn.Write(buf[:4+len(sealed)])
+			Expect(err).ToNot(HaveOccurred())
+
+			time.Sleep(10 * time.Millisecond)
+
+			// Valid encoding of expected sync with invalid data.
+			conn, err = dialer.Dial("tcp", fmt.Sprintf("localhost:%v", peer.Port))
+			if err != nil {
+				panic(err)
+			}
+			session, _, err = handshake.Handshake(dialerPrivKey, conn)
+			Expect(err).ToNot(HaveOccurred())
+
+			id := [32]byte{}
+			_, err = rand.Read(id[:])
+			if err != nil {
+				panic(err)
+			}
+			msg = wire.Msg{
+				Version: wire.MsgVersion1,
+				Type:    wire.MsgTypePush,
+				To:      aw.DefaultSubnet,
+				Data:    id[:],
+			}
+			bs, err = surge.ToBinary(msg)
+			nonceBuf = session.GetWriteNonceAndIncrement()
+			sealed = session.GCM.Seal(buf[4:4], nonceBuf[:], bs, nil)
+			binary.BigEndian.PutUint32(buf, uint32(len(sealed)))
+			_, err = conn.Write(buf[:4+len(sealed)])
+			Expect(err).ToNot(HaveOccurred())
+
+			// Wait for the pull but we don't care about reading it fully.
+			_, err = conn.Read(buf[:1])
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = rand.Read(buf)
+			if err != nil {
+				panic(err)
+			}
+			msg = wire.Msg{
+				Version:  wire.MsgVersion1,
+				Type:     wire.MsgTypeSync,
+				To:       aw.DefaultSubnet,
+				Data:     id[:],
+				SyncData: buf[:100],
+			}
+			bs, err = surge.ToBinary(msg)
+			nonceBuf = session.GetWriteNonceAndIncrement()
+			sealed = session.GCM.Seal(buf[4:4], nonceBuf[:], bs, nil)
+			binary.BigEndian.PutUint32(buf, uint32(len(sealed)))
+			_, err = conn.Write(buf[:4+len(sealed)])
+			Expect(err).ToNot(HaveOccurred())
+
+			time.Sleep(10 * time.Millisecond)
 		})
 	})
 })
