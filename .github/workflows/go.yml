@@ -43,5 +43,6 @@ jobs:
                   covermerge \
                     coverprofile.out \
                     dht/coverprofile.out \
+                    handshake/coverprofile.out \
                     wire/coverprofile.out
                   goveralls -coverprofile=coverprofile.out -service=github
