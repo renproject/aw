@@ -283,6 +283,10 @@ func (peer *Peer) ID() id.Signatory {
 	return peer.privKey.Signatory()
 }
 
+func (peer *Peer) Receive(receive func(id.Signatory, []byte)) {
+	peer.receive = receive
+}
+
 func (peer *Peer) Listen(ctx context.Context, address string) (uint16, error) {
 	listener, err := new(net.ListenConfig).Listen(ctx, "tcp", address)
 	if err != nil {
