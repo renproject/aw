@@ -37,21 +37,21 @@ var (
 	DefaultMaxEphemeralConnections      uint          = 20
 	DefaultMaxPendingSyncs              uint          = 100
 	DefaultMaxActiveSyncsForSameContent uint          = 10
-	DefaultMaxGossipSubnets             uint          = 100 // ?
-	DefaultMaxMessageSize               uint          = 1024
+	DefaultMaxGossipSubnets             uint          = 100
+	DefaultMaxMessageSize               uint          = 4 * 1024 * 1024
 	DefaultOutgoingBufferSize           uint          = 100
 	DefaultEventLoopBufferSize          uint          = 100
 	DefaultOutgoingBufferTimeout        time.Duration = time.Second
 	DefaultWriteTimeout                 time.Duration = time.Second
 	DefaultDialRetryInterval            time.Duration = time.Second
-	DefaultEphemeralConnectionTTL       time.Duration = 5 * time.Second
+	DefaultEphemeralConnectionTTL       time.Duration = 10 * time.Second
 	DefaultMinimumConnectionExpiryAge   time.Duration = time.Minute
 	DefaultGossipAlpha                  int           = 5
-	DefaultGossipTimeout                time.Duration = 5 * time.Second // ?
+	DefaultGossipTimeout                time.Duration = 5 * time.Second
 	DefaultPingAlpha                    int           = 5
-	DefaultPongAlpha                    int           = 10
+	DefaultPongAlpha                    int           = 5
 	DefaultPeerDiscoveryInterval        time.Duration = 30 * time.Second
-	DefaultPeerExpiryTimeout            time.Duration = 30 * time.Second
+	DefaultPeerExpiryTimeout            time.Duration = time.Minute
 )
 
 var (
