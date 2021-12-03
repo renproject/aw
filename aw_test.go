@@ -381,8 +381,8 @@ var _ = Describe("Peer", func() {
 				resultCh <- result{remote, msg}
 			}
 
-			peer1 := newPeerWithReceiver(opts, nil)
-			peer2 := newPeerWithReceiver(opts, receive)
+			peer1 := newPeerWithReceiver(ctx, opts, nil)
+			peer2 := newPeerWithReceiver(ctx, opts, receive)
 
 			_, err := peer1.Listen(ctx, "localhost:0")
 			if err != nil {
@@ -560,7 +560,7 @@ var _ = Describe("Peer", func() {
 			writePeer := newPeerAndListen(ctx, opts)
 
 			received := make(chan struct{}, 1)
-			readPeer := newPeerWithReceiver(opts, func(_ id.Signatory, _ []byte) {
+			readPeer := newPeerWithReceiver(ctx, opts, func(_ id.Signatory, _ []byte) {
 				received <- struct{}{}
 			})
 			_, err := readPeer.Listen(ctx, "localhost:0")
@@ -628,7 +628,7 @@ var _ = Describe("Peer", func() {
 			defer cancel()
 
 			received := make(chan struct{}, 1)
-			peer := newPeerWithReceiver(opts, func(_ id.Signatory, _ []byte) {
+			peer := newPeerWithReceiver(ctx, opts, func(_ id.Signatory, _ []byte) {
 				received <- struct{}{}
 			})
 			_, err := peer.Listen(ctx, "localhost:0")
@@ -683,7 +683,7 @@ var _ = Describe("Peer", func() {
 			defer cancel()
 
 			received := make(chan struct{}, 1)
-			peer := newPeerWithReceiver(opts, func(_ id.Signatory, _ []byte) {
+			peer := newPeerWithReceiver(ctx, opts, func(_ id.Signatory, _ []byte) {
 				received <- struct{}{}
 			})
 			_, err := peer.Listen(ctx, "localhost:0")
@@ -862,18 +862,32 @@ func newPeer(opts aw.Options) *aw.Peer {
 	privKey := id.NewPrivKey()
 	peerTable := dht.NewInMemTable(privKey.Signatory())
 	contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
-	peer := aw.New(opts, privKey, peerTable, contentResolver, nil)
+	peer := aw.New(opts, privKey, peerTable, contentResolver)
 
 	return peer
 }
 
-func newPeerWithReceiver(opts aw.Options, receiver func(id.Signatory, []byte)) *aw.Peer {
+func newPeerWithReceiver(ctx context.Context, opts aw.Options, receiver func(id.Signatory, []byte)) *aw.Peer {
 	privKey := id.NewPrivKey()
 	peerTable := dht.NewInMemTable(privKey.Signatory())
 	contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
-	peer := aw.New(opts, privKey, peerTable, contentResolver, receiver)
+	peer := aw.New(opts, privKey, peerTable, contentResolver)
+	go receive(ctx, peer, receiver)
 
 	return peer
+}
+
+func receive(ctx context.Context, peer *aw.Peer, receiver func(id.Signatory, []byte)) {
+LOOP:
+	for {
+		select {
+		case <-ctx.Done():
+			break LOOP
+
+		case msg := <-peer.IncomingMessages:
+			receiver(msg.From, msg.Data)
+		}
+	}
 }
 
 func newPeerAndListen(ctx context.Context, opts aw.Options) *aw.Peer {

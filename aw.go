@@ -40,6 +40,7 @@ var (
 	DefaultMaxGossipSubnets             uint          = 100
 	DefaultMaxMessageSize               uint          = 4 * 1024 * 1024
 	DefaultOutgoingBufferSize           uint          = 100
+	DefaultIncomingBufferSize           uint          = 100
 	DefaultEventLoopBufferSize          uint          = 100
 	DefaultOutgoingBufferTimeout        time.Duration = time.Second
 	DefaultWriteTimeout                 time.Duration = time.Second
@@ -170,6 +171,7 @@ type Options struct {
 	MaxGossipSubnets             uint
 	MaxMessageSize               uint
 	OutgoingBufferSize           uint
+	IncomingBufferSize           uint
 	EventLoopBufferSize          uint
 	OutgoingBufferTimeout        time.Duration
 	WriteTimeout                 time.Duration
@@ -205,6 +207,7 @@ func DefaultOptions() Options {
 		MaxGossipSubnets:             DefaultMaxGossipSubnets,
 		MaxMessageSize:               DefaultMaxMessageSize,
 		OutgoingBufferSize:           DefaultOutgoingBufferSize,
+		IncomingBufferSize:           DefaultIncomingBufferSize,
 		EventLoopBufferSize:          DefaultEventLoopBufferSize,
 		OutgoingBufferTimeout:        DefaultOutgoingBufferTimeout,
 		WriteTimeout:                 DefaultWriteTimeout,
@@ -225,14 +228,17 @@ func DefaultOptions() Options {
 	}
 }
 
+type IncomingMessage struct {
+	From id.Signatory
+	Data []byte
+}
+
 type Peer struct {
 	Opts Options
 
 	id      id.Signatory
 	privKey *id.PrivKey
 	Port    uint16
-
-	receive func(id.Signatory, []byte)
 
 	ctx                  context.Context
 	events               chan event
@@ -242,11 +248,12 @@ type Peer struct {
 	gossipSubnets        map[string]gossipSubnet
 	filter               *syncFilter
 
-	PeerTable       dht.Table
-	ContentResolver dht.ContentResolver
+	PeerTable        dht.Table
+	ContentResolver  dht.ContentResolver
+	IncomingMessages chan IncomingMessage
 }
 
-func New(opts Options, privKey *id.PrivKey, peerTable dht.Table, contentResolver dht.ContentResolver, receive func(id.Signatory, []byte)) *Peer {
+func New(opts Options, privKey *id.PrivKey, peerTable dht.Table, contentResolver dht.ContentResolver) *Peer {
 	self := privKey.Signatory()
 
 	events := make(chan event, opts.EventLoopBufferSize)
@@ -257,6 +264,8 @@ func New(opts Options, privKey *id.PrivKey, peerTable dht.Table, contentResolver
 
 	filter := newSyncFilter()
 
+	incomingMessages := make(chan IncomingMessage, opts.IncomingBufferSize)
+
 	return &Peer{
 		Opts: opts,
 
@@ -264,27 +273,22 @@ func New(opts Options, privKey *id.PrivKey, peerTable dht.Table, contentResolver
 		privKey: privKey,
 		Port:    0,
 
-		receive: receive,
-
 		ctx:                  nil,
 		events:               events,
 		linkedPeers:          linkedPeers,
 		ephemeralConnections: ephemeralConnections,
 		pendingSyncs:         pendingSyncs,
 		gossipSubnets:        gossipSubnets,
+		filter:               filter,
 
-		PeerTable:       peerTable,
-		ContentResolver: contentResolver,
-		filter:          filter,
+		PeerTable:        peerTable,
+		ContentResolver:  contentResolver,
+		IncomingMessages: incomingMessages,
 	}
 }
 
 func (peer *Peer) ID() id.Signatory {
 	return peer.privKey.Signatory()
-}
-
-func (peer *Peer) Receive(receive func(id.Signatory, []byte)) {
-	peer.receive = receive
 }
 
 func (peer *Peer) Listen(ctx context.Context, address string) (uint16, error) {
@@ -584,6 +588,7 @@ func (peer *Peer) handleEvent(e event) {
 	switch e.ty {
 	case incomingMessage:
 		message := e.message
+		peer.Opts.Logger.Debug("handling message", zap.Uint16("type", message.Type))
 
 		switch e.message.Type {
 		case wire.MsgTypePush:
@@ -676,9 +681,7 @@ func (peer *Peer) handleEvent(e event) {
 			}
 
 		case wire.MsgTypeSend:
-			if peer.receive != nil {
-				peer.receive(remote, e.message.Data)
-			}
+			peer.IncomingMessages <- IncomingMessage{From: remote, Data: e.message.Data}
 
 		case wire.MsgTypePing:
 			if dataLen := len(message.Data); dataLen != 2 {
