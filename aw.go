@@ -582,18 +582,25 @@ func (peer *Peer) listenerHandler(conn net.Conn) {
 }
 
 func (peer *Peer) handleEvent(e event) {
-	peer.Opts.Logger.Debug("handling event", zap.String("self", peer.id.String()[:4]), zap.String("type", e.ty.String()))
+	peer.Opts.Logger.Debug("handling event")
+	defer peer.Opts.Logger.Debug("done handling event")
+
 	remote := e.id
 
 	switch e.ty {
 	case incomingMessage:
+		peer.Opts.Logger.Debug("incoming message", zap.String("remote", remote.String()))
+
 		message := e.message
-		peer.Opts.Logger.Debug("handling message", zap.Uint16("type", message.Type))
 
 		switch e.message.Type {
 		case wire.MsgTypePush:
+			peer.Opts.Logger.Debug("push", zap.String("content id", base64.RawURLEncoding.EncodeToString(message.Data)), zap.String("subnet", message.To.String()))
+
 			if len(message.Data) != 0 {
 				if _, ok := peer.ContentResolver.QueryContent(message.Data); !ok {
+					peer.Opts.Logger.Debug("don't have content")
+
 					if peer.hasSpaceForNewGossipSubnet() {
 						expiry := time.Now().Add(peer.Opts.GossipTimeout)
 						peer.gossipSubnets[string(message.Data)] = gossipSubnet{
@@ -612,23 +619,30 @@ func (peer *Peer) handleEvent(e event) {
 
 						err := peer.handleSendMessage(remote, pullMessage)
 						if err != nil {
-							peer.Opts.Logger.Warn("pulling", zap.String("peer", remote.String()), zap.String("id", base64.RawURLEncoding.EncodeToString(message.Data)), zap.Error(err))
+							peer.Opts.Logger.Warn("sending pull", zap.String("peer", remote.String()), zap.Error(err))
 						}
+					} else {
+						peer.Opts.Logger.Debug("don't have space for subnet, ignoring")
 					}
 				} else {
 					// TODO(ross): In this case we certainly don't want to
 					// pull, but should we forward on the push anyway? It might
 					// be that a peer is regossiping the same message to try to
 					// increase network coverage.
+					peer.Opts.Logger.Debug("already have content")
 				}
+			} else {
+				peer.Opts.Logger.Warn("empty content id", zap.String("remote", remote.String()))
 			}
 
 		case wire.MsgTypePull:
+			peer.Opts.Logger.Debug("pull", zap.String("content id", base64.RawURLEncoding.EncodeToString(message.Data)))
+
 			if len(message.Data) != 0 {
 
 				content, contentOk := peer.ContentResolver.QueryContent(message.Data)
 				if !contentOk {
-					peer.Opts.Logger.Debug("missing content", zap.String("peer", remote.String()), zap.String("id", base64.RawURLEncoding.EncodeToString(message.Data)))
+					peer.Opts.Logger.Debug("missing content")
 				} else {
 					syncMessage := wire.Msg{
 						Version:  wire.MsgVersion1,
@@ -643,9 +657,13 @@ func (peer *Peer) handleEvent(e event) {
 						peer.Opts.Logger.Warn("syncing", zap.String("peer", remote.String()), zap.String("id", base64.RawURLEncoding.EncodeToString(message.Data)), zap.Error(err))
 					}
 				}
+			} else {
+				peer.Opts.Logger.Warn("empty content id", zap.String("remote", remote.String()))
 			}
 
 		case wire.MsgTypeSync:
+			peer.Opts.Logger.Debug("sync", zap.String("content id", base64.RawURLEncoding.EncodeToString(message.Data)))
+
 			contentID := string(message.Data)
 
 			if !peer.filter.filter(remote, message) {
@@ -678,12 +696,23 @@ func (peer *Peer) handleEvent(e event) {
 					delete(peer.gossipSubnets, contentID)
 					peer.filter.deny(message.Data)
 				}
+			} else {
+				peer.Opts.Logger.Warn(
+					"received sync for unexpected content",
+					zap.String("remote", remote.String()),
+					zap.String("content id", base64.RawURLEncoding.EncodeToString(message.Data)),
+				)
 			}
 
 		case wire.MsgTypeSend:
+			peer.Opts.Logger.Debug("send")
+
+			peer.Opts.Logger.Debug("writing to incoming messages channel", zap.Int("len", len(peer.IncomingMessages)), zap.Int("cap", cap(peer.IncomingMessages)))
 			peer.IncomingMessages <- IncomingMessage{From: remote, Data: e.message.Data}
 
 		case wire.MsgTypePing:
+			peer.Opts.Logger.Debug("ping")
+
 			if dataLen := len(message.Data); dataLen != 2 {
 				peer.Opts.Logger.Warn("malformed port", zap.String("peer", remote.String()), zap.Uint64("port byte size", uint64(dataLen)))
 			}
@@ -707,6 +736,8 @@ func (peer *Peer) handleEvent(e event) {
 				}
 				sigAndAddr := wire.SignatoryAndAddress{Signatory: sig, Address: addr}
 				addrAndSig = append(addrAndSig, sigAndAddr)
+
+				peer.Opts.Logger.Debug("adding peer to response", zap.String("peer", sig.String()), zap.String("address", addr.String()))
 			}
 
 			addrAndSigBytes, err := surge.ToBinary(addrAndSig)
@@ -720,42 +751,56 @@ func (peer *Peer) handleEvent(e event) {
 				Data:    addrAndSigBytes,
 			}
 			if err := peer.handleSendMessage(remote, response); err != nil {
-				peer.Opts.Logger.Warn("failed to send ping ack", zap.String("peer", remote.String()), zap.Error(err))
+				peer.Opts.Logger.Warn("failed to send ping ack", zap.String("remote", remote.String()), zap.Error(err))
 			}
 
 		case wire.MsgTypePingAck:
+			peer.Opts.Logger.Debug("ping ack")
+
 			signatoriesAndAddrs := []wire.SignatoryAndAddress{}
 			err := surge.FromBinary(&signatoriesAndAddrs, message.Data)
 			if err != nil {
-				peer.Opts.Logger.Warn("unmarshaling ping ack", zap.String("peer", remote.String()), zap.Error(err))
+				peer.Opts.Logger.Warn("unmarshaling ping ack", zap.String("remote", remote.String()), zap.Error(err))
 			} else {
 				for _, signatoryAndAddr := range signatoriesAndAddrs {
 					// NOTE(ross): We rely on the fact that the peer table won't
 					// add itself.
+					peer.Opts.Logger.Debug("adding peer to table", zap.String("peer", signatoryAndAddr.Signatory.String()), zap.String("address", signatoryAndAddr.Address.String()))
 					peer.PeerTable.AddPeer(signatoryAndAddr.Signatory, signatoryAndAddr.Address)
 				}
 			}
 
 		default:
-			peer.Opts.Logger.Warn("unsupported messge type", zap.Uint16("type", message.Type))
+			peer.Opts.Logger.Warn("unsupported messge type", zap.String("remote", remote.String()), zap.Uint16("type", message.Type))
 		}
 
 	case sendMessage:
+		peer.Opts.Logger.Debug("send message", zap.String("remote", remote.String()))
+
 		e.errorResponder <- peer.handleSendMessage(remote, e.message)
 
 	case gossipMessage:
+		peer.Opts.Logger.Debug("gossip message")
+
 		peer.gossip(e.message)
 
 	case syncRequest:
+		peer.Opts.Logger.Debug("sync request", zap.String("remote", remote.String()), zap.String("content id", base64.RawURLEncoding.EncodeToString(e.message.Data)))
+
 		contentID := e.message.Data
 
 		if pending, ok := peer.pendingSyncs[string(contentID)]; ok {
+			peer.Opts.Logger.Debug("sync for content id exists")
 			if uint(len(pending.responders)) >= peer.Opts.MaxActiveSyncsForSameContent {
 				e.errorResponder <- ErrTooManySyncsForSameContent
 			} else {
 				pending.responders = append(pending.responders, e.messageResponder)
+
+				peer.Opts.Logger.Debug("added pending responder for content id sync", zap.Int("current pending responders", len(pending.responders)))
 			}
 		} else {
+			peer.Opts.Logger.Debug("sync for content id does not exist")
+
 			peer.filter.allow(contentID)
 
 			if uint(len(peer.pendingSyncs)) >= peer.Opts.MaxPendingSyncs {
@@ -767,6 +812,8 @@ func (peer *Peer) handleEvent(e event) {
 				}
 
 				peer.pendingSyncs[string(contentID)] = pending
+
+				peer.Opts.Logger.Debug("added pending sync for content id", zap.Int("current pending syncs", len(peer.pendingSyncs)))
 			}
 		}
 
@@ -781,7 +828,7 @@ func (peer *Peer) handleEvent(e event) {
 		for _, recipient := range peers {
 			if err := peer.handleSendMessage(recipient, message); err != nil {
 				if recipient.Equal(e.hint) {
-					peer.Opts.Logger.Warn("unable to sync from hinted peer", zap.String("peer", recipient.String()), zap.Error(err))
+					peer.Opts.Logger.Warn("unable to sync from hinted peer", zap.Error(err))
 				}
 				numErrors++
 			}
@@ -792,45 +839,56 @@ func (peer *Peer) handleEvent(e event) {
 		}
 
 	case readerDropped:
-		peer.Opts.Logger.Debug("reader dropped", zap.String("self", peer.id.String()[:4]), zap.Error(e.err))
+		peer.Opts.Logger.Debug("reader dropped", zap.String("remote", remote.String()), zap.Error(e.err))
+
 		// TODO(ross): If the error was malicious we should act accordingly.
 
 		if linkedPeer, ok := peer.linkedPeers[remote]; ok {
-			peer.tearDownConnection(linkedPeer)
+			peer.Opts.Logger.Debug("reader dropped for linked peer", zap.Error(e.err))
+			peer.tearDownConnection(linkedPeer, remote)
 
 			remoteAddr, ok := peer.PeerTable.PeerAddress(remote)
 			if ok && remoteAddr.Protocol == wire.TCP {
 				go dialAndPublishEvent(peer.ctx, peer.ctx, peer.events, peer.privKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, remote, remoteAddr.Value)
 			}
 		} else if ephemeralConnection, ok := peer.ephemeralConnections[remote]; ok {
-			peer.tearDownConnection(&ephemeralConnection.peerConnection)
+			peer.Opts.Logger.Debug("reader dropped for ephemeral peer peer", zap.Error(e.err))
+			peer.tearDownConnection(&ephemeralConnection.peerConnection, remote)
 			if ephemeralConnection.pendingMessage != nil {
-				peer.Opts.Logger.Warn("ephemeral connection dropped with unsent message", zap.String("peer", remote.String()))
+				peer.Opts.Logger.Warn("ephemeral connection dropped with unsent message")
 			}
 			delete(peer.ephemeralConnections, remote)
 		} else {
 			// Do nothing.
+			peer.Opts.Logger.Debug("reader dropped for unlinked peer", zap.Error(e.err))
 		}
 
 	case writerDropped:
+		peer.Opts.Logger.Debug("writer dropped", zap.String("remote", remote.String()), zap.Error(e.err))
+
 		if linkedPeer, ok := peer.linkedPeers[remote]; ok {
-			peer.tearDownConnection(linkedPeer)
+			peer.Opts.Logger.Debug("writer dropped for linked peer", zap.Error(e.err))
+			peer.tearDownConnection(linkedPeer, remote)
 
 			remoteAddr, ok := peer.PeerTable.PeerAddress(remote)
 			if ok && remoteAddr.Protocol == wire.TCP {
 				go dialAndPublishEvent(peer.ctx, peer.ctx, peer.events, peer.privKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, remote, remoteAddr.Value)
 			}
 		} else if ephemeralConnection, ok := peer.ephemeralConnections[remote]; ok {
-			peer.tearDownConnection(&ephemeralConnection.peerConnection)
+			peer.Opts.Logger.Debug("writer dropped for ephemeral peer peer", zap.Error(e.err))
+			peer.tearDownConnection(&ephemeralConnection.peerConnection, remote)
 			if ephemeralConnection.pendingMessage != nil {
-				peer.Opts.Logger.Warn("ephemeral connection dropped with unsent message", zap.String("peer", remote.String()))
+				peer.Opts.Logger.Warn("ephemeral connection dropped with unsent message")
 			}
 			delete(peer.ephemeralConnections, remote)
 		} else {
 			// Do nothing.
+			peer.Opts.Logger.Debug("writer dropped for unlinked peer", zap.Error(e.err))
 		}
 
 	case newConnection:
+		peer.Opts.Logger.Debug("new connection", zap.String("remote", remote.String()))
+
 		var peerConn *peerConnection
 		var wouldKeepAlive bool
 		isLinked := false
@@ -838,11 +896,26 @@ func (peer *Peer) handleEvent(e event) {
 			isLinked = true
 			peerConn = linkedPeer
 			wouldKeepAlive = linkedPeer.connection == nil || time.Since(linkedPeer.timestamp) > peer.Opts.MinimumConnectionExpiryAge
+
+			peer.Opts.Logger.Debug(
+				"new connection for linked peer",
+				zap.Bool("would keep alive", wouldKeepAlive),
+				zap.Bool("don't already have connection", linkedPeer.connection == nil),
+				zap.Duration("time since last connection", time.Since(linkedPeer.timestamp)),
+			)
 		} else if eConn, ok := peer.ephemeralConnections[remote]; ok {
 			peerConn = &eConn.peerConnection
 			wouldKeepAlive = eConn.connection == nil && time.Now().Before(eConn.expiryDeadline)
+
+			peer.Opts.Logger.Debug(
+				"new connection for ephemeral peer",
+				zap.Bool("would keep alive", wouldKeepAlive),
+				zap.Bool("don't already have connection", eConn.connection == nil),
+				zap.Time("old connection expiry deadline", eConn.expiryDeadline),
+			)
 		} else {
 			if uint(len(peer.ephemeralConnections)) < peer.Opts.MaxEphemeralConnections {
+				peer.Opts.Logger.Debug("new connection for unlinked peer, creating ephemeral")
 				expiryDeadline := time.Now().Add(peer.Opts.EphemeralConnectionTTL)
 
 				eConn := &ephemeralConnection{
@@ -858,6 +931,7 @@ func (peer *Peer) handleEvent(e event) {
 				peerConn = &eConn.peerConnection
 				wouldKeepAlive = true
 			} else {
+				peer.Opts.Logger.Debug("dropping new connection for unlinked peer, too many ephemeral connections")
 				peerConn = nil
 				wouldKeepAlive = false
 			}
@@ -866,20 +940,20 @@ func (peer *Peer) handleEvent(e event) {
 		if peerConn != nil {
 			cmp := bytes.Compare(peer.id[:], remote[:])
 			if cmp == 0 {
-				peer.Opts.Logger.DPanic("connection to self", zap.String("self", peer.id.String()))
+				peer.Opts.Logger.DPanic("connection to self")
 			} else if cmp > 0 {
 				decisionBuffer := [128]byte{}
 				var decisionEncoded []byte
 				if wouldKeepAlive {
-					peer.tearDownConnection(peerConn)
+					peer.Opts.Logger.Debug("signalling to keep alive")
+
+					peer.tearDownConnection(peerConn, remote)
 
 					peerConn.connection = e.connection
 					peerConn.gcmSession = e.gcmSession
 					peerConn.timestamp = time.Now()
 
 					decisionEncoded = encode([]byte{keepAliveTrue}, decisionBuffer[:], e.gcmSession)
-
-					peer.Opts.Logger.Debug("signalling to keep alive", zap.String("self", peer.id.String()[:4]), zap.String("remote", remote.String()[:4]))
 					// NOTE(ross): Normally whenever we write to a connection
 					// we do it in a separate go routine as it could
 					// potentially block. However, we don't do this here
@@ -891,9 +965,10 @@ func (peer *Peer) handleEvent(e event) {
 					// block.
 					// NOTE(ross): If later it is decided to move the write
 					// into a go routine, make sure to not cause any races
-					// (i.e.  don't call peer.StartConnection!)
+					// (i.e. don't call peer.StartConnection!)
 					_, err := e.connection.Write(decisionEncoded[:])
 					if err != nil {
+						peer.Opts.Logger.Debug("failed to send keep alive message")
 						peerConn.connection.Close()
 						peerConn.connection = nil
 
@@ -907,12 +982,13 @@ func (peer *Peer) handleEvent(e event) {
 						peer.startConnection(peerConn, remote)
 					}
 				} else {
+					peer.Opts.Logger.Debug("signalling to drop")
+
 					// TODO(ross): Should this timeout be configurable?
 					e.connection.SetDeadline(time.Now().Add(5 * time.Second))
 
 					decisionEncoded = encode([]byte{keepAliveFalse}, decisionBuffer[:], e.gcmSession)
 
-					peer.Opts.Logger.Debug("signalling to drop", zap.String("self", peer.id.String()[:4]), zap.String("remote", remote.String()[:4]))
 					// NOTE(ross): Normally whenever we write to a connection
 					// we do it in a separate go routine as it could
 					// potentially block. However, we don't do this here
@@ -927,12 +1003,15 @@ func (peer *Peer) handleEvent(e event) {
 				}
 			} else {
 				go func() {
+					peer.Opts.Logger.Debug("starting keep alive signal receiver task", zap.String("remote", remote.String()))
+
 					readBuffer := [128]byte{}
 					decisionBuffer := [1]byte{}
 					decisionDecoded, err := readAndDecode(e.connection, e.gcmSession, nil, readBuffer[:], decisionBuffer[:])
 					if err != nil {
+						peer.Opts.Logger.Debug("error reading/decoding keep alive message")
 					} else {
-						peer.Opts.Logger.Debug("received keep alive message", zap.String("self", peer.id.String()[:4]), zap.String("remote", remote.String()[:4]), zap.Uint8("decision", decisionDecoded[0]))
+						peer.Opts.Logger.Debug("received keep alive message", zap.Uint8("decision", decisionDecoded[0]))
 					}
 
 					if err == nil && decisionDecoded[0] == keepAliveTrue {
@@ -948,21 +1027,27 @@ func (peer *Peer) handleEvent(e event) {
 		}
 
 	case keepAlive:
+		peer.Opts.Logger.Debug("keep alive", zap.String("remote", remote.String()))
+
 		var peerConn *peerConnection
 		if linkedPeer, ok := peer.linkedPeers[remote]; ok {
+			peer.Opts.Logger.Debug("replacing linked peer connection")
 			peerConn = linkedPeer
 		} else if ephemeralConnection, ok := peer.ephemeralConnections[remote]; ok {
 			if time.Now().Before(ephemeralConnection.expiryDeadline) {
+				peer.Opts.Logger.Debug("replacing ephemeral peer connection")
 				peerConn = &ephemeralConnection.peerConnection
 			} else {
+				peer.Opts.Logger.Debug("ignoring connection for expired ephemeral peer")
 				peerConn = nil
 			}
 		} else {
+			peer.Opts.Logger.Debug("ignoring connection for unlinked peer")
 			peerConn = nil
 		}
 
 		if peerConn != nil {
-			peer.tearDownConnection(peerConn)
+			peer.tearDownConnection(peerConn, remote)
 
 			peerConn.connection = e.connection
 			peerConn.gcmSession = e.gcmSession
@@ -972,11 +1057,15 @@ func (peer *Peer) handleEvent(e event) {
 		}
 
 	case dialTimeout:
+		peer.Opts.Logger.Debug("dial timeout", zap.String("remote", remote.String()), zap.Error(e.err))
+
 		peer.PeerTable.AddExpiry(remote, peer.Opts.PeerExpiryTimeout)
 
 		expired := peer.PeerTable.HandleExpired(remote)
 		if !expired {
 			if _, ok := peer.linkedPeers[remote]; ok {
+				peer.Opts.Logger.Debug("linked peer, try redialing")
+
 				// This can happen if an ephemeral connection that was still dialling
 				// was upgraded to a linked peer.
 
@@ -985,17 +1074,27 @@ func (peer *Peer) handleEvent(e event) {
 					go dialAndPublishEvent(peer.ctx, peer.ctx, peer.events, peer.privKey, peer.Opts.Logger, peer.Opts.DialRetryInterval, remote, remoteAddr.Value)
 				}
 			} else if _, ok := peer.ephemeralConnections[remote]; ok {
+				peer.Opts.Logger.Debug("ephemeral peer, delete")
 				delete(peer.ephemeralConnections, remote)
 			} else {
+				peer.Opts.Logger.Debug("unlinked peer, ignore")
 				// Do nothing.
 			}
+		} else {
+			peer.Opts.Logger.Debug("peer expired")
 		}
 
 	case linkPeer:
+		peer.Opts.Logger.Debug("link peer", zap.String("remote", remote.String()))
+
 		if _, ok := peer.linkedPeers[remote]; ok {
+			peer.Opts.Logger.Debug("already linked, ignoring")
+
 			// Do nothing.
 			e.errorResponder <- nil
 		} else if ephemeralConnection, ok := peer.ephemeralConnections[remote]; ok {
+			peer.Opts.Logger.Debug("upgrading ephemeral connection")
+
 			// Upgrade to a linked peer.
 
 			if len(peer.linkedPeers) >= int(peer.Opts.MaxLinkedPeers) {
@@ -1008,6 +1107,8 @@ func (peer *Peer) handleEvent(e event) {
 				e.errorResponder <- nil
 			}
 		} else {
+			peer.Opts.Logger.Debug("create new for unlinked peer")
+
 			// Create a new linked peer.
 			if len(peer.linkedPeers) >= int(peer.Opts.MaxLinkedPeers) {
 				e.errorResponder <- ErrTooManyLinkedPeers
@@ -1029,11 +1130,15 @@ func (peer *Peer) handleEvent(e event) {
 		}
 
 	case discoverPeers:
+		peer.Opts.Logger.Debug("discover peers")
+
 		recipients := peer.PeerTable.RandomPeers(peer.Opts.PingAlpha)
 		warnThreshold := len(recipients) / 2
 		numErrors := 0
 		for _, recipient := range recipients {
+			peer.Opts.Logger.Debug("sending to peer", zap.String("peer", recipient.String()))
 			if err := peer.handleSendMessage(recipient, e.message); err != nil {
+				peer.Opts.Logger.Debug("error sending to peer", zap.String("remote", recipient.String()), zap.Error(err))
 				numErrors++
 			}
 		}
@@ -1043,13 +1148,20 @@ func (peer *Peer) handleEvent(e event) {
 		}
 
 	case unlinkPeer:
+		peer.Opts.Logger.Debug("discover peers", zap.String("remote", remote.String()))
+
 		if linkedPeer, ok := peer.linkedPeers[remote]; ok {
+			peer.Opts.Logger.Debug("linked peer, unlinking")
+
+			// TODO(ross): Should we be calling `tearDownConnection` here
+			// instead?
 			if linkedPeer.connection != nil {
 				linkedPeer.connection.Close()
 			}
 
 			delete(peer.linkedPeers, remote)
 		} else {
+			peer.Opts.Logger.Debug("unlinked/ephemeral peer, ignoring")
 			// Do nothing.
 		}
 
@@ -1059,6 +1171,8 @@ func (peer *Peer) handleEvent(e event) {
 }
 
 func (peer *Peer) gossip(message wire.Msg) {
+	peer.Opts.Logger.Debug("gossiping", zap.String("subnet", message.To.String()), zap.String("content id", base64.RawURLEncoding.EncodeToString(message.Data)))
+
 	subnet := id.Hash(message.To)
 	var recipients []id.Signatory
 	if subnet.Equal(&DefaultSubnet) {
@@ -1072,7 +1186,9 @@ func (peer *Peer) gossip(message wire.Msg) {
 	warnThreshold := len(recipients) / 2
 	numErrors := 0
 	for _, recipient := range recipients {
+		peer.Opts.Logger.Debug("gossiping to peer", zap.String("peer", recipient.String()))
 		if err := peer.handleSendMessage(recipient, message); err != nil {
+			peer.Opts.Logger.Debug("error gossiping to peer", zap.Error(err))
 			numErrors++
 		}
 	}
@@ -1100,7 +1216,11 @@ func (peer *Peer) hasSpaceForNewGossipSubnet() bool {
 }
 
 func (peer *Peer) handleSendMessage(remote id.Signatory, message wire.Msg) error {
+	peer.Opts.Logger.Debug("handling send message", zap.String("remote", remote.String()))
+
 	if linkedPeer, ok := peer.linkedPeers[remote]; ok {
+		peer.Opts.Logger.Debug("sending to linked peer")
+
 		ctx, cancel := context.WithTimeout(peer.ctx, peer.Opts.OutgoingBufferTimeout)
 		defer cancel()
 
@@ -1110,18 +1230,20 @@ func (peer *Peer) handleSendMessage(remote id.Signatory, message wire.Msg) error
 
 		case <-ctx.Done():
 			if peer.ctx.Err() == nil {
-				peer.Opts.Logger.Warn("outgoing message buffer back pressure")
 				return ErrMessageBufferFull
 			} else {
 				return nil
 			}
 		}
 	} else if eConn, ok := peer.ephemeralConnections[remote]; ok {
+		peer.Opts.Logger.Debug("sending to ephemeral peer")
+
 		expiryDeadline := time.Now().Add(peer.Opts.EphemeralConnectionTTL)
 		eConn.expiryDeadline = expiryDeadline
 		if eConn.connection != nil {
 			eConn.connection.SetDeadline(eConn.expiryDeadline)
 		}
+		peer.Opts.Logger.Debug("connection expiry deadline set", zap.Time("deadline", expiryDeadline))
 
 		select {
 		case eConn.outgoingMessages <- message:
@@ -1131,6 +1253,8 @@ func (peer *Peer) handleSendMessage(remote id.Signatory, message wire.Msg) error
 			return ErrMessageBufferFull
 		}
 	} else {
+		peer.Opts.Logger.Debug("sending to unlinked peer")
+
 		if len(peer.ephemeralConnections) >= int(peer.Opts.MaxEphemeralConnections) {
 			return ErrTooManyEphemeralConnections
 		} else {
@@ -1157,14 +1281,19 @@ func (peer *Peer) handleSendMessage(remote id.Signatory, message wire.Msg) error
 
 			peer.ephemeralConnections[remote] = eConn
 
+			peer.Opts.Logger.Debug("added new ephemeral connection", zap.Time("expiry deadline", expiryDeadline))
+
 			return nil
 		}
 	}
 }
 
-func (peer *Peer) tearDownConnection(peerConn *peerConnection) {
-	peer.Opts.Logger.Debug("tearing down connection", zap.String("self", peer.id.String()[:4]))
+func (peer *Peer) tearDownConnection(peerConn *peerConnection, remote id.Signatory) {
+	peer.Opts.Logger.Debug("tearing down connection", zap.String("remote", remote.String()))
+
 	if peerConn.connection != nil {
+		peer.Opts.Logger.Debug("closing connection")
+
 		peerConn.connection.Close()
 		peerConn.connection = nil
 
@@ -1172,16 +1301,21 @@ func (peer *Peer) tearDownConnection(peerConn *peerConnection) {
 		// finish if it is blocking on reading from the outgoing message
 		// channel.
 		newOutgoingBuffer := make(chan wire.Msg, peer.Opts.OutgoingBufferSize)
+		n := 0
 	LOOP:
 		for {
 			select {
 			case msg := <-peerConn.outgoingMessages:
 				newOutgoingBuffer <- msg
+				n++
 
 			default:
 				break LOOP
 			}
 		}
+
+		peer.Opts.Logger.Debug(fmt.Sprintf("%v messages transferred to new outgoing message buffer", n))
+
 		close(peerConn.outgoingMessages)
 		peerConn.outgoingMessages = newOutgoingBuffer
 
@@ -1191,13 +1325,17 @@ func (peer *Peer) tearDownConnection(peerConn *peerConnection) {
 		// This behaviour is sepcified by the documentation for `Close`, so we
 		// should be OK.
 		<-peerConn.readDone
+		peer.Opts.Logger.Debug("reading task done")
 		peerConn.pendingMessage = <-peerConn.writeDone
+		peer.Opts.Logger.Debug("writing task done")
+	} else {
+		peer.Opts.Logger.Debug("connection already closed")
 	}
 
 }
 
 func (peer *Peer) startConnection(peerConn *peerConnection, remote id.Signatory) {
-	peer.Opts.Logger.Debug("starting connection", zap.String("self", peer.id.String()[:4]))
+	peer.Opts.Logger.Debug("starting connection", zap.String("remote", remote.String()))
 	peerConn.readDone = make(chan struct{}, 1)
 	peerConn.writeDone = make(chan *wire.Msg, 1)
 
@@ -1214,6 +1352,7 @@ func (peer *Peer) startConnection(peerConn *peerConnection, remote id.Signatory)
 		peer.Opts.ConnectionRateLimiterOptions,
 		peer.Opts.MaxMessageSize,
 		peerConn.readDone,
+		peer.Opts.Logger,
 	)
 	go write(
 		peer.ctx,
@@ -1226,6 +1365,7 @@ func (peer *Peer) startConnection(peerConn *peerConnection, remote id.Signatory)
 		peerConn.writeDone,
 		remote,
 		firstMessage,
+		peer.Opts.Logger,
 	)
 }
 
@@ -1238,6 +1378,7 @@ func dialAndPublishEvent(
 	remote id.Signatory,
 	remoteAddr string,
 ) {
+	logger.Debug("dialing", zap.String("remote", remote.String()), zap.String("address", remoteAddr))
 	conn, err := dial(ctx, remoteAddr, dialRetryInterval, logger)
 
 	var e event
@@ -1249,7 +1390,7 @@ func dialAndPublishEvent(
 		gcmSession, discoveredRemote, err := handshake.Handshake(privKey, conn)
 
 		if err != nil {
-			logger.Warn("handshake failed", zap.Error(err))
+			logger.Warn("handshake failed", zap.String("dialled remote", remote.String()), zap.Error(err))
 			conn.Close()
 
 			e.ty = dialTimeout
@@ -1257,7 +1398,9 @@ func dialAndPublishEvent(
 		} else if !remote.Equal(&discoveredRemote) {
 			// TODO(ross): What to do here? This being an error probably relies
 			// on only using signed addresses during peer discovery.
+			logger.Error("handshake derived remote mismatch", zap.String("dialled remote", remote.String()), zap.String("handshake derived remote", discoveredRemote.String()))
 		} else {
+			logger.Debug("handshake success", zap.String("remote", remote.String()))
 			e.ty = newConnection
 			e.connection = conn
 			e.gcmSession = gcmSession
@@ -1280,7 +1423,10 @@ func read(
 	rateLimiterOptions RateLimiterOptions,
 	maxMessageSize uint,
 	done chan<- struct{},
+	logger *zap.Logger,
 ) {
+	logger.Debug("read task started", zap.String("remote", remote.String()))
+
 	unmarshalBuffer := make([]byte, maxMessageSize)
 	decodeBuffer := make([]byte, maxMessageSize)
 
@@ -1291,6 +1437,8 @@ func read(
 	for {
 		decodedMessage, err := readAndDecode(conn, gcmSession, rateLimiter, decodeBuffer, unmarshalBuffer)
 		if err != nil {
+			logger.Debug("read task ending: error reading/decoding message", zap.String("remote", remote.String()))
+
 			e := event{
 				ty:  readerDropped,
 				id:  remote,
@@ -1309,6 +1457,8 @@ func read(
 		msg := wire.Msg{}
 		_, _, err = msg.Unmarshal(decodedMessage, len(decodedMessage))
 		if err != nil {
+			logger.Debug("read task ending: error unmarshalling message", zap.String("remote", remote.String()))
+
 			e := event{
 				ty:  readerDropped,
 				id:  remote,
@@ -1325,6 +1475,8 @@ func read(
 		} else {
 			if msg.Type == wire.MsgTypeSync {
 				if filter.filter(remote, msg) {
+					logger.Debug("read task ending: sync message not accepted by filter", zap.String("remote", remote.String()))
+
 					e := event{
 						ty:  readerDropped,
 						id:  remote,
@@ -1342,6 +1494,8 @@ func read(
 
 				decodedSyncData, err := readAndDecode(conn, gcmSession, rateLimiter, decodeBuffer, unmarshalBuffer)
 				if err != nil {
+					logger.Debug("read task ending: reading/decoding sync data", zap.String("remote", remote.String()))
+
 					e := event{
 						ty:  readerDropped,
 						id:  remote,
@@ -1361,6 +1515,8 @@ func read(
 				copy(msg.SyncData, decodedSyncData)
 			}
 
+			logger.Debug("message received by reader", zap.String("remote", remote.String()))
+
 			e := event{
 				ty:      incomingMessage,
 				id:      remote,
@@ -1370,6 +1526,7 @@ func read(
 
 			select {
 			case <-ctx.Done():
+				logger.Debug("read task ending: context expired", zap.String("remote", remote.String()))
 				return
 			case events <- e:
 			}
@@ -1421,7 +1578,10 @@ func write(
 	done chan<- *wire.Msg,
 	remote id.Signatory,
 	firstMessage *wire.Msg,
+	logger *zap.Logger,
 ) {
+	logger.Debug("write task started", zap.Bool("have first message", firstMessage != nil), zap.String("remote", remote.String()))
+
 	marshalBuffer := make([]byte, maxMessageSize)
 	encodeBuffer := make([]byte, maxMessageSize)
 
@@ -1429,17 +1589,21 @@ func write(
 	var ok bool
 	for {
 		if firstMessage != nil {
+			logger.Debug("writer sending first message", zap.String("remote", remote.String()))
 			msg, ok = *firstMessage, true
 			firstMessage = nil
 		} else {
 			select {
 			case <-ctx.Done():
+				logger.Debug("writer task ending: context expired", zap.String("remote", remote.String()))
 				return
 			case msg, ok = <-outgoingMessages:
+				logger.Debug("writer sending outgoing message", zap.String("remote", remote.String()))
 			}
 		}
 
 		if !ok {
+			logger.Debug("writer task ending: outgoing messages channel closed", zap.String("remote", remote.String()))
 			close(done)
 			return
 		} else {
@@ -1463,6 +1627,8 @@ func write(
 			n, err := conn.Write(encodeBuffer)
 
 			if err != nil || n != len(encodeBuffer) {
+				logger.Debug("writer task ending: writing message to connection failed", zap.String("remote", remote.String()))
+
 				done <- &msg
 				event := event{
 					ty:  writerDropped,
@@ -1485,6 +1651,8 @@ func write(
 				n, err := conn.Write(encodeBuffer)
 
 				if err != nil || n != len(encodeBuffer) {
+					logger.Debug("writer task ending: writing sync data to connection failed", zap.String("remote", remote.String()))
+
 					done <- &msg
 					event := event{
 						ty:  writerDropped,
