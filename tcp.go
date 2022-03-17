@@ -55,11 +55,12 @@ func dial(ctx context.Context, remoteAddr string, retryInterval time.Duration, l
 		dialCtx, dialCancel := context.WithTimeout(ctx, retryInterval)
 		conn, err := dialer.DialContext(dialCtx, "tcp", remoteAddr)
 		if err != nil {
-			logger.Debug("dial attempt failed", zap.Error(err))
+			logger.Debug("dial attempt failed", zap.String("address", remoteAddr), zap.Error(err))
 
 			<-dialCtx.Done()
 			dialCancel()
 		} else {
+			logger.Debug("dial succeeded", zap.String("address", remoteAddr))
 			dialCancel()
 
 			return conn, nil
@@ -68,6 +69,8 @@ func dial(ctx context.Context, remoteAddr string, retryInterval time.Duration, l
 }
 
 func listen(ctx context.Context, listener net.Listener, handle func(net.Conn), rateLimiterOptions ListenerOptions, logger *zap.Logger) {
+	logger.Info("listening", zap.String("address", listener.Addr().String()))
+
 	mapCap := rateLimiterOptions.RateLimiterCapacity / 2
 	frontMap := make(map[string]*rate.Limiter, mapCap)
 	backMap := make(map[string]*rate.Limiter, mapCap)
@@ -75,6 +78,8 @@ func listen(ctx context.Context, listener net.Listener, handle func(net.Conn), r
 	for {
 		select {
 		case <-ctx.Done():
+			logger.Info("listener closing: context timeout")
+
 			listener.Close()
 			return
 
