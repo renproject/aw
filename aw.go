@@ -827,7 +827,7 @@ func (peer *Peer) handleEvent(e event) {
 		numErrors := 0
 		for _, recipient := range peers {
 			if err := peer.handleSendMessage(recipient, message); err != nil {
-				if recipient.Equal(e.hint) {
+				if e.hint != nil && recipient.Equal(e.hint) {
 					peer.Opts.Logger.Warn("unable to sync from hinted peer", zap.Error(err))
 				}
 				numErrors++
@@ -1229,7 +1229,7 @@ func (peer *Peer) handleSendMessage(remote id.Signatory, message wire.Msg) error
 			return nil
 
 		case <-ctx.Done():
-			if peer.ctx.Err() == nil {
+			if ctx.Err() == nil {
 				return ErrMessageBufferFull
 			} else {
 				return nil
