@@ -315,6 +315,41 @@ var _ = Describe("Peer", func() {
 			Expect(receivedData).To(Equal(content))
 		})
 
+		It("should return the same content if it is already present", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			opts := defaultOptions(logger)
+
+			peer1 := newPeerAndListen(ctx, opts)
+			peer2 := newPeerAndListen(ctx, opts)
+			peers := []*aw.Peer{peer1, peer2}
+
+			connectAllPeers(peers)
+
+			go peer1.Run(ctx)
+			go peer2.Run(ctx)
+
+			linkAllPeers(peers)
+
+			contentID := []byte("id")
+			rightContent := []byte("right")
+			wrongContent := []byte("wrong")
+
+			// NOTE: In practice this could occur if a malicious node sent one
+			// content for the first sync and different content for the second
+			// sync (but with the same content ID).
+			peer1.ContentResolver.InsertContent(contentID, rightContent)
+			peer2.ContentResolver.InsertContent(contentID, wrongContent)
+
+			syncCtx, syncCancel := context.WithTimeout(ctx, time.Second)
+			receivedData, err := peer1.Sync(syncCtx, contentID, nil)
+			syncCancel()
+
+			Expect(err).To(BeNil())
+			Expect(receivedData).To(Equal(rightContent))
+		})
+
 		Context("many peers and only one has the content", func() {
 			It("should sync the content with no hint", func() {
 				ctx, cancel := context.WithCancel(context.Background())
