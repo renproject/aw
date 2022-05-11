@@ -350,6 +350,41 @@ var _ = Describe("Peer", func() {
 			Expect(receivedData).To(Equal(rightContent))
 		})
 
+		It("should expire old pending syncs", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			opts := defaultOptions(logger)
+			opts.MaxPendingSyncs = 10
+
+			peer1 := newPeerAndListen(ctx, opts)
+			peer2 := newPeerAndListen(ctx, opts)
+			peers := []*aw.Peer{peer1, peer2}
+
+			connectAllPeers(peers)
+
+			go peer1.Run(ctx)
+			go peer2.Run(ctx)
+
+			linkAllPeers(peers)
+
+			successID := []byte("success")
+			peer2.ContentResolver.InsertContent(successID, []byte("content"))
+
+			for i := 0; i < int(opts.MaxPendingSyncs); i++ {
+				contentID := []byte(fmt.Sprintf("%v", i))
+				syncCtx, syncCancel := context.WithTimeout(ctx, 1*time.Millisecond)
+				peer1.Sync(syncCtx, contentID, nil)
+				syncCancel()
+			}
+
+			syncCtx, syncCancel := context.WithTimeout(ctx, 10*time.Millisecond)
+			_, err := peer1.Sync(syncCtx, successID, nil)
+			syncCancel()
+
+			Expect(err).ToNot(HaveOccurred())
+		})
+
 		Context("many peers and only one has the content", func() {
 			It("should sync the content with no hint", func() {
 				ctx, cancel := context.WithCancel(context.Background())

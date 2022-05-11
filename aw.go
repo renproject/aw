@@ -826,7 +826,7 @@ func (peer *Peer) handleEvent(e event) {
 
 				peer.filter.allow(contentID)
 
-				if uint(len(peer.pendingSyncs)) >= peer.Opts.MaxPendingSyncs {
+				if numPendingSyncs(peer.pendingSyncs) >= peer.Opts.MaxPendingSyncs {
 					e.errorResponder <- ErrTooManyPendingSyncs
 				} else {
 					pending := pendingSync{
@@ -1696,4 +1696,13 @@ func write(
 			}
 		}
 	}
+}
+
+func numPendingSyncs(pendingSyncs map[string]pendingSync) uint {
+	for id, pSync := range pendingSyncs {
+		if pSync.ctx.Err() != nil {
+			delete(pendingSyncs, id)
+		}
+	}
+	return uint(len(pendingSyncs))
 }
