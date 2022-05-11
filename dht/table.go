@@ -103,6 +103,10 @@ func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr wire.Address) {
 		return
 	}
 
+	if peerAddr.Verify(peerID) != nil {
+		return
+	}
+
 	_, ok := table.addrsBySignatory[peerID]
 
 	// Insert into the map to allow for address lookup using the signatory.

@@ -237,6 +237,7 @@ type Peer struct {
 	Opts Options
 
 	id      id.Signatory
+	addr    wire.Address
 	privKey *id.PrivKey
 	Port    uint16
 
@@ -255,6 +256,7 @@ type Peer struct {
 
 func New(opts Options, privKey *id.PrivKey, peerTable dht.Table, contentResolver dht.ContentResolver) *Peer {
 	self := privKey.Signatory()
+	addr := wire.Address{} // TODO(ross): Receive in the contructor or set afterwards?
 
 	events := make(chan event, opts.EventLoopBufferSize)
 	linkedPeers := make(map[id.Signatory]*peerConnection, opts.MaxLinkedPeers)
@@ -270,6 +272,7 @@ func New(opts Options, privKey *id.PrivKey, peerTable dht.Table, contentResolver
 		Opts: opts,
 
 		id:      self,
+		addr:    addr,
 		privKey: privKey,
 		Port:    0,
 
@@ -733,15 +736,17 @@ func (peer *Peer) handleEvent(e event) {
 		case wire.MsgTypePing:
 			peer.Opts.Logger.Debug("ping")
 
-			if dataLen := len(message.Data); dataLen != 2 {
-				peer.Opts.Logger.Warn("malformed port", zap.String("peer", remote.String()), zap.Uint64("port byte size", uint64(dataLen)))
+			var pingerAddr wire.Address
+			err := surge.FromBinary(pingerAddr, message.Data)
+			if err != nil {
+				peer.Opts.Logger.Warn("malformed address from pinger", zap.String("peer", remote.String()), zap.Error(err))
 			}
-			port := binary.LittleEndian.Uint16(message.Data)
 
-			peer.PeerTable.AddPeer(
-				remote,
-				wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", e.addr.(*net.TCPAddr).IP.String(), port), uint64(time.Now().UnixNano())),
-			)
+			// Undefined protocol is used when the peer does not know their own
+			// address.
+			if pingerAddr.Protocol != wire.UndefinedProtocol {
+				peer.PeerTable.AddPeer(remote, pingerAddr)
+			}
 
 			peers := peer.PeerTable.RandomPeers(peer.Opts.PongAlpha)
 			addrAndSig := make([]wire.SignatoryAndAddress, 0, len(peers))
@@ -1157,12 +1162,22 @@ func (peer *Peer) handleEvent(e event) {
 	case discoverPeers:
 		peer.Opts.Logger.Debug("discover peers")
 
+		pingData, err := surge.ToBinary(peer.addr)
+		if err != nil {
+			peer.Opts.Logger.DPanic("marshalling own address", zap.Error(err))
+		}
+		message := wire.Msg{
+			Version: wire.MsgVersion1,
+			Type:    wire.MsgTypePing,
+			Data:    pingData[:],
+		}
+
 		recipients := peer.PeerTable.RandomPeers(peer.Opts.PingAlpha)
 		warnThreshold := len(recipients) / 2
 		numErrors := 0
 		for _, recipient := range recipients {
 			peer.Opts.Logger.Debug("sending to peer", zap.String("peer", recipient.String()))
-			if err := peer.handleSendMessage(recipient, e.message); err != nil {
+			if err := peer.handleSendMessage(recipient, message); err != nil {
 				peer.Opts.Logger.Debug("error sending to peer", zap.String("remote", recipient.String()), zap.Error(err))
 				numErrors++
 			}
