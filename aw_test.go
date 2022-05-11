@@ -372,18 +372,13 @@ var _ = Describe("Peer", func() {
 			peer2.ContentResolver.InsertContent(successID, []byte("content"))
 
 			for i := 0; i < int(opts.MaxPendingSyncs); i++ {
-				i := i
-				go func() {
-					contentID := []byte(fmt.Sprintf("%v", i))
-					syncCtx, syncCancel := context.WithTimeout(ctx, 100*time.Millisecond)
-					peer1.Sync(syncCtx, contentID, nil)
-					syncCancel()
-				}()
+				contentID := []byte(fmt.Sprintf("%v", i))
+				syncCtx, syncCancel := context.WithTimeout(ctx, 1*time.Millisecond)
+				peer1.Sync(syncCtx, contentID, nil)
+				syncCancel()
 			}
 
-			time.Sleep(100 * time.Millisecond)
-
-			syncCtx, syncCancel := context.WithTimeout(ctx, 100*time.Millisecond)
+			syncCtx, syncCancel := context.WithTimeout(ctx, 10*time.Millisecond)
 			_, err := peer1.Sync(syncCtx, successID, nil)
 			syncCancel()
 
