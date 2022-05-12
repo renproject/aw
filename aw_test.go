@@ -243,7 +243,7 @@ var _ = Describe("Peer", func() {
 			defer cancel()
 
 			opts := defaultOptions(logger)
-			opts.PeerDiscoveryInterval = 10 * time.Millisecond
+			opts.PeerDiscoveryInterval = 50 * time.Millisecond
 			opts.PingAlpha = 5
 			opts.PongAlpha = 5
 
