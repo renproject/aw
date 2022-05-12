@@ -18,7 +18,7 @@ import (
 	"github.com/renproject/surge"
 	"go.uber.org/zap"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
@@ -156,7 +156,8 @@ var _ = Describe("Peer", func() {
 
 			peer2Port := 3333
 			address2 := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", peer2Port), uint64(time.Now().UnixNano()))
-			peer1.PeerTable.AddPeer(peer2.ID(), address2)
+			address2.Sign(peer2.PrivKey)
+			peer1.PeerTable.AddPeer(peer2.ID, address2)
 
 			_, err = peer1.Listen(ctx, "localhost:0")
 			if err != nil {
@@ -177,7 +178,7 @@ var _ = Describe("Peer", func() {
 			}
 			go peer2.Run(ctx)
 
-			Eventually(func() []byte { msg, _ := peer2.ContentResolver.QueryContent(contentID); return msg }, 1000).Should(Equal(content))
+			Eventually(func() []byte { msg, _ := peer2.ContentResolver.QueryContent(contentID); return msg }).Should(Equal(content))
 		})
 
 		Specify("only peers in a given subnet should receive content when gossiping to that subnet", func() {
@@ -204,7 +205,7 @@ var _ = Describe("Peer", func() {
 			// Subnet that consists of the first half of the peers.
 			subnetPeers := make([]id.Signatory, n/2)
 			for i := range subnetPeers {
-				subnetPeers[i] = peers[i].ID()
+				subnetPeers[i] = peers[i].ID
 			}
 
 			var subnet id.Hash
@@ -259,11 +260,11 @@ var _ = Describe("Peer", func() {
 
 			peerIDs := make([]id.Signatory, len(peers))
 			for i := range peers {
-				peerIDs[i] = peers[i].ID()
+				peerIDs[i] = peers[i].ID
 			}
 
 			hasDiscoveredAllOthers := func(peer *aw.Peer, ids []id.Signatory) bool {
-				id := peer.ID()
+				id := peer.ID
 				for _, other := range ids {
 					if !other.Equal(&id) {
 						if _, ok := peer.PeerTable.PeerAddress(other); !ok {
@@ -276,7 +277,7 @@ var _ = Describe("Peer", func() {
 			}
 
 			for _, peer := range peers {
-				Eventually(func() bool { return hasDiscoveredAllOthers(peer, peerIDs) }, 100).Should(BeTrue())
+				Eventually(func() bool { return hasDiscoveredAllOthers(peer, peerIDs) }).Should(BeTrue())
 			}
 		})
 	})
@@ -420,7 +421,7 @@ var _ = Describe("Peer", func() {
 				content := []byte("hello")
 				peers := manyConnectedPeersFirstHasContent(ctx, n, opts, contentID, content)
 
-				hint := peers[0].ID()
+				hint := peers[0].ID
 
 				for _, peer := range peers[1:] {
 					syncCtx, cancel := context.WithTimeout(ctx, time.Second)
@@ -465,28 +466,30 @@ var _ = Describe("Peer", func() {
 
 			addr1 := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", peer1.Port), uint64(time.Now().UnixNano()))
 			addr2 := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", peer2.Port), uint64(time.Now().UnixNano()))
-			peer1.PeerTable.AddPeer(peer2.ID(), addr2)
-			peer2.PeerTable.AddPeer(peer1.ID(), addr1)
+			addr1.Sign(peer1.PrivKey)
+			addr2.Sign(peer2.PrivKey)
+			peer1.PeerTable.AddPeer(peer2.ID, addr2)
+			peer2.PeerTable.AddPeer(peer1.ID, addr1)
 
 			go peer1.Run(ctx)
 			go peer2.Run(ctx)
 
-			err = peer1.Link(peer2.ID())
+			err = peer1.Link(peer2.ID)
 			if err != nil {
 				panic(err)
 			}
-			err = peer2.Link(peer1.ID())
+			err = peer2.Link(peer1.ID)
 			if err != nil {
 				panic(err)
 			}
 
 			msg := []byte("hello")
 			sendCtx, sendCancel := context.WithTimeout(ctx, time.Second)
-			err = peer1.Send(sendCtx, msg, peer2.ID())
+			err = peer1.Send(sendCtx, msg, peer2.ID)
 			sendCancel()
 
 			Expect(err).To(BeNil())
-			Eventually(resultCh).Should(Receive(Equal(result{peer1.ID(), msg})))
+			Eventually(resultCh).Should(Receive(Equal(result{peer1.ID, msg})))
 		})
 	})
 
@@ -502,8 +505,10 @@ var _ = Describe("Peer", func() {
 			opts.PeerDiscoveryInterval = 10 * time.Millisecond
 
 			peer := newPeerAndListen(ctx, opts)
-			signatory := id.NewPrivKey().Signatory()
+			privKey := id.NewPrivKey()
+			signatory := privKey.Signatory()
 			address := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", 12345), uint64(time.Now().UnixNano()))
+			address.Sign(privKey)
 			peer.PeerTable.AddPeer(signatory, address)
 
 			Expect(peer.PeerTable.NumPeers()).To(Equal(1))
@@ -525,17 +530,19 @@ var _ = Describe("Peer", func() {
 
 		stableAddress := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", stablePeer.Port), uint64(time.Now().UnixNano()))
 		crashAddress := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", crashPeer.Port), uint64(time.Now().UnixNano()))
-		stablePeer.PeerTable.AddPeer(crashPeer.ID(), crashAddress)
-		crashPeer.PeerTable.AddPeer(stablePeer.ID(), stableAddress)
+		stableAddress.Sign(stablePeer.PrivKey)
+		crashAddress.Sign(crashPeer.PrivKey)
+		stablePeer.PeerTable.AddPeer(crashPeer.ID, crashAddress)
+		crashPeer.PeerTable.AddPeer(stablePeer.ID, stableAddress)
 
 		go stablePeer.Run(ctx)
 		go crashPeer.Run(ctx)
 
-		err = stablePeer.Link(crashPeer.ID())
+		err = stablePeer.Link(crashPeer.ID)
 		if err != nil {
 			panic(err)
 		}
-		err = crashPeer.Link(stablePeer.ID())
+		err = crashPeer.Link(stablePeer.ID)
 		if err != nil {
 			panic(err)
 		}
@@ -556,11 +563,11 @@ var _ = Describe("Peer", func() {
 				// happen if the connection is killed at any point after the
 				// stable peer sends the gossip and before the sync is handled
 				// by the crash peer.
-				err = crashPeer.Unlink(stablePeer.ID())
+				err = crashPeer.Unlink(stablePeer.ID)
 				if err != nil {
 					panic(err)
 				}
-				err = crashPeer.Link(stablePeer.ID())
+				err = crashPeer.Link(stablePeer.ID)
 				if err != nil {
 					panic(err)
 				}
@@ -640,29 +647,31 @@ var _ = Describe("Peer", func() {
 
 			writeAddress := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", writePeer.Port), uint64(time.Now().UnixNano()))
 			readAddress := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", readPeer.Port), uint64(time.Now().UnixNano()))
-			writePeer.PeerTable.AddPeer(readPeer.ID(), readAddress)
-			readPeer.PeerTable.AddPeer(writePeer.ID(), writeAddress)
+			writeAddress.Sign(writePeer.PrivKey)
+			readAddress.Sign(readPeer.PrivKey)
+			writePeer.PeerTable.AddPeer(readPeer.ID, readAddress)
+			readPeer.PeerTable.AddPeer(writePeer.ID, writeAddress)
 
 			go writePeer.Run(ctx)
 			go readPeer.Run(ctx)
 
-			err = writePeer.Link(readPeer.ID())
+			err = writePeer.Link(readPeer.ID)
 			if err != nil {
 				panic(err)
 			}
-			err = readPeer.Link(writePeer.ID())
+			err = readPeer.Link(writePeer.ID)
 			if err != nil {
 				panic(err)
 			}
 
 			data := make([]byte, int(opts.ConnectionRateLimiterOptions.Rate))
 
-			err = writePeer.Send(ctx, data, readPeer.ID())
+			err = writePeer.Send(ctx, data, readPeer.ID)
 			if err != nil {
 				panic(err)
 			}
 			Eventually(received).Should(Receive())
-			err = writePeer.Send(ctx, data, readPeer.ID())
+			err = writePeer.Send(ctx, data, readPeer.ID)
 			if err != nil {
 				panic(err)
 			}
@@ -708,20 +717,21 @@ var _ = Describe("Peer", func() {
 			go peer.Run(ctx)
 
 			addr := wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", peer.Port), uint64(time.Now().UnixNano()))
+			addr.Sign(peer.PrivKey)
 
 			otherPeers := make([]*aw.Peer, opts.MaxEphemeralConnections)
 			for i := range otherPeers {
 				otherPeers[i] = newPeerAndListen(ctx, opts)
-				otherPeers[i].PeerTable.AddPeer(peer.ID(), addr)
+				otherPeers[i].PeerTable.AddPeer(peer.ID, addr)
 				go otherPeers[i].Run(ctx)
 			}
 
 			lastPeer := newPeerAndListen(ctx, opts)
-			lastPeer.PeerTable.AddPeer(peer.ID(), addr)
+			lastPeer.PeerTable.AddPeer(peer.ID, addr)
 			go lastPeer.Run(ctx)
 
 			for _, otherPeer := range otherPeers {
-				err = otherPeer.Link(peer.ID())
+				err = otherPeer.Link(peer.ID)
 				if err != nil {
 					panic(err)
 				}
@@ -730,7 +740,7 @@ var _ = Describe("Peer", func() {
 			// Give some time for the other peers to finish linking.
 			time.Sleep(50 * time.Millisecond)
 
-			err = lastPeer.Send(ctx, []byte{0}, peer.ID())
+			err = lastPeer.Send(ctx, []byte{0}, peer.ID)
 			if err != nil {
 				panic(err)
 			}
@@ -762,7 +772,7 @@ var _ = Describe("Peer", func() {
 			}
 			go peer.Run(ctx)
 
-			peerSignatory := peer.ID()
+			peerSignatory := peer.ID
 
 			// Make sure we are not the keep alive decider.
 			var dialerPrivKey *id.PrivKey
@@ -930,7 +940,7 @@ func manyConnectedPeersFirstHasContent(ctx context.Context, n int, opts aw.Optio
 
 func newPeer(opts aw.Options) *aw.Peer {
 	privKey := id.NewPrivKey()
-	peerTable := dht.NewInMemTable(privKey.Signatory())
+	peerTable := dht.NewInMemTable(privKey.Signatory(), opts.Logger)
 	contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
 	peer := aw.New(opts, privKey, peerTable, contentResolver)
 
@@ -939,7 +949,7 @@ func newPeer(opts aw.Options) *aw.Peer {
 
 func newPeerWithReceiver(ctx context.Context, opts aw.Options, receiver func(id.Signatory, []byte)) *aw.Peer {
 	privKey := id.NewPrivKey()
-	peerTable := dht.NewInMemTable(privKey.Signatory())
+	peerTable := dht.NewInMemTable(privKey.Signatory(), opts.Logger)
 	contentResolver := dht.NewDoubleCacheContentResolver(dht.DefaultDoubleCacheContentResolverOptions(), nil)
 	peer := aw.New(opts, privKey, peerTable, contentResolver)
 	go receive(ctx, peer, receiver)
@@ -975,13 +985,14 @@ func connectAllPeers(peers []*aw.Peer) {
 	addresses := make([]wire.Address, len(peers))
 	for i := range peers {
 		addresses[i] = wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", peers[i].Port), uint64(time.Now().UnixNano()))
+		addresses[i].Sign(peers[i].PrivKey)
 	}
 
 	for i := range peers {
 		for j := range peers {
 			if j != i {
-				peers[i].PeerTable.AddPeer(peers[j].ID(), addresses[j])
-				peers[j].PeerTable.AddPeer(peers[i].ID(), addresses[i])
+				peers[i].PeerTable.AddPeer(peers[j].ID, addresses[j])
+				peers[j].PeerTable.AddPeer(peers[i].ID, addresses[i])
 			}
 		}
 	}
@@ -993,12 +1004,13 @@ func connectPeersRing(peers []*aw.Peer) {
 	addresses := make([]wire.Address, n)
 	for i := range peers {
 		addresses[i] = wire.NewUnsignedAddress(wire.TCP, fmt.Sprintf("%v:%v", "localhost", peers[i].Port), uint64(time.Now().UnixNano()))
+		addresses[i].Sign(peers[i].PrivKey)
 	}
 
 	for i := range peers {
 		next := (i + 1) % n
-		peers[i].PeerTable.AddPeer(peers[next].ID(), addresses[next])
-		peers[next].PeerTable.AddPeer(peers[i].ID(), addresses[i])
+		peers[i].PeerTable.AddPeer(peers[next].ID, addresses[next])
+		peers[next].PeerTable.AddPeer(peers[i].ID, addresses[i])
 	}
 }
 
@@ -1006,11 +1018,11 @@ func linkAllPeers(peers []*aw.Peer) {
 	for i := range peers {
 		for j := range peers {
 			if i != j {
-				err := peers[i].Link(peers[j].ID())
+				err := peers[i].Link(peers[j].ID)
 				if err != nil {
 					panic(err)
 				}
-				err = peers[j].Link(peers[i].ID())
+				err = peers[j].Link(peers[i].ID)
 				if err != nil {
 					panic(err)
 				}
@@ -1024,11 +1036,11 @@ func linkPeersRing(peers []*aw.Peer) {
 
 	for i := range peers {
 		next := (i + 1) % n
-		err := peers[i].Link(peers[next].ID())
+		err := peers[i].Link(peers[next].ID)
 		if err != nil {
 			panic(err)
 		}
-		err = peers[next].Link(peers[i].ID())
+		err = peers[next].Link(peers[i].ID)
 		if err != nil {
 			panic(err)
 		}

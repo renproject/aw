@@ -12,9 +12,11 @@ import (
 	"github.com/renproject/aw/dht/dhtutil"
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
+	"go.uber.org/zap"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/gmeasure"
 )
 
 var _ = Describe("DHT", func() {
@@ -27,6 +29,10 @@ var _ = Describe("DHT", func() {
 					privKey := id.NewPrivKey()
 					sig := privKey.Signatory()
 					addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
+					err := addr.Sign(privKey)
+					if err != nil {
+						panic(err)
+					}
 
 					table.AddPeer(sig, addr)
 
@@ -47,6 +53,10 @@ var _ = Describe("DHT", func() {
 				f := func(seed int64) bool {
 					privKey := id.NewPrivKey()
 					addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
+					err := addr.Sign(privKey)
+					if err != nil {
+						panic(err)
+					}
 
 					// Try to delete the address prior to inserting to make sure
 					// it does not panic.
@@ -78,6 +88,10 @@ var _ = Describe("DHT", func() {
 					privKey := id.NewPrivKey()
 					sig := privKey.Signatory()
 					addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
+					err := addr.Sign(privKey)
+					if err != nil {
+						panic(err)
+					}
 
 					table.AddPeer(sig, addr)
 
@@ -113,6 +127,10 @@ var _ = Describe("DHT", func() {
 						privKey := id.NewPrivKey()
 						sig := privKey.Signatory()
 						addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
+						err := addr.Sign(privKey)
+						if err != nil {
+							panic(err)
+						}
 
 						table.AddPeer(sig, addr)
 					}
@@ -147,6 +165,10 @@ var _ = Describe("DHT", func() {
 						privKey := id.NewPrivKey()
 						sig := privKey.Signatory()
 						addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
+						err := addr.Sign(privKey)
+						if err != nil {
+							panic(err)
+						}
 
 						table.AddPeer(sig, addr)
 					}
@@ -170,6 +192,10 @@ var _ = Describe("DHT", func() {
 						privKey := id.NewPrivKey()
 						sig := privKey.Signatory()
 						addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
+						err := addr.Sign(privKey)
+						if err != nil {
+							panic(err)
+						}
 
 						table.AddPeer(sig, addr)
 					}
@@ -190,6 +216,10 @@ var _ = Describe("DHT", func() {
 					privKey := id.NewPrivKey()
 					sig := privKey.Signatory()
 					addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
+					err := addr.Sign(privKey)
+					if err != nil {
+						panic(err)
+					}
 
 					table.AddPeer(sig, addr)
 				}
@@ -208,7 +238,7 @@ var _ = Describe("DHT", func() {
 
 			It("should work while deleting peers from the table", func() {
 				table, _ := initDHT()
-				numAddrs := rand.Intn(100)
+				numAddrs := rand.Intn(99) + 1
 				numRandAddrs := rand.Intn(numAddrs)
 
 				// Insert `numAddrs` random addresses into the store.
@@ -217,6 +247,10 @@ var _ = Describe("DHT", func() {
 					privKey := id.NewPrivKey()
 					sig := privKey.Signatory()
 					addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
+					err := addr.Sign(privKey)
+					if err != nil {
+						panic(err)
+					}
 					table.AddPeer(sig, addr)
 					if i < numAddrs/2 {
 						deletedPeers = append(deletedPeers, sig)
@@ -254,6 +288,10 @@ var _ = Describe("DHT", func() {
 					privKey := id.NewPrivKey()
 					sig := privKey.Signatory()
 					addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:3000", uint64(time.Now().UnixNano()))
+					err := addr.Sign(privKey)
+					if err != nil {
+						panic(err)
+					}
 
 					table.AddPeer(sig, addr)
 				}
@@ -270,22 +308,37 @@ var _ = Describe("DHT", func() {
 				f := func(seed int64) bool {
 					table, _ := initDHT()
 					numPeers := r.Intn(100) + 1
+					randomPeerIndex := r.Intn(numPeers)
+					var randomPeerPrivKey *id.PrivKey
 					for i := 0; i < numPeers; i++ {
 						privKey := id.NewPrivKey()
+						if i == randomPeerIndex {
+							randomPeerPrivKey = privKey
+						}
 						sig := privKey.Signatory()
 						ipAddr := fmt.Sprintf("%d.%d.%d.%d:%d",
 							r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(65536))
 						addr := wire.NewUnsignedAddress(wire.TCP, ipAddr, uint64(time.Now().UnixNano()))
+						err := addr.Sign(privKey)
+						if err != nil {
+							panic(err)
+						}
 						table.AddPeer(sig, addr)
 					}
 
 					peers := table.Peers(numPeers + 10)
-					Expect(len(peers)).To(Equal(numPeers))
-					randomSig := peers[r.Intn(numPeers)]
+					randomSig := randomPeerPrivKey.Signatory()
 					newIPAddr := fmt.Sprintf("%d.%d.%d.%d:%d",
 						r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(65536))
 					newAddr := wire.NewUnsignedAddress(wire.TCP, newIPAddr, uint64(time.Now().UnixNano()))
-					table.AddPeer(randomSig, newAddr)
+					err := newAddr.Sign(randomPeerPrivKey)
+					if err != nil {
+						panic(err)
+					}
+					ok := table.AddPeer(randomSig, newAddr)
+					if !ok {
+						panic("peer not added to table")
+					}
 
 					newPeers := table.Peers(numPeers + 1)
 					Expect(len(newPeers)).To(Equal(numPeers))
@@ -296,7 +349,10 @@ var _ = Describe("DHT", func() {
 			})
 		})
 
-		Measure("Adding 10000 addresses to distributed hash table", func(b Benchmarker) {
+		It("measures adding 10000 addresses to distributed hash table", func() {
+			experiment := gmeasure.NewExperiment("adding 10000 addresses to distributed hash table")
+			AddReportEntry(experiment.Name, experiment)
+
 			table, _ := initDHT()
 			signatories := make([]id.Signatory, 0)
 			for i := 0; i < 10000; i++ {
@@ -304,16 +360,18 @@ var _ = Describe("DHT", func() {
 				sig := privKey.Signatory()
 				signatories = append(signatories, sig)
 			}
-			runtime := b.Time("runtime", func() {
+			experiment.MeasureDuration("runtime", func() {
 				for i := 0; i < len(signatories); i++ {
 					addr := wire.NewUnsignedAddress(wire.TCP, "172.16.254.1:"+strconv.Itoa(i), uint64(time.Now().UnixNano()))
 					table.AddPeer(signatories[i], addr)
 				}
 			})
-			Ω(runtime.Seconds())
-		}, 10)
+		})
 
-		Measure("Removing 10000 addresses from distributed hash table", func(b Benchmarker) {
+		It("mesasures removing 10000 addresses from distributed hash table", func() {
+			experiment := gmeasure.NewExperiment("removing 10000 addresses from distributed hash table")
+			AddReportEntry(experiment.Name, experiment)
+
 			table, _ := initDHT()
 			signatories := make([]id.Signatory, 0)
 			for i := 0; i < 10000; i++ {
@@ -323,13 +381,12 @@ var _ = Describe("DHT", func() {
 				table.AddPeer(sig, addr)
 				signatories = append(signatories, sig)
 			}
-			runtime := b.Time("runtime", func() {
+			experiment.MeasureDuration("runtime", func() {
 				for i := 0; i < len(signatories); i++ {
 					table.DeletePeer(signatories[i])
 				}
 			})
-			Ω(runtime.Seconds())
-		}, 10)
+		})
 	})
 
 	Describe("Subnets", func() {
@@ -392,7 +449,14 @@ var _ = Describe("DHT", func() {
 })
 
 func initDHT() (dht.Table, id.Signatory) {
+	loggerConfig := zap.NewDevelopmentConfig()
+	loggerConfig.Level.SetLevel(zap.WarnLevel)
+	logger, err := loggerConfig.Build()
+	if err != nil {
+		panic(err)
+	}
+
 	privKey := id.NewPrivKey()
 	identity := id.NewSignatory((*id.PubKey)(&privKey.PublicKey))
-	return dht.NewInMemTable(identity), identity
+	return dht.NewInMemTable(identity, logger), identity
 }

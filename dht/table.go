@@ -8,6 +8,7 @@ import (
 
 	"github.com/renproject/aw/wire"
 	"github.com/renproject/id"
+	"go.uber.org/zap"
 )
 
 // Force InMemTable to implement the Table interface.
@@ -17,7 +18,7 @@ var _ Table = &InMemTable{}
 // and the subnet to which they belong.
 type Table interface {
 	// AddPeer to the table with an associate network address.
-	AddPeer(id.Signatory, wire.Address)
+	AddPeer(id.Signatory, wire.Address) bool
 	// DeletePeer from the table.
 	DeletePeer(id.Signatory)
 	// PeerAddress returns the network address associated with the given peer.
@@ -55,6 +56,8 @@ type Table interface {
 
 // InMemTable implements the Table using in-memory storage.
 type InMemTable struct {
+	logger *zap.Logger
+
 	self id.Signatory
 
 	sortedMu *sync.RWMutex
@@ -72,8 +75,10 @@ type InMemTable struct {
 	randObj *rand.Rand
 }
 
-func NewInMemTable(self id.Signatory) *InMemTable {
+func NewInMemTable(self id.Signatory, logger *zap.Logger) *InMemTable {
 	return &InMemTable{
+		logger: logger,
+
 		self: self,
 
 		sortedMu: new(sync.RWMutex),
@@ -92,22 +97,34 @@ func NewInMemTable(self id.Signatory) *InMemTable {
 	}
 }
 
-func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr wire.Address) {
+func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr wire.Address) bool {
 	table.sortedMu.Lock()
 	table.addrsBySignatoryMu.Lock()
+
+	table.logger.Debug("adding peer to table", zap.String("signatory", peerID.String()), zap.String("address", peerAddr.Value), zap.Uint64("nonce", peerAddr.Nonce))
 
 	defer table.sortedMu.Unlock()
 	defer table.addrsBySignatoryMu.Unlock()
 
 	if table.self.Equal(&peerID) {
-		return
+		table.logger.Debug("ignoring self")
+		return false
 	}
 
-	if peerAddr.Verify(peerID) != nil {
-		return
+	if err := peerAddr.Verify(peerID); err != nil {
+		table.logger.Debug("error verifying address signature", zap.Error(err))
+		return false
 	}
 
-	_, ok := table.addrsBySignatory[peerID]
+	currentAddr, ok := table.addrsBySignatory[peerID]
+	if ok {
+		table.logger.Debug("found existing entry", zap.String("address", peerAddr.Value), zap.Uint64("nonce", peerAddr.Nonce))
+
+		if peerAddr.Nonce <= currentAddr.Nonce {
+			table.logger.Debug("ignoring less recent address")
+			return false
+		}
+	}
 
 	// Insert into the map to allow for address lookup using the signatory.
 	table.addrsBySignatory[peerID] = peerAddr
@@ -122,6 +139,8 @@ func (table *InMemTable) AddPeer(peerID id.Signatory, peerAddr wire.Address) {
 		copy(table.sorted[i+1:], table.sorted[i:])
 		table.sorted[i] = peerID
 	}
+
+	return true
 }
 
 func (table *InMemTable) DeletePeer(peerID id.Signatory) {

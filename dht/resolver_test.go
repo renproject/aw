@@ -9,7 +9,7 @@ import (
 	"github.com/renproject/aw/dht/dhtutil"
 	"github.com/renproject/id"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
